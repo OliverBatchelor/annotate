@@ -6,8 +6,6 @@ import Reflex.Dom (AttributeName(..))
 
 import Data.Functor.Contravariant
 import Data.Text as T
-import TextShow
-
 
 data Attribute a = Attribute { attrConvert :: a -> Maybe Text, attrName :: !AttributeName }
 
@@ -58,8 +56,8 @@ spaceSep :: Attribute a -> Attribute [a]
 spaceSep = sepBy " "
 
 
-showA :: TextShow a => Text -> Attribute a
-showA = contramap showt . strA
+showA :: Show a => Text -> Attribute a
+showA = contramap (T.pack . show) . strA
 
 strA :: Text -> Attribute Text
 strA name = Attribute Just (AttributeName Nothing name)

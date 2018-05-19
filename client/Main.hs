@@ -2,7 +2,6 @@
 
 import Common hiding (div)
 
-import TextShow
 import qualified Data.Text as T
 
 import Data.FileEmbed
