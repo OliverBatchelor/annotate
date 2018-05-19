@@ -1,0 +1,130 @@
+html, body {
+    height: 100vh;
+    overflow:hidden;
+}
+
+
+
+* {
+  -webkit-user-drag:none;
+  user-drag: none;
+
+  -moz-user-select:none;
+  user-select:none;
+}
+
+
+.scroll {
+  overflow-y:scroll;
+}
+
+
+#drawing {
+  background-color: darkGray;
+  height : 100vh;
+  width : 100%;
+
+  overflow:hidden;
+  position:relative;
+}
+
+#drawing > * {
+  position: absolute;
+}
+
+.cursor_lock {
+  pointer-events:none;
+}
+
+.cursor_lock * {
+  cursor:inherit !important;
+}
+
+
+.expand {
+  height:100%;
+  width:100%;
+}
+
+
+
+
+.flex {
+  flex-shrink:1;
+}
+
+
+
+.brush {
+  stroke: black;
+  fill: blue;
+  vector-effect: non-scaling-stroke;
+  fill-opacity: 0.4;
+}
+
+.object {
+  stroke: black;
+  fill: blue;
+  vector-effect: non-scaling-stroke;
+  fill-opacity: 0.4;
+}
+
+.object:hover {
+  .fill-opacity:0.6;
+  stroke-width:2;
+}
+
+.selected {
+  stroke-width:2;
+}
+
+
+.zoom {
+  right : 5px;
+  bottom: 5px;
+}
+
+.indicator {
+  top: 5px;
+  right: 5px;
+}
+
+.tabs {
+  top : 5px;
+  left: 5px;
+}
+
+.tabs .buttons {
+  display: inline-block;
+}
+
+.imagebar {
+  bottom: 5px;
+  left : 5px;
+
+  width: calc(100vw - 10px);
+}
+
+.sidebar {
+  top : 50px;
+  left: 5px;
+
+  height: calc(100vh - 120px);
+}
+
+
+.submit {
+  bottom: 5px;
+  right: 5px;
+}
+
+.imageselect {
+  width: 600px
+}
+
+.dropup > .dropdown-menu {
+  position:absolute;
+  transform:translate(0px, -100%);
+  top:0px;
+  right:0px;
+}
