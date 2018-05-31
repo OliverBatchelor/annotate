@@ -16,15 +16,21 @@ cabal-version:       >=1.10
 
 executable client
   main-is:             Main.hs
-  other-modules:      Html, Builder.Element, Builder.Attribute, Builder.Html, Builder.Svg
-  ghc-options:         -O2 -threaded -rtsopts -with-rtsopts=-N
+  other-modules:        Reflex.Classes
+                      , Scene.Viewport, Scene.View, Scene.Types
+                      , Input.Events, Input.Window
+
+  ghc-options:         -O2 -rtsopts
   -- other-extensions:
   build-depends:       base >=4.9 && <4.11
                      , common
                      , reflex
+                     , reflex-dom, jsaddle, ghcjs-dom
+                     , keycode
 
-                     , reflex-dom, jsaddle, jsaddle-dom
-                     , file-embed, text, text-show
+                     , reflex-html
+                     , file-embed, text
+                     , template-haskell
 
                      , data-default
                      , contravariant
@@ -37,7 +43,7 @@ executable client
   default-extensions:  DuplicateRecordFields, TemplateHaskell, FlexibleInstances, FlexibleContexts,
                        GADTs, MultiParamTypeClasses, TypeApplications,
                        ScopedTypeVariables, LambdaCase, DeriveGeneric, DeriveDataTypeable,
-                       DataKinds, RankNTypes, OverloadedLabels, OverloadedStrings,
+                       DataKinds, ConstraintKinds, RankNTypes, OverloadedLabels, OverloadedStrings,
                        TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving, TupleSections,
                        RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms, NoImplicitPrelude,
                        RecursiveDo,

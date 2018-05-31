@@ -11,6 +11,7 @@ import Control.Category as X
 import Control.Monad.Reader.Class as X (MonadReader (..), asks)
 import Control.Monad.State.Class as X (MonadState(..), gets)
 import Control.Monad.Writer.Class as X (MonadWriter (..))
+import Control.Monad.Fix as X (MonadFix (..))
 
 import Control.Exception  as X (Exception(..), throw, finally)
 
@@ -23,8 +24,8 @@ import Data.Foldable as X
 import Data.Traversable as X
 
 import Control.Lens as X
-  ( (%~), (^.), (^?), (.~), (&)
-  , over, view
+  ( (%~), (^.), (^?), (.~), (&), (<&>)
+  , over, view, preview
   , Lens, Lens', Traversal, Traversal'
   , at, _1, _2, _3, _4
   , _Just, _Nothing, _Left, _Right
@@ -51,7 +52,7 @@ import Data.Typeable as X
 import GHC.Generics as X (Generic(..))
 import Prelude as X (
   Read (..), Show(..), Eq(..), Ord(..), Enum(..), Floating(..), Integral(..), Num(..),
-  Real(..), RealFloat(..), Fractional(..), Floating(..), Bounded(..),
+  Real(..), RealFloat(..), Fractional(..), Floating(..), Bounded(..), realToFrac,
   Integer, Char, Float, Int, Double, String, FilePath, IO,
   curry, uncurry, flip, const, fst, snd, fromIntegral,
   ($), undefined, error, subtract, print, putStr, putStrLn)

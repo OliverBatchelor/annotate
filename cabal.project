@@ -1,5 +1,11 @@
+
+shared: False
+executable-dynamic: False
 packages:
   common/
   server/
   client/
   stm-persist/
+  reflex-html/
+
+

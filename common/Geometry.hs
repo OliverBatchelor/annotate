@@ -18,8 +18,8 @@ data Extents = Extents { centre :: Vec, extents :: Vec } deriving (Generic, Show
 
 type Dim = (Int, Int)
 
-dimVector :: Dim -> V2 Float
-dimVector (x, y) = V2 (fromIntegral x) (fromIntegral y)
+fromDim :: Dim -> V2 Float
+fromDim (x, y) = V2 (fromIntegral x) (fromIntegral y)
 
 clamp :: Ord a => (a, a) -> a -> a
 clamp (l, u) x = max l (min u x)

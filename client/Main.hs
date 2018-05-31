@@ -9,12 +9,17 @@ import Data.Text.Encoding (decodeUtf8)
 import Data.Default
 import Data.Monoid
 
-import Html
+import Scene.Viewport
+import Scene.View
+import Scene.Types
+import Scene.Events
 
-import qualified Builder.Svg as Svg
-import Builder.Svg
+import Input.Events
 
+import Reflex.Classes
+import Builder.Html
 
+import Input.Window
 
 import Types
 
@@ -22,38 +27,49 @@ main :: IO ()
 main = mainWidgetWithHead headWidget bodyWidget
 
 headWidget = do
-  style [] $ text bootstrap
---   style [] $ text stylesheet
+   style [] $ text bootstrap
+   style [] $ text stylesheet
 
   where
     bootstrap = decodeUtf8 $(embedFile "css/bootstrap.min.css")
     stylesheet = decodeUtf8 $(embedFile "style.css")
 
-data Action = Action
-  { cursor      :: Text
-  , lock        :: Bool
-  , pending     :: [Edit]
-  } deriving (Generic)
+nonEmpty :: [a] -> Maybe [a]
+nonEmpty = \case
+  [] -> Nothing
+  xs -> Just xs
 
-instance Default Action where
-  def = Action "default" False []
 
+makeViewport :: Controls -> Image -> Dim -> Viewport
+makeViewport (zoom, pan) (_, image) window =
+    Viewport (fromDim image) (fromDim window) pan zoom
+
+viewControls :: Viewport -> Controls
+viewControls (Viewport _ _ pan zoom) = (zoom, pan)
 
 bodyWidget = mdo
-  action <- holdDyn (def :: Action) never
-  div [draggable_ =: False, style_ ~: cursorStyle <$> action] $
-    div [id_ =: "drawing", classes_ ~: attrs <$> action] interface
+  dim   <- windowDimensions
+
+  (cmds, action) <- div [draggable_ =: False, style_ ~: cursorStyle <$> action] $
+    div [id_ =: "drawing", classes_ ~: lockClass <$> action] $ mdo
+
+      image <- holdDyn ("/home/oliver/trees.jpg", (1600, 1064)) never
+
+      let viewCmds = preview _ViewCmd <?> cmds
+      controls <- holdDyn  (0.5, V2 0 0) (updateView <$> viewCmds <#> current viewport)
+
+      let viewport = makeViewport <$> controls <*> image <*> dim
+      (scene, (cmds, action)) <- sceneView $ Scene image viewport input
+
+      input <- sceneInputs scene
+      return (cmds, action)
 
   return ()
 
-  where
-    cursorStyle action = [] -- [("cursor", action ^. #cursor)]
-    attrs action = ["expand"] <> if (action ^. #lock) then ["cursor_lock"] else []
+    where
+      cursorStyle Action{..} = [("cursor", cursor)]
+      lockClass Action{..} = ["expand"] <> ["cursor_lock" | lock]
 
-
-interface = void $ svg' [class_ =: "expand"] $ do
-  Svg.a_ [Svg.href_ =: "www.google.com"] $
-    void $ circle_ [cx_ =: 100, cy_ =: 100, r_ =: 100]
-
-
--- scene =
+      updateView cmd vp = viewControls $ case cmd of
+        ZoomCmd zoom pos -> zoomView zoom pos vp
+        PanCmd localOrign page -> panView localOrign page vp
