@@ -12,6 +12,8 @@ import qualified Data.Map as M
 import Data.Generics.Product
 import Geometry
 
+import Control.Lens (makePrisms)
+
 
 type ObjId = Int
 type ClientId = Int
@@ -121,3 +123,7 @@ defaultConfig = Config
   , extensions = [".png", ".jpg", ".jpeg"]
   , classes    = M.fromList [(0, "default")]
   }
+
+makePrisms ''ClientMsg
+makePrisms ''ServerMsg
+makePrisms ''DocCmd

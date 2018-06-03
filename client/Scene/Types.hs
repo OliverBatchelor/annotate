@@ -12,6 +12,7 @@ import Control.Lens (makePrisms)
 import Input.Events
 
 
+
 data Action = Action
   { cursor      :: Text
   , lock        :: Bool
@@ -31,10 +32,23 @@ data Viewport = Viewport
 type Image = (DocName, Dim)
 type Controls = (Float, V2 Float)
 
+data ObjectInfo = ObjectInfo
+  { isSelected :: Bool
+  } deriving (Generic, Eq, Show)
+
+instance Default ObjectInfo where
+  def = ObjectInfo False
+
+type Patched t p = (PatchTarget p, Event t p)
+
 data Scene t = Scene
-  { image    ::  Dynamic t Image
+  { image    :: Image
   , viewport :: Dynamic t Viewport
   , input    :: Inputs t
+
+  , document :: Dynamic t Document
+  , objects  :: Patched t (PatchMap ObjId (ObjectInfo, Object))
+
   } deriving (Generic)
 
 data ViewCommand
@@ -44,6 +58,7 @@ data ViewCommand
 
 data Command
   = ViewCmd ViewCommand
+  | DocCmd DocCmd
   deriving (Generic, Show)
 
 makePrisms ''Command

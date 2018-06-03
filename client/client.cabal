@@ -20,16 +20,23 @@ executable client
                       , Scene.Viewport, Scene.View, Scene.Types
                       , Input.Events, Input.Window
 
-  ghc-options:         -O2 -rtsopts
+  if impl(ghcjs)
+    ghc-options:    -dedupe -O2 -rtsopts
+    cpp-options:    -DGHCJS_BROWSER
+  else
+    ghc-options:         -O2 -rtsopts
+
   -- other-extensions:
   build-depends:       base >=4.9 && <4.11
                      , common
                      , reflex
-                     , reflex-dom, jsaddle, ghcjs-dom
+                     , reflex-dom
+                     , reflex-html
+
+                     , jsaddle, ghcjs-dom
                      , keycode
 
-                     , reflex-html
-                     , file-embed, text
+                     , text
                      , template-haskell
 
                      , data-default

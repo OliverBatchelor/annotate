@@ -15,6 +15,13 @@ emptyDoc = Document
   }
 
 
+modifiedEdit :: Edit -> [ObjId]
+modifiedEdit  (Add objs)  = fst <$> objs
+modifiedEdit  (Delete ids) = ids
+modifiedEdit  (Transform ids _ _) = ids
+modifiedEdit  (Many edits) = concatMap modifiedEdit edits
+
+
 maxEdits :: [Edit] -> Maybe ObjId
 maxEdits = maximumId . catMaybes . fmap maxEdit
 

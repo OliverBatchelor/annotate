@@ -1,6 +1,4 @@
 
-shared: False
-executable-dynamic: False
 packages:
   common/
   server/

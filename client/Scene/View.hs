@@ -13,7 +13,6 @@ import Scene.Types
 import Scene.Viewport
 import Geometry
 
-type Builder t m = (Adjustable t m, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m)
 
 transforms :: Viewport -> [Svg.Transform]
 transforms vp = [Translate tx ty, Scale zoom zoom] where
@@ -49,21 +48,20 @@ actions scene = workflow base where
 
     return ((action, leftmost [panCmd, zoomCmd]), base <$ mouseUp LeftButton)
 
-  zoomCmd = traceEvent "foo" $ (ViewCmd <$> attachWith (flip ZoomCmd) (local <*> current mouse) wheel)
+  zoomCmd = (ViewCmd <$> attachWith (flip ZoomCmd) (local <*> current mouse) wheel)
 
   local      = toLocal' scene
   Inputs{..} = scene ^. #input
 
 
 sceneView :: Builder t m
-          => Scene t -> m (ElemType t m, (Event t Command, Dynamic t Action))
-sceneView scene = inViewport (scene ^. #viewport) $ do
-    dyn (imageView <$> (scene ^. #image))
-
+          => Scene t -> m (ElemType t m, (Dynamic t Action, Event t Command))
+sceneView scene@Scene{..} = inViewport viewport $ do
+    imageView image
     (action, cmds) <- split <$> actions scene
     --   boxView [class_ =: "object"] (Box (V2 100 100) (V2 200 400))
 
-    return (switch cmds, action)
+    return (action, switch cmds)
 
     where
 

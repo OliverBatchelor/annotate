@@ -30,7 +30,9 @@ import Control.Lens as X
   , at, _1, _2, _3, _4
   , _Just, _Nothing, _Left, _Right
   )
-import Data.Aeson as X (ToJSON(..), FromJSON(..), FromJSONKey(..), ToJSONKey(..), decode, encode)
+import Data.Aeson as X
+  (ToJSON(..), FromJSON(..), FromJSONKey(..), ToJSONKey(..)
+  , decode, decode', encode, decodeStrict, decodeStrict')
 
 import Data.List as X (intersperse, filter, zip, zip3, zipWith, zipWith3, lookup, take, drop, elem)
 import Data.Maybe as X (fromMaybe, maybe, catMaybes, Maybe (..), maybeToList, isJust, isNothing)

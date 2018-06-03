@@ -3,18 +3,27 @@ module Reflex.Classes
   , module Reflex.Dom
   ) where
 
-import Prelude
+import Common
 
 import qualified Reflex as R
-import Reflex.Dom hiding (switchHold, switch, (=:), sample)
+import Reflex.Dom hiding (switchHold, switch, (=:), sample, Builder, link)
 
 import Data.Functor
 import Data.String
 
 import Control.Applicative
 
+import Language.Javascript.JSaddle (MonadJSM)
+
+type GhcjsBuilder t m = (Builder t m, TriggerEvent t m, MonadJSM m, HasJSContext m, MonadJSM (Performable m), DomBuilderSpace m ~ GhcjsDomSpace, PerformEvent t m)
+type Builder t m = (Adjustable t m, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m)
+
+
 runWithReplace' :: Adjustable t m => Event t (m b) -> m (Event t b)
 runWithReplace' e = snd <$> runWithReplace blank e
+
+replaceHold :: (Adjustable t m, SwitchHold t a, MonadHold t m) => m a -> Event t (m a) -> m a
+replaceHold initial e = uncurry switchHold =<< runWithReplace initial e
 
 split :: Functor f => f (a, b) -> (f a, f b)
 split ab = (fst <$> ab, snd <$> ab)
@@ -41,6 +50,12 @@ instance Reflex t => SwitchHold t (Behavior t a) where
 
 instance Reflex t => SwitchHold t () where
     switchHold _ _ = return ()
+
+instance (Reflex t, SwitchHold t a, SwitchHold t b) => SwitchHold t (a, b) where
+    switchHold (a, b) e = liftA2 (,)
+      (switchHold a (fst <$> e))
+      (switchHold b (snd <$> e))
+
 
 instance Reflex t => SwitchHold t (Dynamic t a) where
   switchHold d ed = do
