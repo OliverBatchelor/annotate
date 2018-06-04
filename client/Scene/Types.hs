@@ -56,9 +56,9 @@ data ViewCommand
   | PanCmd Position Position
   deriving (Generic, Show)
 
-data Command
+data SceneCommand
   = ViewCmd ViewCommand
   | DocCmd DocCmd
   deriving (Generic, Show)
 
-makePrisms ''Command
+makePrisms ''SceneCommand

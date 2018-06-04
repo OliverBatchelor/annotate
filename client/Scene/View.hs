@@ -29,12 +29,17 @@ boxView props (Box l u) = rect_ (props <> [x_ =: x, y_ =: y, width_ =: w, height
   (V2 x y) = l
 
 
+imageView :: (Builder t m) =>  [Property t] -> Image -> m (ElemType t m)
+imageView props (file, (w, h)) = Svg.image_ $
+  (props <> [width_ =: fromIntegral w, height_ =: fromIntegral h, href_ =: file])
+
+
 holdChanges :: (Reflex t, MonadHold t m) => a -> Event t a -> m (Event t (a, a))
 holdChanges initial e = flip attach e <$> hold initial e
 
 
 actions :: (Builder t m)
-        => Scene t -> m (Dynamic t (Action, Event t Command))
+        => Scene t -> m (Dynamic t (Action, Event t SceneCommand))
 actions scene = workflow base where
 
   base = Workflow $ do
@@ -55,15 +60,10 @@ actions scene = workflow base where
 
 
 sceneView :: Builder t m
-          => Scene t -> m (ElemType t m, (Dynamic t Action, Event t Command))
+          => Scene t -> m (ElemType t m, (Dynamic t Action, Event t SceneCommand))
 sceneView scene@Scene{..} = inViewport viewport $ do
-    imageView image
+    imageView [] image
     (action, cmds) <- split <$> actions scene
     --   boxView [class_ =: "object"] (Box (V2 100 100) (V2 200 400))
 
     return (action, switch cmds)
-
-    where
-
-      imageView (file, (w, h)) = void $ Svg.image_
-        [width_ =: fromIntegral w, height_ =: fromIntegral h, href_ =: file]

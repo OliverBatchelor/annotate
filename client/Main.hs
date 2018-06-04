@@ -62,7 +62,7 @@ cursorLock action child =
     lockClass Action{..} = ["expand"] <> ["cursor_lock" | lock]
 
 
-viewControls :: GhcjsBuilder t m => Event t Command -> DocInfo -> m (Dynamic t Viewport)
+viewControls :: GhcjsBuilder t m => Event t SceneCommand -> DocInfo -> m (Dynamic t Viewport)
 viewControls cmds info = mdo
   windowDim  <- windowDimensions
 
@@ -90,10 +90,14 @@ network host send = do
   socket <- webSocket ("ws://" <> host <> "/ws") $ def
     & webSocketConfig_send  .~ (pure . encode <$> send)
 
+  let recieved = decodeStrict <?> socket ^. webSocket_recv
+  performEvent_ (liftIO . print <$> send)
+  performEvent_ (liftIO . print <$> recieved)
+
   return
     ( socket ^. webSocket_open
     , close <$> socket ^. webSocket_close
-    , decodeStrict <?> socket ^. webSocket_recv)
+    , recieved)
 
 
   where
@@ -108,8 +112,7 @@ network host send = do
 --
 --   }
 
-gated :: Reflex t => Monoid a => a -> Dynamic t Bool -> Dynamic t a
-gated a d = ffor d $ \cond -> if cond then a else mempty
+
 
 modal :: Builder t m => Dynamic t Bool -> m a -> m a
 modal shown content = do
@@ -127,60 +130,91 @@ connectingModal = modal (pure True) $ do
     h5 [class_ =:"modal-title"] $ text "Connecting..."
 
 
-mapTransition ::  Builder t m => (Event t (Workflow t m a) -> Event t (Workflow t m a)) -> Workflow t m a -> Workflow t m a
-mapTransition f (Workflow m) = Workflow (over _2 f' <$> m) where
-  f' e = mapTransition f <$> f e
+
+
+
+handleHistory :: GhcjsBuilder t m => Event t DocName -> m (Event t DocName)
+handleHistory loaded = mdo
+
+  currentDoc <- hold Nothing (Just <$> leftmost [loaded, changes])
+
+  let update     = id <?> (updateHistory <$> current history <*> currentDoc <@> loaded)
+      changes    = uriDocument <$> updated history
+
+  history <- manageHistory update
+  return $ new <?> (currentDoc `attach` changes)
+
+   where
+     new (Nothing, doc)       = Just doc
+     new (Just previous, doc) = doc <$ guard (previous /= doc)
+
+     uriDocument = T.pack . drop 1 . view #uriFragment . _historyItem_uri
+
+     updateHistory item Nothing doc = Just $ HistoryCommand_ReplaceState $ update item doc
+     updateHistory item (Just previous) doc
+        | previous /= doc = Just $ HistoryCommand_PushState $ update item doc
+        | otherwise       = Nothing
+
+     update (HistoryItem state uri) doc = HistoryStateUpdate
+        { _historyStateUpdate_state = state
+        , _historyStateUpdate_title = "state"
+        , _historyStateUpdate_uri   = Just $ uri & #uriFragment .~ T.unpack ("#" <> doc)
+        }
+
+
+sceneWidget :: GhcjsBuilder t m => (DocName, DocInfo, Document) -> m (Dynamic t Action, Event t SceneCommand)
+sceneWidget (name, info, loaded) = mdo
+  document <- holdDyn loaded never
+  input    <- sceneInputs scene
+  viewport <- viewControls cmds info
+
+  let updates = never
+
+  (scene, (action, cmds)) <- sceneView $ Scene
+    { image    = ("images/" <> name, info ^. #imageSize)
+    , viewport = viewport
+    , input    = input
+    , document = document
+    , objects  = (initial, updates)
+    }
+
+  return (action, cmds)
+    where initial = (def,) <$> (loaded ^. #instances)
+
 
 bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m ()
 bodyWidget host = mdo
 
-  (opened, closed, serverMsg) <- network host (switch clientMsg)
+  (opened, closed, serverMsg) <- network host clientMsg
 
-  let disconnected = Workflow $ 
+  let disconnected = Workflow $
         (("disconnected", never), connected <$ opened) <$ connectingModal
 
       connected = Workflow $ do
         return (("connected", never), ready <$> hello)
 
       ready (clientId, collection) = Workflow $ do
-
-        postBuild <- getPostBuild
-        let nextCmd = getNext <$> current header <@ postBuild
-            getNext  = \case
-              Nothing -> ClientNext Nothing
-              Just (name, _) -> ClientOpen name -- If we were disconnected, load the previous document again
+        nextCmd <- postCurrent $ ffor (current currentDoc) $ \case
+          Nothing -> ClientNext Nothing
+          Just name -> ClientOpen name -- If we were disconnected, load the previous document again
 
         return (("ready", nextCmd), never)
 
-  (state, clientMsg) <- split <$> (workflow $
+  (state, clientMsgs) <- split <$> (workflow $
     mapTransition (\e -> leftmost [disconnected <$ closed, e]) disconnected)
 
-  dynText state
+  let clientMsg = leftmost
+        [ switchPrompt clientMsgs
+        , ClientOpen <$> urlSelected
+        ]
 
-  let docLoaded = preview _ServerDocument <?> serverMsg
-      hello = preview _ServerHello <?> serverMsg
+  urlSelected <- handleHistory (view _1 <$> loaded)
+  currentDoc  <- holdDyn Nothing ((Just . view _1) <$> loaded)
 
-  header <- holdDyn Nothing (docLoaded <&> \(name, info, _) -> Just (name, info))
+  let hello   = preview _ServerHello <?> serverMsg
+      loaded  = preview _ServerDocument <?> serverMsg
 
-  (action, cmds) <- cursorLock action $ do
-    replaceHold (return (pure def, never)) $
-      ffor docLoaded $ \(name, info, loaded) -> mdo
-
-        document <- holdDyn loaded never
-        input    <- sceneInputs scene
-        viewport <- viewControls cmds info
-
-        let initial :: Map ObjId (ObjectInfo, Object) = (def,) <$> (loaded ^. #instances)
-            updates = never
-
-        (scene, result) <- sceneView $ Scene
-          { image    = (name, info ^. #imageSize)
-          , viewport = viewport
-          , input    = input
-          , document = document
-          , objects  = (initial, updates)
-          }
-
-        return result
+  (action, sceneCmds) <- cursorLock action $ do
+    replaceHold (return (pure def, never)) (sceneWidget <$> loaded)
 
   return ()

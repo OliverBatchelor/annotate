@@ -39,6 +39,17 @@ instance Reflex t => Switch t (Dynamic t) where
   switch = switch . current
 
 
+class Reflex t => SwitchPrompt t f where
+  switchPrompt :: f (Event t a) -> Event t a
+
+instance Reflex t => SwitchPrompt t (Event t) where
+  switchPrompt = R.coincidence
+
+instance Reflex t => SwitchPrompt t (Dynamic t) where
+  switchPrompt = switchPromptlyDyn
+
+
+
 class Reflex t => SwitchHold t a where
   switchHold :: MonadHold t m => a -> Event t a -> m a
 
@@ -81,6 +92,7 @@ infixl 4 <?>
 (<#>) :: Reflex t => Event t (a -> b) -> Behavior t a -> Event t b
 (<#>) e b = attachWith (\a f -> f a) b e
 
+
 (<?>) :: FunctorMaybe f => (a -> Maybe b) -> f a -> f b
 (<?>) = fmapMaybe
 
@@ -92,3 +104,20 @@ instance (Reflex t, Num a) => Num (Dynamic t a) where
   abs     = fmap abs
   signum  = fmap signum
   fromInteger = pure . fromInteger
+
+
+mapTransition ::  Builder t m => (Event t (Workflow t m a) -> Event t (Workflow t m a)) -> Workflow t m a -> Workflow t m a
+mapTransition f (Workflow m) = Workflow (over _2 f' <$> m) where
+  f' e = mapTransition f <$> f e
+
+
+gated :: Reflex t => Monoid a => a -> Dynamic t Bool -> Dynamic t a
+gated a d = ffor d $ \cond -> if cond then a else mempty
+
+
+
+postValue :: PostBuild t m => a -> m (Event t a)
+postValue a = fmap (const a) <$> getPostBuild
+
+postCurrent :: PostBuild t m => Behavior t a -> m (Event t a)
+postCurrent b = tag b <$> getPostBuild
