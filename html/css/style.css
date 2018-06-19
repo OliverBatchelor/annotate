@@ -29,14 +29,23 @@ html, body {
 }
 
 #drawing > * {
-  position: absolute;
+  position: absolute; 
 }
 
-.cursor_lock {
+.disable-cursor {
   pointer-events:none;
 }
 
-.cursor_lock * {
+.enable-cursor {
+  pointer-events:auto;
+}
+
+
+.cursor-lock {
+  pointer-events:none;
+}
+
+.cursor-lock * {
   cursor:inherit !important;
 }
 
@@ -49,10 +58,33 @@ html, body {
 
 
 
-.flex {
+.shrink {
   flex-shrink:1;
 }
 
+.grow {
+  flex:1;
+}
+
+.grow-1 {
+  flex:1;
+}
+
+.grow-2 {
+  flex:2;
+}
+
+.grow-3 {
+  flex:3;
+}
+
+.grow-4 {
+  flex:4;
+}
+
+.grow-5 {
+  flex:5;
+}
 
 
 .brush {
@@ -78,49 +110,6 @@ html, body {
   stroke-width:2;
 }
 
-
-.zoom {
-  right : 5px;
-  bottom: 5px;
-}
-
-.indicator {
-  top: 5px;
-  right: 5px;
-}
-
-.tabs {
-  top : 5px;
-  left: 5px;
-}
-
-.tabs .buttons {
-  display: inline-block;
-}
-
-.imagebar {
-  bottom: 5px;
-  left : 5px;
-
-  width: calc(100vw - 10px);
-}
-
-.sidebar {
-  top : 50px;
-  left: 5px;
-
-  height: calc(100vh - 120px);
-}
-
-
-.submit {
-  bottom: 5px;
-  right: 5px;
-}
-
-.imageselect {
-  width: 600px
-}
 
 .dropup > .dropdown-menu {
   position:absolute;
