@@ -14,7 +14,6 @@ import Annotate.Geometry
 
 import Control.Lens (makePrisms)
 
-
 type ObjId = Int
 type ClientId = Int
 type ClassId = Int
@@ -29,22 +28,22 @@ data Edit
   = Add [(ObjId, Object)]
   | Delete [ObjId]
   | Transform [ObjId] Float Vec
-  | Many [Edit]
+  -- | Many [Edit]
   deriving (Generic, Show, Eq)
 
-instance Monoid Edit where
-  mempty = Many []
-  mappend (Many []) e = e
-  mappend e (Many []) = e
-  mappend e e' = Many [e, e']
+-- instance Monoid Edit where
+--   mempty = Many []
+--   mappend (Many []) e = e
+--   mappend e (Many []) = e
+  -- mappend e e' = Many [e, e']
 
+data Shape = CircleShape Circle
+           | BoxShape    Box
+   deriving (Generic, Show, Eq)
 
 data Object = Object { shape :: Shape, label :: ClassId, predictions :: [(ClassId, Float)] }
     deriving (Generic, Show, Eq)
 
-data Shape = CircleShape {position :: Vec, radius :: Float}
-           | BoxShape    {bounds :: Box}
-     deriving (Generic, Show, Eq)
 
 type ObjectMap = Map ObjId Object
 
@@ -128,3 +127,5 @@ defaultConfig = Config
 makePrisms ''ClientMsg
 makePrisms ''ServerMsg
 makePrisms ''DocCmd
+makePrisms ''Shape
+makePrisms ''Edit

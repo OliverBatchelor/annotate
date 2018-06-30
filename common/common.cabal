@@ -26,6 +26,6 @@ library
                        RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms, NoImplicitPrelude
   build-depends:       base >=4.9 && <5,
                        aeson >= 1.0, mtl, containers, lens, generic-lens, generic-lens-labels,
-                       time, linear, text, semigroupoids
+                       time, linear, text, semigroupoids, contravariant
   hs-source-dirs:      src
   default-language:    Haskell2010

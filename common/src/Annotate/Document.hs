@@ -3,9 +3,12 @@ module Annotate.Document where
 import Annotate.Common
 
 import qualified Data.Map as M
+import qualified Data.Set as S
+
 import Annotate.Types
 
 import Data.List (uncons)
+import Data.Maybe (catMaybes)
 
 emptyDoc ::  Document
 emptyDoc = Document
@@ -19,10 +22,11 @@ editTargets :: Edit -> [ObjId]
 editTargets  (Add objs)  = fst <$> objs
 editTargets  (Delete ids) = ids
 editTargets  (Transform ids _ _) = ids
-editTargets  (Many edits) = concatMap editTargets edits
+-- editTargets  (Many edits) = concatMap editTargets edits
 
-
-
+lookupObjects :: [ObjId] -> Document -> ObjectMap
+lookupObjects objs Document{instances} = M.fromList $ catMaybes $ fmap lookup' objs
+    where lookup' k = (k, ) <$> M.lookup k instances
 
 
 maxEdits :: [Edit] -> Maybe ObjId
@@ -33,7 +37,7 @@ maxEdit :: Edit -> Maybe ObjId
 maxEdit (Add objs)  = maximumId (fst <$> objs)
 maxEdit (Delete ids) = maximumId ids
 maxEdit (Transform ids _ _) = maximumId ids
-maxEdit (Many edits) = maxEdits edits
+-- maxEdit (Many edits) = maxEdits edits
 
 maximumId :: [ObjId] -> Maybe ObjId
 maximumId [] = Nothing
@@ -52,10 +56,16 @@ lookupTargets Document{instances} targets = M.fromList modified where
   modified = lookup' instances <$> targets
   lookup' m k = (k, M.lookup k m)
 
-applyCmd :: DocCmd -> Document -> Maybe (Document, Map ObjId (Maybe Object))
-applyCmd cmd doc = do
+applyCmd :: DocCmd -> Document -> Document
+applyCmd cmd doc = fromMaybe doc (snd <$> applyCmd' cmd doc)
+
+applyCmdPatch :: DocCmd -> Document -> Maybe (Document, Map ObjId (Maybe Object))
+applyCmdPatch cmd doc = do
   ((e, _), doc') <- applyCmd' cmd doc
   return (doc', lookupTargets doc' (editTargets e))
+
+editPatch :: ((Edit, Edit), Document) -> Map ObjId (Maybe Object)
+editPatch ((e, _), doc') = lookupTargets doc' (editTargets e)
 
 applyCmd' :: DocCmd -> Document -> Maybe ((Edit, Edit), Document)
 applyCmd' DocUndo doc = applyUndo doc
@@ -97,7 +107,7 @@ accumEdits edit (inverses, objectMap) = do
 
 transformObj :: Float -> Vec -> Object -> Object
 transformObj s t = over #shape $ \case
-  CircleShape p r -> CircleShape (p + t) (r * s)
+  CircleShape (Circle p r) -> CircleShape (Circle (p + t) (r * s))
   BoxShape b      -> BoxShape $ b & boxExtents %~
     (\Extents{..} -> Extents (centre + t) (extents ^* s))
 
@@ -112,6 +122,6 @@ patchEdit edit objectMap =  case edit of
     ( Transform ks (1/s) (negate v)
     , foldr (\k -> over (at k . traverse) (transformObj s v)) objectMap ks)
 
-  Many edits ->  do
-    (edits, objectMap') <- foldM (flip accumEdits) ([], objectMap) edits
-    return (Many edits, objectMap')
+  -- Many edits ->  do
+  --   (edits, objectMap') <- foldM (flip accumEdits) ([], objectMap) edits
+  --   return (Many edits, objectMap')

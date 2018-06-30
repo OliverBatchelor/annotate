@@ -20,6 +20,7 @@ import Control.Monad.IO.Class as X
 
 import Data.Text as X (Text)
 import Data.Functor as X
+import Data.Functor.Contravariant as X
 import Data.Monoid as X
 import Data.Foldable as X
 import Data.Traversable as X

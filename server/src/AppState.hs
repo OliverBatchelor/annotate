@@ -31,9 +31,13 @@ data Command where
 
 $(deriveSafeCopy 0 'base ''V2)
 $(deriveSafeCopy 0 'base ''Box)
+$(deriveSafeCopy 0 'base ''Circle)
+
 $(deriveSafeCopy 0 'base ''Extents)
 
 $(deriveSafeCopy 0 'base ''Object)
+$(deriveSafeCopy 0 'base ''Shape)
+
 $(deriveSafeCopy 0 'base ''Edit)
 $(deriveSafeCopy 0 'base ''DocCmd)
 $(deriveSafeCopy 0 'base ''ImageCat)

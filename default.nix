@@ -11,7 +11,8 @@
   };
 
   shells = {
-    ghc = ["common" "server" "client"];
+#    ghc = ["common" "server" "client"];
+    ghc8_2_1 = ["common" "server" "client"];
     ghcjs = ["common" "client"];
   };
 })

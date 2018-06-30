@@ -1,15 +1,17 @@
 module Scene.View where
 
 import Annotate.Common
+import Client.Common
 
 import Reflex.Classes
-import Builder.Svg hiding (switch, cursor)
+import Builder.Svg hiding (switch, cursor, view)
 
 import qualified Builder.Svg as Svg
 
 import Input.Events
 import Scene.Events
 
+import qualified Data.Set as S
 import Web.KeyCode as Key
 
 import Scene.Types
@@ -26,17 +28,56 @@ transforms vp = [Translate tx ty, Scale zoom zoom] where
 
 inViewport :: (Builder t m) => Text -> Dynamic t Viewport -> m a -> m (ElemType t m, a)
 inViewport svgClass vp child = svg' [class_ =: svgClass, version_ =: "2.0"] $
-  g [transform_ ~: transforms <$> vp] child
+  g [transform_ ~: (transforms <$> vp)] child
 
-boxView :: (Builder t m) =>  Box -> m (ElemType t m)
-boxView (Box l u) = rect_ [class_ =: "object", x_ =: x, y_ =: y, width_ =: w, height_ =: h] where
-  (V2 w h) = u - l
-  (V2 x y) = l
+splitBox :: Functor f => f Box -> (f (V2 Float), f (V2 Float))
+splitBox ab = (view #lower <$> ab, view #upper <$> ab)
 
 
-imageView :: (Builder t m) =>  [Property t] -> Image -> m (ElemType t m)
-imageView props (file, (w, h)) = Svg.image_ $
-  (props <> [width_ =: fromIntegral w, height_ =: fromIntegral h, href_ =: file])
+xy_ :: Attribute (V2 Float)
+xy_ =  contramap (view _x) x_ <> contramap (view _y) y_
+
+cxcy_ :: Attribute (V2 Float)
+cxcy_ =  contramap (view _x) x_ <> contramap (view _y) y_
+
+
+wh_ :: Attribute (V2 Float)
+wh_ =  contramap (view _x) width_ <> contramap (view _y) height_
+
+
+boxView :: (Builder t m) => Active t [Text] -> Active t Box -> m (ElemType t m)
+boxView classes b = rect_ [classes_ ~: classes, xy_ ~: lower, wh_ ~: (upper - lower)] where
+  (lower, upper) = splitBox b
+
+circleView :: (Builder t m) =>  Active t [Text] -> Active t Circle -> m (ElemType t m)
+circleView classes c  = circle_ [classes_ ~: classes, cxcy_ ~: centre, r_ ~: view #radius <$> c] where
+  centre = view #centre <$> c
+
+
+shapeView :: forall t m. (Builder t m) => Active t [Text] -> Updated t Object -> m (ElemType t m)
+shapeView classes  obj  = case view #shape <$> obj of
+  Updated (BoxShape b) e    -> boxView classes . Dyn =<< holdDyn b (_BoxShape ?> e)
+  Updated (CircleShape c) e -> circleView classes . Dyn =<< holdDyn c (_CircleShape ?> e)
+
+outlineView :: forall t m. (Builder t m) => Updated t Object -> m ()
+outlineView = void . shapeView (pure ["outline"])
+
+objectView :: forall t m. (Builder t m) => Dynamic t Bool -> ObjId -> Updated t Object -> m (Event t Bool)
+objectView selected k obj = do
+  e <- shapeView classes obj
+  return $ leftmost
+    [ True <$ domEvent Mouseenter e
+    , False <$ domEvent Mouseleave e
+    ]
+  where
+    selectClass b = if b then "selected" else ""
+    classes = activeList [pure "object", Dyn $ selectClass <$> selected]
+
+
+imageView :: (AppBuilder t m) =>  Text -> Image -> m (ElemType t m)
+imageView classes (file, dim) = do
+    path <- localPath file
+    Svg.image_ [class_ =: classes, wh_ =: fromDim dim, href_ =: path]
 
 
 holdChanges :: (Reflex t, MonadHold t m) => a -> Event t a -> m (Event t (a, a))
@@ -51,26 +92,10 @@ action :: AppBuilder t m => m (Dynamic t Cursor, Event t (SceneAction t m)) -> S
 action m = Workflow $ over _1 (fmap f) <$> m
    where f cursor = Action cursor True
 
---  switchHold :: MonadHold t m => a -> Event t a -> m a
-
-holdWorkflow :: forall t m a. (Reflex t, Adjustable t m, MonadFix m, MonadHold t m, SwitchHold t a) => Workflow t m a -> m a
-holdWorkflow w0 = do
- rec (r, transition) <- replaceHold (unWorkflow w0) $ (unWorkflow <$> transition)
- return r
-
-workflow' :: (Reflex t, MonadHold t m) => m (Event t (Workflow t m ())) -> Workflow t m ()
-workflow' m = Workflow $ ((),) <$> m
-
-
-
-
-
 
 addObject :: AppBuilder t m => Scene t -> Event t Object -> m ()
-addObject Scene{nextId} add = tellEvent (addCommand <$> current nextId `attach` add)
+addObject Scene{nextId} add = editCommand (Add . pure <$> current nextId `attach` add)
 
-addCommand :: (ObjId, Object) -> AppCommand
-addCommand = DocCmd . DocEdit . Add . pure
 
 
 drawBoxes :: AppBuilder t m => Scene t -> SceneInputs t -> m ()
@@ -85,42 +110,73 @@ drawBoxes scene SceneInputs{..} = do
       let box = makeBox p1 <$> mouse
           done = current box <@ mouseUp LeftButton
 
-      dyn (boxView <$> box)
+      boxView  (pure []) (Dyn box)
       return (Nothing, idle . Just <$> done)
 
     makeBox p1 p2 = Box (liftI2 min p1 p2) (liftI2 max p1 p2)
     boxObject e = makeObject <$> current (scene ^. #currentClass) <@> e
     makeObject classId box = Object (BoxShape box) classId []
 
+selectChange :: Set Key -> Set ObjId -> Set ObjId -> Set ObjId
+selectChange keys existing target
+  | S.member Shift keys = existing <> target
+  | otherwise           = target
 
 
 actions :: AppBuilder t m => Scene t -> m (Dynamic t Action)
-actions scene = holdWorkflow base where
+actions scene@Scene{input, selection, document } = holdWorkflow $
+  commonTransition (base <$ cancel) base where
 
-  base = commonTransition (base <$ cancel) $ Workflow $ do
+  base = Workflow $ do
     let beginPan = pan <$> (current mouse <@ mouseDown LeftButton)
         beginDraw = drawMode <$ keyDown Key.Space
+        beginDrag = filterMaybe $ drag <$> current mouse <*> current document <@> selection'
+        selection' = (selectChange <$> current keyboard <*> current selection) <@> downOn LeftButton
 
-    tellEvent zoomCmd
-    return (def, leftmost [beginDraw, beginPan])
+    viewCommand zoomCmd
+    command SelectCmd selection'
+    return (def, leftmost [beginDrag, beginDraw, beginPan])
+
+  drag origin doc target
+        | S.null target = Nothing
+        | otherwise     = Just $ action $ do
+    let offset = mouse - pure origin
+        objects = lookupObjects  (S.toList target) doc
+        endDrag = mouseUp LeftButton
+
+    for_ objects $ \obj -> outlineView $
+      Updated obj (flip (transformObj 1.0) obj <$> updated offset)
+
+    editCommand ((Transform (S.toList target) 1.0 <$> current offset) <@ endDrag)
+
+    return ("pointer", base <$ endDrag)
 
   drawMode = action $
-    ("crosshair", base <$ keyUp Key.Space) <$ drawBoxes scene (scene ^. #input)
+    ("crosshair", base <$ keyUp Key.Space) <$ drawBoxes scene input
 
-  pan localOrigin = action $ do
-    tellEvent $ leftmost
-      [ ViewCmd . PanCmd localOrigin <$> updated pageMouse
+  pan origin = action $ do
+    viewCommand $ leftmost
+      [ PanView origin <$> updated pageMouse
       , zoomCmd
       ]
     return ("move", base <$ mouseUp LeftButton)
 
-  zoomCmd = ViewCmd <$> attachWith (flip ZoomCmd) (current mouse) wheel
+  zoomCmd = attachWith (flip ZoomView) (current mouse) wheel
   cancel = leftmost [void focus, void $ keyDown Key.Escape]
 
-  SceneInputs{..} = scene ^. #input
+  SceneInputs{..} = input
+  downOn b =  current hover <@ mouseDown b
 
 
-sceneView :: AppBuilder t m => Scene t -> m (ElemType t m, Dynamic t Action)
-sceneView scene = inViewport "expand enable-cursor" (scene ^. #viewport) $ do
-    imageView [] (scene ^. #image)
-    actions scene
+
+sceneView :: AppBuilder t m => Scene t -> m (ElemType t m, (Dynamic t Action, Event t (Map ObjId Bool)))
+sceneView scene@Scene{image, viewport, objects, selection} = inViewport "expand enable-cursor" viewport $ do
+    imageView "" image
+
+    hovers <- holdMergePatched =<< patchMapWithUpdates objects objectView'
+    action <- actions scene
+
+    return (action, hovers)
+      where
+          isSelected    = fanDynSet selection
+          objectView' k = objectView (isSelected k) k

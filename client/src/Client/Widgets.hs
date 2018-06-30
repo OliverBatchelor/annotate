@@ -1,6 +1,7 @@
-module Widgets where
+module Client.Widgets where
 
 import Annotate.Common hiding (div)
+import Client.Common
 
 import Reflex.Classes
 import Builder.Html

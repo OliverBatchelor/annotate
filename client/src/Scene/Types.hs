@@ -9,9 +9,9 @@ import Data.Default
 import Annotate.Geometry
 import Annotate.Types
 
-import Control.Lens (makePrisms)
 import Input.Events
 
+import Client.Common
 
 data SceneInputs t = SceneInputs
   { mouseDown :: Button -> Event t ()
@@ -28,10 +28,11 @@ data SceneInputs t = SceneInputs
   , keysUp   :: Event t Key
 
   , keyboard :: Dynamic t (Set Key)
+  , hover :: Dynamic t (Set ObjId)
 
   , mouse    :: Dynamic t Position
   , pageMouse :: Dynamic t Position
-}
+} deriving Generic
 
 
 
@@ -54,13 +55,6 @@ data Viewport = Viewport
 type Image = (DocName, Dim)
 type Controls = (Float, V2 Float)
 
-data ObjectInfo = ObjectInfo
-  { isSelected :: Bool
-  } deriving (Generic, Eq, Show)
-
-instance Default ObjectInfo where
-  def = ObjectInfo False
-
 
 data Scene t = Scene
   { image    :: Image
@@ -69,39 +63,10 @@ data Scene t = Scene
 
   , document :: Dynamic t Document
 
-  , initial :: Map ObjId (ObjectInfo, Object)
-  , objects  :: Incremental t (PatchMap ObjId (ObjectInfo, Object))
+  , selection :: Dynamic t (Set ObjId)
+  , objects  :: Patched t (PatchMap ObjId Object)
 
   , nextId       :: Dynamic t ObjId
   , currentClass :: Dynamic t ClassId
 
   } deriving (Generic)
-
-data ViewCommand
-  = ZoomCmd Float Position
-  | PanCmd Position Position
-  deriving (Generic, Show)
-
-data AppCommand
-  = ViewCmd ViewCommand
-  | DocCmd DocCmd
-
-  | SubmitCmd
-  | DiscardCmd
-  | NextCmd
-  | DetectCmd
-  deriving (Generic, Show)
-
-instance Semigroup AppCommand where
-  a <> b = a
-
-type AppBuilder t m = (Builder t m, EventWriter t AppCommand m)
-
-command :: AppBuilder t m => (a -> AppCommand) -> m (Event t a) -> m ()
-command f m  = m >>= tellEvent . fmap f
-
-command' :: AppBuilder t m => AppCommand -> m (Event t a) -> m ()
-command' cmd = command (const cmd)
-
-
-makePrisms ''AppCommand

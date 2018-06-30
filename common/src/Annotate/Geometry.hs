@@ -14,9 +14,11 @@ import Control.Lens (iso, Simple, Iso)
 type Vec = V2 Float
 
 data Box = Box { lower :: Vec, upper :: Vec } deriving (Generic, Show, Eq)
+data Circle = Circle {centre :: Vec, radius :: Float} deriving (Generic, Show, Eq)
 data Extents = Extents { centre :: Vec, extents :: Vec } deriving (Generic, Show, Eq)
 
 type Dim = (Int, Int)
+
 
 fromDim :: Dim -> V2 Float
 fromDim (x, y) = V2 (fromIntegral x) (fromIntegral y)
@@ -43,9 +45,13 @@ type Size = V2 Float
 
 
 instance FromJSON Box
+instance FromJSON Circle
+
 instance FromJSON Extents
 instance FromJSON a => FromJSON (V2 a)
 
 instance ToJSON Box
+instance ToJSON Circle
+
 instance ToJSON Extents
 instance ToJSON a => ToJSON (V2 a)

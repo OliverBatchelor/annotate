@@ -64,17 +64,18 @@ inputs :: (DomBuilderSpace m ~ GhcjsDomSpace, Reflex t, MonadFix m, MonadHold t 
 inputs scene = do
   window <- DOM.currentWindowUnchecked
 
-  mouseMove  <- wrapDomEvent window    (`DOM.on` DOM.mouseMove)
-    (fromDim <$> DOM.uiPageXY)
-
-
+  -- Mouse down events on the element
   mouseDown <- wrapDomEvent se (`DOM.on` DOM.mouseDown)
     (toButton <$> DOM.mouseButton)
 
-  mouseUp    <- wrapDomEvent window    (`DOM.on` DOM.mouseUp)
+  click  <- wrapDomEvent se    (`DOM.on` DOM.click)
     (toButton <$> DOM.mouseButton)
 
-  click  <- wrapDomEvent window    (`DOM.on` DOM.click)
+  -- Other events on the window
+  mouseMove  <- wrapDomEvent window    (`DOM.on` DOM.mouseMove)
+    (fromDim <$> DOM.uiPageXY)
+
+  mouseUp    <- wrapDomEvent window    (`DOM.on` DOM.mouseUp)
     (toButton <$> DOM.mouseButton)
 
   wheel  <- wrapDomEvent window    (`DOM.on` DOM.wheel)

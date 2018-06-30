@@ -33,11 +33,12 @@ import qualified Network.WebSockets             as WS
 import Servant
 import Servant.Utils.StaticFiles
 
-import qualified Types as T
-import qualified Document as Doc
+import Annotate.Types
+import qualified Annotate.Types as T
+import qualified Annotate.Document as Doc
+
 import qualified Options as Opt
 
-import Annotate.Types
 import AppState
 import ImageInfo
 
@@ -139,11 +140,6 @@ tryDecode str = case eitherDecode str of
 --     liftIO $ BS.writeFile (root </> filename) (encode (info, doc))
 --
 
-at' :: (At m, Applicative f) =>
-     Index m -> (IxValue m -> f (IxValue m)) -> m -> f m
-at' i = at i . traverse
-
-
 --
 -- respond :: MonadIO m => WS.Connection -> T.ServerMsg -> m ()
 -- respond conn msg = liftIO $ WS.sendTextData conn (encode msg)
@@ -151,7 +147,7 @@ at' i = at i . traverse
 
 
 clientDoc :: ClientId -> Traversal' (Map ClientId Client) DocName
-clientDoc clientId = at' clientId . #document . traverse
+clientDoc clientId = ix clientId . #document . traverse
 
 
 closeDocument :: Env -> ClientId -> STM ()
@@ -171,7 +167,7 @@ closeDocument env@(Env {..}) clientId  = (^? clientDoc clientId) <$> readTVar cl
         []  -> Nothing
         cs' -> Just cs'
 
-        --   (#documents . at' doc ^?) <$> readLog state >>= traverse_ (\doc -> do
+        --   (#documents . ix doc ^?) <$> readLog state >>= traverse_ (\doc -> do
         --     writeTChan docWriter (DocFlush docName doc))
 
 ordNub = S.toList . S.fromList
@@ -183,7 +179,7 @@ openDocument env@(Env {..}) clientId docName = do
 
   writeLog env ("opening " <> show clientId <> ", " <> show docName)
 
-  modifyTVar clients (at' clientId . #document .~ Just docName)
+  modifyTVar clients (ix clientId . #document .~ Just docName)
   modifyTVar documents ( M.alter addClient docName)
 
   time <- unsafeIOToSTM getCurrentTime
@@ -308,10 +304,6 @@ server root env =
 withDefault :: WS.ServerApp -> Server Raw
 withDefault ws = Tagged $ WS.websocketsOr WS.defaultConnectionOptions ws backupApp
   where backupApp _ respond = respond $ Wai.responseLBS Http.status400 [] "Not a WebSocket request"
-
-
-
-
 
 
 validExtension :: [String] -> FilePath -> Bool

@@ -1,12 +1,16 @@
-{-# LANGUAGE OverloadedStrings #-}
+module Client.Main where
 
 import Annotate.Common hiding (div)
+import Client.Common
 
 import qualified Data.Text as T
 import qualified Data.Map as M
+import qualified Data.Set as S
 
 import Data.Default
 import Data.Monoid
+
+import Control.Monad.Reader
 
 import Scene.Viewport
 import Scene.View
@@ -21,30 +25,35 @@ import Builder.Html
 
 import Input.Window
 
-import Widgets
+import Client.Widgets
 
 import Annotate.Types
 import Annotate.Document
 
+import Language.Javascript.JSaddle
+import qualified Reflex.Dom.Main as Main
 
 
 
-main :: IO ()
-main = mainWidgetWithHead' (const headWidget, bodyWidget)
+main :: JSM ()
+main = Main.mainWidgetWithHead' (const headWidget, bodyWidget)
 
 
 orLocal :: Text -> Text
-orLocal url =  if url == "" then "localhost:3000" else url
+orLocal url = if url == "" then "localhost:3000" else url
 
 headWidget :: GhcjsBuilder t m => m Text
 headWidget = do
 
-   host <- orLocal <$> getLocationHost
-   base_ [href_ =: "http://" <> host]
+   -- host <- orLocal <$> getLocationHost
+   -- base_ [href_ =: "http://" <> host]
+
+   let host = "localhost:3000"
+
 
    stylesheet "https://use.fontawesome.com/releases/v5.0.13/css/all.css"
    stylesheet "https://stackpath.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css"
-   stylesheet "css/style.css"
+   stylesheet ("http://" <> host <> "/css/style.css")
 
    return host
 
@@ -56,9 +65,6 @@ nonEmpty :: [a] -> Maybe [a]
 nonEmpty = \case
   [] -> Nothing
   xs -> Just xs
-
-
-
 
 
 viewControls :: GhcjsBuilder t m => Event t AppCommand -> DocInfo -> m (Dynamic t Viewport)
@@ -74,8 +80,8 @@ viewControls cmds info = mdo
     viewCmds = preview _ViewCmd <?> cmds
 
     updateView cmd vp = getControls $ case cmd of
-      ZoomCmd zoom pos -> zoomView zoom pos vp
-      PanCmd localOrign page -> panView localOrign page vp
+      ZoomView zoom pos -> zoomView zoom pos vp
+      PanView localOrign page -> panView localOrign page vp
 
     getControls (Viewport _ _ pan zoom) = (zoom, pan)
     makeViewport (zoom, pan) image window =
@@ -134,40 +140,46 @@ handleHistory loaded = mdo
         }
 
 
-sceneWidget :: (GhcjsBuilder t m, EventWriter t AppCommand m)
+sceneWidget :: forall t m. (GhcjsBuilder t m, EventWriter t AppCommand m, MonadReader AppEnv m)
             => Event t AppCommand -> (DocName, DocInfo, Document) -> m (Dynamic t Action)
 sceneWidget cmds (name, info, loaded)  = mdo
-  document <- holdDyn loaded updatedDoc
-  let (updatedDoc, updates) = split . filterMaybe $
-        flip applyCmd <$> current document <@> (_DocCmd ?> cmds)
 
-  objects <- holdIncremental initial (attachInfo <$> currentIncremental objects <@> updates)
+  document <- holdDyn loaded (snd <$> modified)
+  let modified = attachWithMaybe (flip applyCmd') (current document) docCmd
+      docCmd = _DocCmd ?> cmds
+
+  viewport <- viewControls cmds info
 
   raw   <- inputs element
-  viewport <- viewControls cmds info
-  input <- holdInputs (current viewport) raw
+  input <- holdInputs (current viewport) raw hover
 
-  nextId <- holdDyn (maybe 0 (+1) (maxId loaded)) never
+  -- Keep track of next id to use for new objects
+  let initialId = maybe 0 (+1) (maxId loaded)
+      addNew = _DocEdit . _Add ?> docCmd
+  nextId <- foldDyn (const (+1)) initialId addNew
 
-  (element, action) <- sceneView $ Scene
+  -- Set selection to the last added objects (including undo/redo etc.)
+  let latestEdit = fst . fst <$> modified
+      latestAdd = fmap (S.fromList . fmap fst) . preview _Add <?> latestEdit
+  selection <- holdDyn S.empty $
+    leftmost [latestAdd, _SelectCmd ?> cmds]
+
+
+  (element, (action, hover)) <- sceneView $ Scene
     { image    = ("images/" <> name, info ^. #imageSize)
     , viewport = viewport
     , input    = input
     , document = document
 
-    , initial = initial
-    , objects  = objects
+    , selection = selection
+    , objects = Patched initial (PatchMap . editPatch <$> modified)
 
     , nextId = nextId
     , currentClass = pure 0
     }
 
   return action
-    where initial = (def,) <$> (loaded ^. #instances)
-
-attachInfo :: Map ObjId (ObjectInfo, Object) -> Map ObjId (Maybe Object) -> PatchMap ObjId (ObjectInfo, Object)
-attachInfo objects updates = PatchMap (M.mapWithKey f updates) where
-    f k v = (fromMaybe def (fst <$> M.lookup k objects),) <$> v
+    where initial = loaded ^. #instances
 
 
 docMeta :: (DocName, DocInfo, Document) -> (DocName, DocInfo)
@@ -207,8 +219,9 @@ bodyWidget host = mdo
 
   let hello   = preview _ServerHello <?> serverMsg
       loaded  = preview _ServerDocument <?> serverMsg
+      env = AppEnv {basePath = "http://" <> host}
 
-  (action, cmds) <- runEventWriterT $ cursorLock action $ do
+  (action, cmds) <- flip runReaderT env $ runEventWriterT $ cursorLock action $ do
     action <- replaceHold (return def) $ (sceneWidget cmds <$> loaded)
     interface
     return action
@@ -225,13 +238,6 @@ cursorLock action child =
     lockClass Action{..} = ["expand"] <> ["cursor-lock" | lock]
 
 
-    -- div [class_ =: "card"] $
-    --   column "p-2" $ do
-    --     h5 [] $ text "Image.jpeg (800x600)"
-    --     text "modified 2 days ago, training"
-
-
-
 
 -- Main interface
 interface :: AppBuilder t m => m ()
@@ -240,13 +246,13 @@ interface = column "expand disable-cursor" $ do
   toolCmds <- row "p-2" $ do
     a [class_ =: "navbar-brand"] $ text "Annotate"
     spacer
-    command' DetectCmd $ toolButton "Detect" "fa-magic" "Detect objects using current trained model"
+    commandM' DetectCmd $ toolButton "Detect" "fa-magic" "Detect objects using current trained model"
 
   spacer
 
   row "p-2" $ do
     spacer
     buttonGroup $ do
-      command' DiscardCmd $ toolButton "Discard" "fa-trash" "Discard image from the collection"
-      command' NextCmd    $ toolButton "Next" "fa-step-forward" "Skip to the next image"
-      command' SubmitCmd  $ toolButton "Submit" "fa-save" "Submit image for training"
+      commandM' DiscardCmd $ toolButton "Discard" "fa-trash" "Discard image from the collection"
+      commandM' NextCmd    $ toolButton "Next" "fa-step-forward" "Skip to the next image"
+      commandM' SubmitCmd  $ toolButton "Submit" "fa-save" "Submit image for training"
