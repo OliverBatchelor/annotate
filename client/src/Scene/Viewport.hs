@@ -13,10 +13,11 @@ panView :: Position -> Position -> Viewport -> Viewport
 panView localOrigin page view = view & #pan %~ (+ d)
   where d  = toLocal view page - localOrigin
 
+wheelZoom :: Float -> Float
+wheelZoom delta = 1 - delta / 500
 
 zoomDelta :: Float -> Viewport -> Viewport
-zoomDelta delta = #zoom %~ clamp (0.25, 4) . (* factor)
-  where factor = 1 - delta / 500
+zoomDelta delta = #zoom %~ clamp (0.25, 4) . (* wheelZoom delta)
 
 zoomView :: Float -> Position -> Viewport -> Viewport
 zoomView amount localOrigin view = panView localOrigin page (zoomDelta amount view)

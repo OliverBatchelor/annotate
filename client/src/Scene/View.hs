@@ -3,7 +3,6 @@ module Scene.View where
 import Annotate.Common
 import Client.Common
 
-import Reflex.Classes
 import Builder.Svg hiding (switch, cursor, view)
 
 import qualified Builder.Svg as Svg
@@ -12,7 +11,7 @@ import Input.Events
 import Scene.Events
 
 import qualified Data.Set as S
-import Web.KeyCode as Key
+import qualified Web.KeyCode as Key
 
 import Scene.Types
 import Scene.Viewport
@@ -110,7 +109,7 @@ drawBoxes scene SceneInputs{..} = do
       let box = makeBox p1 <$> mouse
           done = current box <@ mouseUp LeftButton
 
-      boxView  (pure []) (Dyn box)
+      boxView  (pure ["outline"]) (Dyn box)
       return (Nothing, idle . Just <$> done)
 
     makeBox p1 p2 = Box (liftI2 min p1 p2) (liftI2 max p1 p2)
@@ -119,41 +118,53 @@ drawBoxes scene SceneInputs{..} = do
 
 selectChange :: Set Key -> Set ObjId -> Set ObjId -> Set ObjId
 selectChange keys existing target
-  | S.member Shift keys = existing <> target
+  | S.member Key.Shift keys = existing <> target
   | otherwise           = target
 
 
+
 actions :: AppBuilder t m => Scene t -> m (Dynamic t Action)
-actions scene@Scene{input, selection, document } = holdWorkflow $
+actions scene@Scene{input, selection, document} = holdWorkflow $
   commonTransition (base <$ cancel) base where
 
   base = Workflow $ do
-    let beginPan = pan <$> (current mouse <@ mouseDown LeftButton)
-        beginDraw = drawMode <$ keyDown Key.Space
-        beginDrag = filterMaybe $ drag <$> current mouse <*> current document <@> selection'
-        selection' = (selectChange <$> current keyboard <*> current selection) <@> downOn LeftButton
+    let beginPan    = pan <$> (current mouse <@ mouseDown LeftButton)
+        beginDraw   = drawMode <$ keyDown Key.Space
+        beginDrag   = filterMaybe $ drag <$> current mouse <*> current document <@> selection'
+        selection'  = (selectChange <$> current keyboard <*> current selection) <@> downOn LeftButton
 
     viewCommand zoomCmd
     command SelectCmd selection'
+
+    editCommand $ Delete . S.toList <$> ffilter (not . null)
+      (current selection <@ keyDown Key.Delete)
+
+    docCommand (const DocUndo) (keyCombo Key.KeyZ [Key.Control])
+    docCommand (const DocRedo) (keyCombo Key.KeyZ [Key.Control, Key.Shift])
+
     return (def, leftmost [beginDrag, beginDraw, beginPan])
 
+  -- Translate dragged objects
   drag origin doc target
         | S.null target = Nothing
         | otherwise     = Just $ action $ do
-    let offset = mouse - pure origin
+    let offset  = mouse - pure origin
         objects = lookupObjects  (S.toList target) doc
         endDrag = mouseUp LeftButton
 
+    scale <- foldDyn (\z -> max 0.1 . (z *)) 1.0 (wheelZoom <$> wheel)
+
     for_ objects $ \obj -> outlineView $
-      Updated obj (flip (transformObj 1.0) obj <$> updated offset)
+      Updated obj (updated $ transformObj <$> scale <*> offset <*> pure obj)
 
-    editCommand ((Transform (S.toList target) 1.0 <$> current offset) <@ endDrag)
-
+    editCommand ((Transform (S.toList target) <$> current scale <*> current offset) <@ endDrag)
     return ("pointer", base <$ endDrag)
 
+  -- Draw boxes
   drawMode = action $
     ("crosshair", base <$ keyUp Key.Space) <$ drawBoxes scene input
 
+  -- Pan the view when a blank part of the scene is dragged
   pan origin = action $ do
     viewCommand $ leftmost
       [ PanView origin <$> updated pageMouse
@@ -165,7 +176,6 @@ actions scene@Scene{input, selection, document } = holdWorkflow $
   cancel = leftmost [void focus, void $ keyDown Key.Escape]
 
   SceneInputs{..} = input
-  downOn b =  current hover <@ mouseDown b
 
 
 

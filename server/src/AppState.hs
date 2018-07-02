@@ -13,21 +13,7 @@ import Data.SafeCopy
 
 import Annotate.Document (emptyDoc, applyCmd)
 
-data AppState = AppState
-  { config    :: Config
-  , images    :: Map DocName DocInfo
-  , documents :: Map DocName Document
-  } deriving (Show, Eq, Generic)
-
-
-
-
-data Command where
-  CmdDoc :: DocName -> DocCmd -> UTCTime -> Command
-  CmdCategory :: DocName -> ImageCat -> Command
-  CmdModified :: DocName -> UTCTime -> Command
-  CmdImages :: [(DocName, DocInfo)] -> Command
-    deriving (Show, Eq, Generic)
+import Types
 
 $(deriveSafeCopy 0 'base ''V2)
 $(deriveSafeCopy 0 'base ''Box)
@@ -52,19 +38,23 @@ $(deriveSafeCopy 0 'base ''Command)
 
 
 docInfo :: DocName -> Traversal' AppState DocInfo
-docInfo doc = #images . at doc . traverse
+docInfo k = #images . at k . traverse
 
 
-updateModified doc time = docInfo doc . #modified .~ Just time
-updateDoc doc cmd = over (#documents . at doc) $ \maybeDoc ->
+updateModified k time = docInfo k . #modified .~ Just time
+applyDocCmd k cmd = over (#documents . at k) $ \maybeDoc ->
     Just $ applyCmd cmd (fromMaybe emptyDoc maybeDoc)
+
+updateDoc k doc = #documents . at k .~ Just doc
 
 instance Persistable AppState where
   type Update AppState = Command
 
-  update (CmdDoc doc cmd time) = updateModified doc time . updateDoc doc cmd
+  update (CmdDoc k cmd time) = updateModified k time . applyDocCmd k cmd
+  update (CmdSubmit k doc time) = updateModified k time . updateDoc k doc
+
   update (CmdImages new) = over #images (M.union (M.fromList new))
-  update (CmdCategory doc cat) = docInfo doc . #category .~ cat
+  update (CmdCategory k cat) = docInfo k . #category .~ cat
 
 
 
@@ -77,38 +67,20 @@ initialState config = AppState
 
 
 lookupDoc :: DocName -> AppState -> (Maybe DocInfo, Maybe Document)
-lookupDoc name AppState{..} = (M.lookup name images, M.lookup name documents)
+lookupDoc k AppState{..} = (M.lookup k images, M.lookup k documents)
 
 getCollection :: AppState -> Collection
 getCollection = upcast
 
 
-data ExportImage = ExportImage
-  { imageFile :: DocName,
-    instances :: [Object],
-    imageSize :: (Int, Int),
-    category :: ImageCat
-  } deriving (Show, Eq, Generic)
-
-data Export = Export
-  { config :: Config
-  , images :: [ExportImage]
-  } deriving (Show, Eq, Generic)
-
-
-instance FromJSON Export
-instance FromJSON ExportImage
-
-instance ToJSON Export
-instance ToJSON ExportImage
 
 toExport :: AppState -> Export
 toExport AppState{..} = Export
   { config = config
   , images = M.elems $ M.intersectionWithKey exportImage images documents
   } where
-    exportImage name info doc = ExportImage
-      { imageFile = name
+    exportImage k info doc = ExportImage
+      { imageFile = k
       , imageSize = info ^. #imageSize
       , category  = info ^. #category
       , instances = M.elems $ doc ^. #instances
@@ -122,14 +94,3 @@ fromExport Export {..} = AppState
   } where
     toDoc  ExportImage{..} = (imageFile, emptyDoc & #instances .~ M.fromList (zip [0..] instances))
     toInfo ExportImage{..} = (imageFile, DocInfo {modified = Nothing, imageSize = imageSize, category = category})
-
-
-
---
---
--- getConfig :: Query Storage Config
--- getConfig = asks $ view #config
---
---
--- getDocument :: FilePath -> Query Storage (Maybe (DocInfo, Maybe Document))
--- getDocument file = asks $ firstOf (#images . at file . traverse)

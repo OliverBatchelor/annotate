@@ -38,6 +38,7 @@ data Inputs t = Inputs
   , focus     :: Event t Bool
   , keyDown   :: Event t Key
   , keyUp   :: Event t Key
+  , keyPress :: Event t Key
 
   , mouseMove :: Event t Position
 }
@@ -86,10 +87,14 @@ inputs scene = do
 
 
   keyDown <- wrapDomEvent window    (`DOM.on` DOM.keyDown)
-      (keyCodeLookup . fromIntegral <$> DOM.uiKeyCode)
+      (keyCodeLookup . fromIntegral <$> getKeyEvent)
 
   keyUp <- wrapDomEvent window    (`DOM.on` DOM.keyUp)
-      (keyCodeLookup . fromIntegral <$> DOM.uiKeyCode)
+      (keyCodeLookup . fromIntegral <$> getKeyEvent)
+ 
+  keyPress <- wrapDomEvent window    (`DOM.on` DOM.keyPress)
+          (keyCodeLookup . fromIntegral <$> getKeyEvent)
+
 
   let focus = leftmost [focusIn, focusOut]
 

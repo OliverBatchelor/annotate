@@ -23,6 +23,7 @@ defaultInfo dim = DocInfo
 
 type Parser = Parsec Void String
 
+-- example: /home/oliver/trees/_DSC2028.JPG JPEG 1600x1064 1600x1064+0+0 8-bit sRGB 958KB 0.000u 0:00.000
 parseIdentify :: Parser (FilePath, String, Dim)
 parseIdentify = do
   filename <- parseFilename
@@ -47,7 +48,6 @@ parseDim = do
   h <- decimal
   return (w, h)
 
-
 imageInfo :: FilePath -> DocName -> IO (Maybe DocInfo)
 imageInfo root filename = do
   (exit, out, _) <- readProcessWithExitCode "identify" [path] ""
@@ -58,3 +58,15 @@ imageInfo root filename = do
     where
       toInfo (_, _, dim) = defaultInfo dim
       path = root </> Text.unpack filename
+
+
+-- imageInfo :: FilePath -> IO (Maybe DocInfo)
+-- imageInfo filename = do
+--   info <- docInfo <$> Codec.readImageWithMetadata filename
+--   info <$ print (filename, info)
+--   where
+--     docInfo (Left _)              = Nothing
+--     docInfo (Right (_, metadata)) = toInfo <$>
+--       (Codec.lookup Width metadata) <*> (Codec.lookup Height metadata)
+--
+--     toInfo w h = DocInfo Nothing False (fromIntegral w, fromIntegral h)

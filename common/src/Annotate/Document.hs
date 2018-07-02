@@ -24,6 +24,9 @@ editTargets  (Delete ids) = ids
 editTargets  (Transform ids _ _) = ids
 -- editTargets  (Many edits) = concatMap editTargets edits
 
+allObjects :: Document -> [ObjId]
+allObjects Document{instances} = M.keys instances
+
 lookupObjects :: [ObjId] -> Document -> ObjectMap
 lookupObjects objs Document{instances} = M.fromList $ catMaybes $ fmap lookup' objs
     where lookup' k = (k, ) <$> M.lookup k instances

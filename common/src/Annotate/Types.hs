@@ -28,7 +28,6 @@ data Edit
   = Add [(ObjId, Object)]
   | Delete [ObjId]
   | Transform [ObjId] Float Vec
-  -- | Many [Edit]
   deriving (Generic, Show, Eq)
 
 -- instance Monoid Edit where
@@ -54,7 +53,7 @@ data Document = Document
   } deriving (Generic, Show, Eq)
 
 
-data ImageCat = New | Train | Test | Hold deriving (Eq, Ord, Enum, Generic, Show)
+data ImageCat = New | Train | Test | Discard deriving (Eq, Ord, Enum, Generic, Show)
 
 data DocInfo = DocInfo
   { modified :: Maybe DateTime
@@ -75,12 +74,17 @@ data Collection = Collection
   } deriving (Generic, Show, Eq)
 
 
+data ErrCode = ErrDecode | ErrNotFound DocName
+   deriving (Generic, Show, Eq)
+
+
 data ServerMsg
-  = ServerHello ClientId Collection
+  = ServerHello ClientId
   | ServerUpdateInfo DocName DocInfo
   | ServerDocument DocName DocInfo Document
   | ServerOpen (Maybe DocName) ClientId DateTime
   | ServerCmd DocName DocCmd
+  | ServerError ErrCode
   | ServerEnd
       deriving (Generic, Show, Eq)
 
@@ -88,7 +92,10 @@ data ClientMsg
   = ClientOpen DocName
   | ClientCmd DocName DocCmd
   | ClientNext (Maybe DocName)
-  | ClientSubmit DocName ImageCat
+  | ClientSubmit DocName ImageCat Document
+  | ClientDiscard DocName
+  | ClientDetect DocName
+
       deriving (Generic, Show, Eq)
 
 
@@ -103,7 +110,7 @@ instance FromJSON DocInfo
 instance FromJSON Collection
 instance FromJSON ServerMsg
 instance FromJSON ClientMsg
-
+instance FromJSON ErrCode
 
 instance ToJSON Edit
 instance ToJSON DocCmd
@@ -116,6 +123,8 @@ instance ToJSON DocInfo
 instance ToJSON Collection
 instance ToJSON ServerMsg
 instance ToJSON ClientMsg
+instance ToJSON ErrCode
+
 
 defaultConfig :: Config
 defaultConfig = Config

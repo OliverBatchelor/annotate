@@ -17,7 +17,7 @@ import Scene.View
 import Scene.Types
 import Scene.Events
 
-import Input.Events
+import Input.Events (inputs)
 import Scene.Events
 
 import Reflex.Classes
@@ -33,6 +33,7 @@ import Annotate.Document
 import Language.Javascript.JSaddle
 import qualified Reflex.Dom.Main as Main
 
+import qualified Web.KeyCode as Key
 
 
 main :: JSM ()
@@ -87,23 +88,36 @@ viewControls cmds info = mdo
     makeViewport (zoom, pan) image window =
         Viewport (fromDim image) (fromDim window) pan zoom
 
+errorDialog :: Builder t m => ErrCode -> m (Event t ())
+errorDialog err = okDialog title (iconText ("text-danger", "fa-exclamation-circle") msg)
+  where  (title, msg) = errorMessage err
 
-data Connection = Waiting | Error Text | Connected
-  deriving (Show, Generic, Eq)
+errorMessage :: ErrCode -> (Text, Text)
+errorMessage ErrDecode = ("Decode error", "The code between server and client is out of sync, message decode failed.")
+errorMessage (ErrNotFound doc) = ("File not found", "File \"" <> doc <> "\" not found on server.")
 
-network :: GhcjsBuilder t m => Text -> Event t ClientMsg -> m (Event t (), Event t (Maybe Text), Event t ServerMsg)
+
+network :: GhcjsBuilder t m => Text -> Event t ClientMsg -> m (Event t (), Event t (Maybe Text), Event t ServerMsg, Event t ErrCode)
 network host send = do
   socket <- webSocket ("ws://" <> host <> "/ws") $ def
     & webSocketConfig_send  .~ (pure . encode <$> send)
 
-  let recieved = decodeStrict <?> socket ^. webSocket_recv
+  let recieved = decodeStrict <$> socket ^. webSocket_recv
+      decoded = filterMaybe recieved
+
+      errors = leftmost
+        [ ErrDecode <$ (preview _Nothing <?> recieved)
+        , preview _ServerError <?> decoded
+        ]
+
   performEvent_ (liftIO . print <$> send)
   performEvent_ (liftIO . print <$> recieved)
 
   return
     ( socket ^. webSocket_open
     , close <$> socket ^. webSocket_close
-    , recieved)
+    , decoded
+    , errors)
 
 
   where
@@ -114,44 +128,45 @@ network host send = do
 handleHistory :: GhcjsBuilder t m => Event t DocName -> m (Event t DocName)
 handleHistory loaded = mdo
 
-  currentDoc <- hold Nothing (Just <$> leftmost [loaded, changes])
+  currentFile <- hold Nothing (Just <$> leftmost [loaded, changes])
 
-  let update     = id <?> (updateHistory <$> current history <*> currentDoc <@> loaded)
+  let update     = id <?> (updateHistory <$> current history <*> currentFile <@> loaded)
       changes    = uriDocument <$> updated history
 
   history <- manageHistory update
-  return $ new <?> (currentDoc `attach` changes)
+  return $ new <?> (currentFile `attach` changes)
 
    where
-     new (Nothing, doc)       = Just doc
-     new (Just previous, doc) = doc <$ guard (previous /= doc)
+     new (Nothing, k)       = Just k
+     new (Just previous, k) = k <$ guard (previous /= k)
 
      uriDocument = T.pack . drop 1 . view #uriFragment . _historyItem_uri
 
-     updateHistory item Nothing doc = Just $ HistoryCommand_ReplaceState $ update item doc
-     updateHistory item (Just previous) doc
-        | previous /= doc = Just $ HistoryCommand_PushState $ update item doc
+     updateHistory item Nothing k = Just $ HistoryCommand_ReplaceState $ update item k
+     updateHistory item (Just previous) k
+        | previous /= k = Just $ HistoryCommand_PushState $ update item k
         | otherwise       = Nothing
 
-     update (HistoryItem state uri) doc = HistoryStateUpdate
+     update (HistoryItem state uri) k = HistoryStateUpdate
         { _historyStateUpdate_state = state
         , _historyStateUpdate_title = ""
-        , _historyStateUpdate_uri   = Just $ uri & #uriFragment .~ T.unpack ("#" <> doc)
+        , _historyStateUpdate_uri   = Just $ uri & #uriFragment .~ T.unpack ("#" <> k)
         }
 
 
+
+
 sceneWidget :: forall t m. (GhcjsBuilder t m, EventWriter t AppCommand m, MonadReader AppEnv m)
-            => Event t AppCommand -> (DocName, DocInfo, Document) -> m (Dynamic t Action)
+            => Event t AppCommand -> (DocName, DocInfo, Document) -> m (Dynamic t Action, Dynamic t Document)
 sceneWidget cmds (name, info, loaded)  = mdo
 
   document <- holdDyn loaded (snd <$> modified)
   let modified = attachWithMaybe (flip applyCmd') (current document) docCmd
-      docCmd = _DocCmd ?> cmds
+      clearCmd = (clearObjects <$> current document) <@ (_ClearCmd ?> cmds)
+      docCmd = leftmost [_DocCmd ?> cmds, clearCmd]
 
   viewport <- viewControls cmds info
-
-  raw   <- inputs element
-  input <- holdInputs (current viewport) raw hover
+  input <- holdInputs (current viewport) hover =<< inputs element
 
   -- Keep track of next id to use for new objects
   let initialId = maybe 0 (+1) (maxId loaded)
@@ -172,14 +187,14 @@ sceneWidget cmds (name, info, loaded)  = mdo
     , document = document
 
     , selection = selection
-    , objects = Patched initial (PatchMap . editPatch <$> modified)
+    , objects = Patched objects0 (PatchMap . editPatch <$> modified)
 
     , nextId = nextId
     , currentClass = pure 0
     }
 
-  return action
-    where initial = loaded ^. #instances
+  return (action, document)
+    where objects0 = loaded ^. #instances
 
 
 docMeta :: (DocName, DocInfo, Document) -> (DocName, DocInfo)
@@ -187,44 +202,50 @@ docMeta (name, info, _) = (name, info)
 
 bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m ()
 bodyWidget host = mdo
+  (opened, closed, serverMsg, serverErrors) <- network host clientMsg
 
-  (opened, closed, serverMsg) <- network host clientMsg
-
-  let disconnected = Workflow $
-        (("disconnected", never), connected <$ opened) <$ connectingModal
+  let disconnected = Workflow $ do
+        connectingModal
+        return (("disconnected", never), connected <$ opened)
 
       connected = Workflow $ do
         return (("connected", never), ready <$> hello)
 
-      ready (clientId, collection) = Workflow $ do
-        nextCmd <- postCurrent $ ffor (current currentDoc) $ \case
-          Nothing        -> ClientNext Nothing
-          Just (name, _) -> ClientOpen name -- If we were disconnected, load the previous document again
+      ready clientId = Workflow $ do
+        needsLoad <- filterMaybe <$>
+          postCurrent (preview _Nothing <$> current currentFile)
 
-        return (("ready", nextCmd), never)
+        return (("ready", ClientNext Nothing <$ needsLoad), never)
 
   (state, clientMsgs) <- split <$> (workflow $
     commonTransition (disconnected <$ closed) disconnected)
 
+  runWithClose (errorDialog <$> serverErrors)
+
   let clientMsg = leftmost
         [ switchPrompt clientMsgs
         , ClientOpen <$> urlSelected
+        , preview _RemoteCmd <?> cmds
         ]
 
-  urlSelected <- handleHistory (view _1 <$> loaded)
-  currentDoc  <- holdDyn Nothing (Just . docMeta <$> loaded)
 
-  setTitle $ ffor currentDoc $ \doc ->
-    "Annotate - " <> fromMaybe ("no document") (fst <$> doc)
+  urlSelected <- handleHistory (view _1 <$> loaded)
+  currentFile  <- holdDyn Nothing (Just . docMeta <$> loaded)
+
+  setTitle $ ffor currentFile $ \k ->
+    "Annotate - " <> fromMaybe ("no document") (fst <$> k)
 
   let hello   = preview _ServerHello <?> serverMsg
       loaded  = preview _ServerDocument <?> serverMsg
       env = AppEnv {basePath = "http://" <> host}
 
   (action, cmds) <- flip runReaderT env $ runEventWriterT $ cursorLock action $ do
-    action <- replaceHold (return def) $ (sceneWidget cmds <$> loaded)
-    interface
-    return action
+    replaceHold (interface' blank blank >> return def) $
+      ffor loaded $ \content@(k, info, doc0) -> do
+        (action, document) <- sceneWidget cmds content
+        interface (k, info, document)
+
+        return action
 
   return ()
 
@@ -239,20 +260,44 @@ cursorLock action child =
 
 
 
--- Main interface
-interface :: AppBuilder t m => m ()
-interface = column "expand disable-cursor" $ do
 
-  toolCmds <- row "p-2" $ do
+interface' :: AppBuilder t m => m () -> m () -> m ()
+interface' top bottom = column "expand disable-cursor" $ do
+  row "p-2 spacing-4" $ do
     a [class_ =: "navbar-brand"] $ text "Annotate"
-    spacer
-    commandM' DetectCmd $ toolButton "Detect" "fa-magic" "Detect objects using current trained model"
-
+    top
+    
   spacer
+  row "p-2 spacing-4" $ bottom
 
-  row "p-2" $ do
-    spacer
-    buttonGroup $ do
-      commandM' DiscardCmd $ toolButton "Discard" "fa-trash" "Discard image from the collection"
-      commandM' NextCmd    $ toolButton "Next" "fa-step-forward" "Skip to the next image"
-      commandM' SubmitCmd  $ toolButton "Submit" "fa-save" "Submit image for training"
+
+
+-- Main interface
+interface :: AppBuilder t m => (DocName, DocInfo, Dynamic t Document) -> m ()
+interface (k, info, document) = interface' top bottom
+  where
+    canUndo = not . null . view #undos <$> document
+    canRedo = not . null . view #redos <$> document
+
+    top = do
+      spacer
+      buttonGroup $ do
+        docCommand  (const DocUndo)  =<< toolButton canUndo "Undo" "fa-undo" "Undo last edit"
+        docCommand  (const DocRedo)  =<< toolButton canRedo "Redo" "fa-redo" "Re-do last undo"
+        command     (const ClearCmd) =<< toolButton' "Clear" "fa-eraser" "Clear all annotations"
+
+      detect <- toolButton' "Detect" "fa-magic" "Detect objects using current trained model"
+      remoteCommand id (ClientDetect k <$ detect)
+
+    bottom = do
+      spacer
+      buttonGroup $ do
+        discard <- toolButton' "Discard" "fa-trash" "Discard image from the collection"
+        next    <- toolButton' "Next" "fa-step-forward" "Skip to the next image"
+        submit  <- toolButton' "Submit" "fa-save" "Submit image for training"
+
+        remoteCommand id $ leftmost
+          [ ClientDiscard k     <$ discard
+          , ClientNext (Just k) <$ next
+          , ClientSubmit k Train <$> current document <@ submit
+          ]

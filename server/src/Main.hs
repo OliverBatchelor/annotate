@@ -14,6 +14,8 @@ import System.IO
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.Aeson (eitherDecode)
 
+
+
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.Text as Text
@@ -41,39 +43,9 @@ import qualified Options as Opt
 
 import AppState
 import ImageInfo
+import Stream
 
-
-
-data ClientAction = ClientClose | ClientSend ServerMsg deriving (Show, Generic)
-
-data Client  = Client
-  { connection :: TChan ClientAction
-  , document   :: Maybe DocName
-  } deriving (Generic)
-
-
-type Clients = TVar (Map ClientId Client)
-type Documents = TVar (Map DocName [ClientId])
-
-
-
-type LogMsg = String
-
-
-data Env    = Env
-  { clients     :: Clients
-  , documents   :: Documents
-  , state       :: Log AppState
-  , logChan     :: TChan LogMsg
-  } deriving (Generic)
-
-
-
-data Error = LogError String | DecodeError String
-   deriving (Show, Typeable)
-
-
-instance Exception Error
+import Types
 
 
 nextClient :: Map ClientId Client -> ClientId
@@ -82,9 +54,8 @@ nextClient m = fromMaybe 0 (succ . fst . fst <$>  M.maxViewWithKey m)
 
 sendHello :: Env -> ClientId -> STM ()
 sendHello env clientId = do
-  ds <- getCollection <$> readLog (env ^. #state)
-  sendClient env clientId (ServerHello clientId ds)
-
+  -- ds <- getCollection <$> readLog (env ^. #state)
+  sendClient env clientId (ServerHello clientId)
 
 
 connectClient :: Env -> WS.Connection ->  IO ClientId
@@ -133,19 +104,6 @@ tryDecode str = case eitherDecode str of
 
 
 
--- flushDocument :: MonadIO m => AcidAppState Storage -> FilePath -> FilePath -> m ()
--- flushDocument storage root filename = do
---   (info, mDoc) <- query storage (GetDocument filename)
---   forM_ mDoc $ \doc -> do
---     liftIO $ BS.writeFile (root </> filename) (encode (info, doc))
---
-
---
--- respond :: MonadIO m => WS.Connection -> T.ServerMsg -> m ()
--- respond conn msg = liftIO $ WS.sendTextData conn (encode msg)
-
-
-
 clientDoc :: ClientId -> Traversal' (Map ClientId Client) DocName
 clientDoc clientId = ix clientId . #document . traverse
 
@@ -153,37 +111,35 @@ clientDoc clientId = ix clientId . #document . traverse
 closeDocument :: Env -> ClientId -> STM ()
 closeDocument env@(Env {..}) clientId  = (^? clientDoc clientId) <$> readTVar clients >>= traverse_ withDoc
   where
-    withDoc docName = do
-        writeLog env ("closing " <> show clientId <> ", " <> show docName)
+    withDoc k = do
+        writeLog env ("closing " <> show clientId <> ", " <> show k)
 
-        refs <- M.lookup docName <$> readTVar documents
-        modifyTVar documents (M.update removeClient docName)
+        refs <- M.lookup k <$> readTVar documents
+        modifyTVar documents (M.update removeClient k)
 
-        mInfo <- fst . lookupDoc docName <$> readLog state
+        mInfo <- fst . lookupDoc k <$> readLog state
         forM_ mInfo $ \info ->
-          broadcast env (ServerUpdateInfo docName info)
+          broadcast env (ServerUpdateInfo k info)
 
     removeClient cs = case (filter (/= clientId) cs) of
         []  -> Nothing
         cs' -> Just cs'
 
-        --   (#documents . ix doc ^?) <$> readLog state >>= traverse_ (\doc -> do
-        --     writeTChan docWriter (DocFlush docName doc))
 
 ordNub = S.toList . S.fromList
 
 
 openDocument :: Env -> ClientId -> DocName -> STM ()
-openDocument env@(Env {..}) clientId docName = do
+openDocument env@(Env {..}) clientId k = do
   closeDocument env clientId
 
-  writeLog env ("opening " <> show clientId <> ", " <> show docName)
+  writeLog env ("opening " <> show clientId <> ", " <> show k)
 
-  modifyTVar clients (ix clientId . #document .~ Just docName)
-  modifyTVar documents ( M.alter addClient docName)
+  modifyTVar clients (ix clientId . #document .~ Just k)
+  modifyTVar documents ( M.alter addClient k)
 
   time <- unsafeIOToSTM getCurrentTime
-  broadcast env (ServerOpen (Just docName) clientId time)
+  broadcast env (ServerOpen (Just k) clientId time)
 
     where
       addClient = \case
@@ -192,17 +148,17 @@ openDocument env@(Env {..}) clientId docName = do
 
 
 modifyDoc :: Env -> DocName -> DocCmd -> STM ()
-modifyDoc env@(Env {..}) docName cmd = do
+modifyDoc env@(Env {..}) k cmd = do
 
   time <- unsafeIOToSTM getCurrentTime
-  updateLog state (CmdDoc docName cmd time)
+  updateLog state (CmdDoc k cmd time)
 
   clients <- getEditing <$> readTVar documents
   for_ clients $ \clientId ->
-    sendClient env clientId (ServerCmd docName cmd)
+    sendClient env clientId (ServerCmd k cmd)
 
   where
-    getEditing = fromMaybe [] . M.lookup docName
+    getEditing = fromMaybe [] . M.lookup k
 
 
 findMin :: Ord a => Set a -> Maybe a
@@ -228,34 +184,46 @@ findNext Env{..} maybeCurrent =
   findNext' <$> readLog state <*> readTVar documents <*> pure maybeCurrent
 
 clientOpen :: Env -> ClientId -> DocName -> STM ()
-clientOpen env clientId docName = do
-  (mInfo, mDoc) <- lookupDoc docName <$> readLog (env ^. #state)
+clientOpen env clientId k = do
+  (mInfo, mDoc) <- lookupDoc k <$> readLog (env ^. #state)
   for_ mInfo $ \info -> do
-    openDocument env clientId docName
-    sendClient env clientId (ServerDocument docName info (fromMaybe Doc.emptyDoc mDoc))
+    openDocument env clientId k
+    sendClient env clientId (ServerDocument k info (fromMaybe Doc.emptyDoc mDoc))
 
 recieveLoop :: Env -> WS.Connection -> ClientId -> IO ()
-recieveLoop env conn clientId = do
+recieveLoop env@Env{state} conn clientId = do
   atomically $ sendHello env clientId
   forever $ do
     req <- tryDecode =<< liftIO (WS.receiveData conn)
+    time <- getCurrentTime
+
     atomically $ writeLog env (show clientId <> " <- " <> show req)
     case req of
-        ClientOpen docName      -> atomically $ clientOpen env clientId docName
-        ClientCmd docName cmd -> atomically $ modifyDoc env docName cmd
+        ClientOpen k      -> atomically $ clientOpen env clientId k
+        ClientCmd k cmd -> atomically $ modifyDoc env k cmd
 
-        ClientSubmit docName cat -> atomically $ do
-          updateLog (env ^. #state) (CmdCategory docName cat)
-          nextImage env clientId (Just docName)
+        ClientSubmit k cat doc -> atomically $ do
+          updateLog state (CmdSubmit k doc time)
+          updateLog state (CmdCategory k cat)
+          nextImage env clientId (Just k)
 
-        ClientNext current -> atomically $ nextImage env clientId current
+        ClientDiscard k -> atomically $ do
+          updateLog state (CmdCategory k Discard)
+          nextImage env clientId (Just k)
+
+        ClientNext current -> atomically $
+          nextImage env clientId current
+
+        ClientDetect k -> atomically $
+          sendTrainer env (TrainerDetect clientId k)
+
 
 
 nextImage :: Env -> ClientId -> Maybe DocName -> STM ()
 nextImage env clientId current = do
   maybeDoc <- findNext env current
   case maybeDoc of
-    Just docName -> clientOpen env clientId docName
+    Just k -> clientOpen env clientId k
     Nothing      -> sendClient env clientId ServerEnd
 
 sendClient :: Env -> ClientId -> T.ServerMsg -> STM ()
@@ -265,6 +233,11 @@ sendClient env clientId msg = void $ do
   withClient (env ^. #clients) clientId $ \Client {..} ->
     writeTChan connection (ClientSend msg)
 
+sendTrainer :: Env -> ToTrainer -> STM ()
+sendTrainer env msg = do
+  writeLog env ("trainer -> " <> show msg)
+  writeTChan send msg
+    where (send, _) = env ^. #trainer
 
 
 broadcast :: Env -> T.ServerMsg -> STM ()
@@ -318,18 +291,7 @@ findImages config root = do
     where exts = Text.unpack <$> config ^. #extensions
 
 
--- imageInfo :: FilePath -> IO (Maybe DocInfo)
--- imageInfo filename = do
---   info <- docInfo <$> Codec.readImageWithMetadata filename
---   info <$ print (filename, info)
---   where
---     docInfo (Left _)              = Nothing
---     docInfo (Right (_, metadata)) = toInfo <$>
---       (Codec.lookup Width metadata) <*> (Codec.lookup Height metadata)
---
---     toInfo w h = DocInfo Nothing False (fromIntegral w, fromIntegral h)
 
--- /home/oliver/trees/_DSC2028.JPG JPEG 1600x1064 1600x1064+0+0 8-bit sRGB 958KB 0.000u 0:00.000
 
 
 findNewImages :: Config -> FilePath -> Map DocName DocInfo -> IO [(DocName, DocInfo)]
@@ -378,6 +340,8 @@ main = do
 
   clients   <- atomically (newTVar M.empty)
   documents <- atomically (newTVar M.empty)
+
+  trainer <- atomically $ liftA2 (,) newTChan newTChan
 
   atomically $ do
     config <- view #config <$> readLog state

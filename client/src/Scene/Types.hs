@@ -23,15 +23,21 @@ data SceneInputs t = SceneInputs
 
   , keyUp   :: Key -> Event t ()
   , keyDown :: Key -> Event t ()
+  , keyPress :: Key -> Event t ()
 
-  , keysDown   :: Event t Key
-  , keysUp   :: Event t Key
+  , keysDown    :: Event t Key
+  , keysUp      :: Event t Key
+  , keysPressed :: Event t Key
 
   , keyboard :: Dynamic t (Set Key)
   , hover :: Dynamic t (Set ObjId)
 
   , mouse    :: Dynamic t Position
   , pageMouse :: Dynamic t Position
+
+  , downOn   :: Button -> Event t (Set ObjId)
+  , keyCombo  :: Key -> [Key] -> Event t ()
+
 } deriving Generic
 
 

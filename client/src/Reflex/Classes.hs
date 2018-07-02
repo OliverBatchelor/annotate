@@ -8,7 +8,7 @@ module Reflex.Classes
 import Annotate.Common
 
 import qualified Reflex as R
-import Reflex.Dom hiding (switchHold, switch, (=:), sample, Builder, link)
+import Reflex.Dom hiding (switchHold, switch, (=:), sample, Builder, link, Delete, Key(..))
 import Reflex.Active
 
 import Data.Functor
@@ -24,7 +24,8 @@ import Annotate.Geometry
 import Control.Lens (Getting)
 import Control.Applicative
 
-
+import Data.Sequence ( ViewL(..), Seq(..), viewl, (|>) )
+import qualified Data.Sequence as Seq
 
 
 data Updated t a = Updated a (Event t a)
@@ -42,6 +43,45 @@ runWithReplace' e = snd <$> runWithReplace blank e
 
 replaceHold :: (Adjustable t m, SwitchHold t a, MonadHold t m) => m a -> Event t (m a) -> m a
 replaceHold initial e = uncurry switchHold =<< runWithReplace initial e
+
+runWithClose :: (Adjustable t m, MonadHold t m, MonadFix m) => Event t (m (Event t a)) -> m (Event t a)
+runWithClose e = do
+  rec result <- replaceHold closed (leftmost [e, closed <$ result])
+  return result
+    where closed = return never
+
+holdQueue :: (MonadHold t m, MonadFix m, Reflex t) => Event t [a] -> Dynamic t Bool -> m (Event t a)
+holdQueue input occupied = mdo
+  queue  <- fmap current $ holdDyn mempty $
+    leftmost [remaining, enqueue]
+
+  let (next, remaining) = split $ peek <?> (queue <@ free)
+      free = ffilter not (updated occupied)
+
+      (now, later) = split $ attachWith route (current occupied) input
+      enqueue = attachWith (\q l -> q `mappend` Seq.fromList l) queue (filterMaybe later)
+
+  return $ leftmost [filterMaybe now, next]
+
+  where
+    route False (x:xs) = (Just x, Just xs)
+    route True xs      = (Nothing, Just xs)
+    route _ _          = (Nothing, Nothing)
+
+    peek q = case viewl q of
+         (a :< rest) -> Just (a, rest)
+         EmptyL -> Nothing
+
+runWithQueue :: (Adjustable t m, MonadHold t m, MonadFix m) => Event t (m a) -> m (Event t a)
+runWithQueue e = mdo
+  result <- runWithReplace' $
+    leftmost [fmap Just <$> e', return Nothing <$ result]
+
+  open <- holdDyn False (isJust <$> result)
+  e' <- holdQueue (pure <$> e) open
+
+  return (filterMaybe result)
+
 
 replaceFor ::(Adjustable t m, SwitchHold t b, MonadHold t m) => a -> Event t a -> (a -> m b) -> m b
 replaceFor initial e f = replaceHold (f initial) (f <$> e)
@@ -140,9 +180,11 @@ instance (Reflex t, Num a) => Num (Dynamic t a) where
 
 
 
-gated :: Reflex t => Monoid a => a -> Dynamic t Bool -> Dynamic t a
+gated :: (Reflex t, Monoid a) => a -> Dynamic t Bool -> Dynamic t a
 gated a d = ffor d $ \cond -> if cond then a else mempty
 
+partition :: Reflex t => Behavior t Bool -> Event t a -> (Event t a, Event t a)
+partition b e = (gate b e, gate (not <$> b) e)
 
 
 postValue :: PostBuild t m => a -> m (Event t a)

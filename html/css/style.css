@@ -29,7 +29,7 @@ html, body {
 }
 
 #drawing > * {
-  position: absolute; 
+  position: absolute;
 }
 
 .disable-cursor {
@@ -60,6 +60,22 @@ html, body {
 
 .shrink {
   flex-shrink:1;
+}
+
+.spacing-2 > * + * {
+  margin-left: 2px;
+}
+
+.spacing-4 > * + * {
+  margin-left: 4px;
+}
+
+.spacing-8 > * + * {
+  margin-left: 8px;
+}
+
+.spacing-16 > * + * {
+  margin-left: 16px;
 }
 
 .grow {
@@ -109,6 +125,20 @@ html, body {
 .selected {
   stroke-width:2;
 }
+
+
+.outline {
+  vector-effect: non-scaling-stroke;
+
+  fill:blue;
+  fill-opacity: 0.1;
+
+  stroke: black;
+  stroke-width:2;
+  stroke-dasharray: 5, 5;
+}
+
+
 
 
 .dropup > .dropdown-menu {

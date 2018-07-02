@@ -1,7 +1,12 @@
-module Client.Common where
+module Client.Common
+  ( module Client.Common
+  , module Reflex.Classes
+  , Key
+  ) where
 
 import Annotate.Common hiding ((<>))
 import Annotate.Types
+import Annotate.Document
 
 import Control.Monad.Reader
 
@@ -11,10 +16,11 @@ import Reflex.Classes
 import Language.Javascript.JSaddle (MonadJSM)
 import Control.Lens (makePrisms)
 
+import Web.KeyCode (Key)
+
 
 type GhcjsBuilder t m = (Builder t m, TriggerEvent t m, MonadJSM m, HasJSContext m, MonadJSM (Performable m), DomBuilderSpace m ~ GhcjsDomSpace, PerformEvent t m)
 type Builder t m = (Adjustable t m, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m)
-
 type AppBuilder t m = (Builder t m, EventWriter t AppCommand m, MonadReader AppEnv m)
 
 data ViewCommand
@@ -26,11 +32,8 @@ data AppCommand
   = ViewCmd ViewCommand
   | DocCmd DocCmd
   | SelectCmd (Set ObjId)
-
-  | SubmitCmd
-  | DiscardCmd
-  | NextCmd
-  | DetectCmd
+  | ClearCmd
+  | RemoteCmd ClientMsg
 
   deriving (Generic, Show)
 
@@ -43,6 +46,9 @@ localPath :: MonadReader AppEnv m => Text -> m Text
 localPath path = do
   base <- asks basePath
   return $ base <> "/" <> path
+
+remoteCommand :: AppBuilder t m => (a -> ClientMsg) -> Event t a -> m ()
+remoteCommand f = command (RemoteCmd . f)
 
 docCommand :: AppBuilder t m => (a -> DocCmd) -> Event t a -> m ()
 docCommand f = command (DocCmd . f)
@@ -67,5 +73,8 @@ commandM f m  = m >>= command f
 commandM' :: AppBuilder t m => AppCommand -> m (Event t a) -> m ()
 commandM' cmd = commandM (const cmd)
 
+
+clearObjects :: Document -> DocCmd
+clearObjects = DocEdit . Delete . allObjects
 
 makePrisms ''AppCommand
