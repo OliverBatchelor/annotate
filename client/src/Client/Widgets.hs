@@ -73,9 +73,17 @@ sections title content footer = leftmost <$> sequence
   , div [class_ =: "modal-footer"]  footer
   ]
 
-
-
 connectingModal :: Builder t m => m ()
 connectingModal = modal (pure True) $
   div [class_ =: "modal-header"] $
     h5 [class_ =:"modal-title"] $ text "Connecting..."
+
+
+timeout :: GhcjsBuilder t m => (Event t a, Event t a) -> NominalDiffTime -> m (Event t a)
+timeout (down, up) time = do
+  delayed <- delay time down
+  let gateDelay = do
+       isDown <- hold True (False <$ leftmost [up, delayed])
+       return $ gate isDown delayed
+
+  switchHold never $  pushAlways (const gateDelay) down

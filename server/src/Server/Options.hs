@@ -1,4 +1,4 @@
-module Options where
+module Server.Options where
 
 import Annotate.Common
 import System.Console.CmdArgs.Implicit

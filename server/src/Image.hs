@@ -1,7 +1,9 @@
-module ImageInfo (imageInfo) where
+module Image (imageInfo, findNewImages, findImages) where
 
 import Annotate.Common
 import Annotate.Types
+
+import qualified Data.Map as M
 
 import System.Process (readProcessWithExitCode)
 
@@ -12,6 +14,7 @@ import Text.Megaparsec.Char.Lexer (decimal)
 
 import qualified Data.Text as Text
 import System.FilePath
+import System.Directory
 
 
 defaultInfo :: Dim -> DocInfo
@@ -20,6 +23,38 @@ defaultInfo dim = DocInfo
   , category = New
   , imageSize = dim
   }
+
+
+imageInfo :: FilePath -> DocName -> IO (Maybe DocInfo)
+imageInfo root filename = do
+  (exit, out, _) <- readProcessWithExitCode "identify" [path] ""
+  return $ case exit of
+    ExitSuccess -> toInfo <$> parseMaybe parseIdentify out
+    _           -> Nothing
+
+    where
+      toInfo (_, _, dim) = defaultInfo dim
+      path = root </> Text.unpack filename
+
+
+validExtension :: [String] -> FilePath -> Bool
+validExtension exts filename = any (\e -> fmap toLower e == ext) exts where
+  ext = fmap toLower (takeExtension filename)
+
+
+findImages :: Config -> FilePath -> IO [DocName]
+findImages config root = do
+  contents <- fmap fromString <$> listDirectory root
+  return $ fromString <$> filter (validExtension exts) contents
+    where exts = Text.unpack <$> config ^. #extensions
+
+findNewImages :: Config -> FilePath -> Map DocName DocInfo -> IO [(DocName, DocInfo)]
+findNewImages config root existing = do
+  images <- findImages config root
+
+  catMaybes <$> for (filter (`M.notMember` existing) images) 
+    (\image -> fmap (image, ) <$> imageInfo root image)
+
 
 type Parser = Parsec Void String
 
@@ -47,17 +82,6 @@ parseDim = do
   void $ char 'x'
   h <- decimal
   return (w, h)
-
-imageInfo :: FilePath -> DocName -> IO (Maybe DocInfo)
-imageInfo root filename = do
-  (exit, out, _) <- readProcessWithExitCode "identify" [path] ""
-  return $ case exit of
-    ExitSuccess -> toInfo <$> parseMaybe parseIdentify out
-    _           -> Nothing
-
-    where
-      toInfo (_, _, dim) = defaultInfo dim
-      path = root </> Text.unpack filename
 
 
 -- imageInfo :: FilePath -> IO (Maybe DocInfo)

@@ -18,13 +18,18 @@ cabal-version:       >=1.10
 executable server
   ghc-options:         -O2 -threaded -rtsopts -with-rtsopts=-N
   main-is:             Main.hs
-  other-modules:       Options, AppState, ImageInfo, Stream, Types
-  default-extensions:  DuplicateRecordFields, TemplateHaskell, FlexibleInstances, FlexibleContexts,
-                       GADTs, MultiParamTypeClasses, TypeApplications, OverloadedStrings, NamedFieldPuns
-                       ScopedTypeVariables, LambdaCase, DeriveGeneric, DeriveDataTypeable,
-                       DataKinds, RankNTypes, OverloadedLabels, TemplateHaskell, QuasiQuotes,
-                       TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving, TupleSections,
-                       RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms, NoImplicitPrelude
+  other-modules:        Server.Client, Server.Common, Server.Document,
+                        Server.Options, Server.Store, Server.Trainer,
+                        Image
+
+  default-extensions:  NoImplicitPrelude, DuplicateRecordFields,
+                       FlexibleInstances, FlexibleContexts,
+                       TypeFamilies, GADTs, MultiParamTypeClasses, TypeApplications,
+                       ScopedTypeVariables, LambdaCase, TupleSections, NamedFieldPuns,
+                       StandaloneDeriving,  DeriveGeneric, DeriveDataTypeable, GeneralizedNewtypeDeriving,
+                       DataKinds, RankNTypes, OverloadedLabels, OverloadedStrings,
+                       RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms,
+                       TemplateHaskell, QuasiQuotes
   build-depends:       base >=4.9 && <5,
                        common, wai, wai-websockets, wai-app-static, text, bytestring, safe,
                        warp, http-types, websockets, aeson, mtl, containers,

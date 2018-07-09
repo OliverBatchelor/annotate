@@ -93,25 +93,26 @@ errorDialog err = okDialog title (iconText ("text-danger", "fa-exclamation-circl
   where  (title, msg) = errorMessage err
 
 errorMessage :: ErrCode -> (Text, Text)
-errorMessage ErrDecode = ("Decode error", "The code between server and client is out of sync, message decode failed.")
+errorMessage (ErrDecode msg) = ("Decode error", msg)
 errorMessage (ErrNotFound doc) = ("File not found", "File \"" <> doc <> "\" not found on server.")
+errorMessage ErrNotRunning = ("Trainer error", "Trainer process not started.")
+errorMessage (ErrTrainer msg) = ("Trainer error", msg)
+
 
 
 network :: GhcjsBuilder t m => Text -> Event t ClientMsg -> m (Event t (), Event t (Maybe Text), Event t ServerMsg, Event t ErrCode)
 network host send = do
-  socket <- webSocket ("ws://" <> host <> "/ws") $ def
+  socket <- webSocket ("ws://" <> host <> "/clients") $ def
     & webSocketConfig_send  .~ (pure . encode <$> send)
 
-  let recieved = decodeStrict <$> socket ^. webSocket_recv
-      decoded = filterMaybe recieved
-
+  let (errs, decoded) = splitEither (eitherDecodeStrict <$> socket ^. webSocket_recv) 
       errors = leftmost
-        [ ErrDecode <$ (preview _Nothing <?> recieved)
+        [ ErrDecode . fromString <$>  errs
         , preview _ServerError <?> decoded
         ]
 
   performEvent_ (liftIO . print <$> send)
-  performEvent_ (liftIO . print <$> recieved)
+  performEvent_ (liftIO . print <$> decoded)
 
   return
     ( socket ^. webSocket_open
@@ -266,7 +267,7 @@ interface' top bottom = column "expand disable-cursor" $ do
   row "p-2 spacing-4" $ do
     a [class_ =: "navbar-brand"] $ text "Annotate"
     top
-    
+
   spacer
   row "p-2 spacing-4" $ bottom
 

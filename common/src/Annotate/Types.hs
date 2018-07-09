@@ -74,7 +74,7 @@ data Collection = Collection
   } deriving (Generic, Show, Eq)
 
 
-data ErrCode = ErrDecode | ErrNotFound DocName
+data ErrCode = ErrDecode Text | ErrNotFound DocName | ErrNotRunning | ErrTrainer Text
    deriving (Generic, Show, Eq)
 
 

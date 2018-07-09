@@ -21,7 +21,7 @@ import Data.Functor.Misc
 
 import Annotate.Geometry
 
-import Control.Lens (Getting)
+import Control.Lens (Getting, _Left, _Right)
 import Control.Applicative
 
 import Data.Sequence ( ViewL(..), Seq(..), viewl, (|>) )
@@ -89,6 +89,9 @@ replaceFor initial e f = replaceHold (f initial) (f <$> e)
 split :: Functor f => f (a, b) -> (f a, f b)
 split ab = (fst <$> ab, snd <$> ab)
 
+
+splitEither :: Reflex t => Event t (Either a b) -> (Event t a, Event t b)
+splitEither e = (preview _Left <?> e, preview _Right <?> e)
 
 class Reflex t => Switch t f where
   switch :: f (Event t a) -> Event t a

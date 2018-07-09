@@ -1,19 +1,15 @@
-module AppState where
+module Server.Store where
 
 
 import Annotate.Common
+import Server.Common
 
 import qualified Data.Map as M
-
-import Annotate.Types
-import Data.Generics.Product.Subtype
-
-import Control.Concurrent.Log
 import Data.SafeCopy
 
 import Annotate.Document (emptyDoc, applyCmd)
+import Control.Concurrent.Log
 
-import Types
 
 $(deriveSafeCopy 0 'base ''V2)
 $(deriveSafeCopy 0 'base ''Box)
@@ -30,14 +26,12 @@ $(deriveSafeCopy 0 'base ''ImageCat)
 $(deriveSafeCopy 0 'base ''Document)
 $(deriveSafeCopy 0 'base ''DocInfo)
 $(deriveSafeCopy 0 'base ''Config)
-$(deriveSafeCopy 0 'base ''AppState)
+$(deriveSafeCopy 0 'base ''Store)
 
 $(deriveSafeCopy 0 'base ''Command)
 
 
-
-
-docInfo :: DocName -> Traversal' AppState DocInfo
+docInfo :: DocName -> Traversal' Store DocInfo
 docInfo k = #images . at k . traverse
 
 
@@ -47,8 +41,8 @@ applyDocCmd k cmd = over (#documents . at k) $ \maybeDoc ->
 
 updateDoc k doc = #documents . at k .~ Just doc
 
-instance Persistable AppState where
-  type Update AppState = Command
+instance Persistable Store where
+  type Update Store = Command
 
   update (CmdDoc k cmd time) = updateModified k time . applyDocCmd k cmd
   update (CmdSubmit k doc time) = updateModified k time . updateDoc k doc
@@ -58,39 +52,33 @@ instance Persistable AppState where
 
 
 
-initialState :: Config -> AppState
-initialState config = AppState
+initialStore :: Config -> Store
+initialStore config = Store
   { config = config
   , images = M.empty
   , documents = M.empty
   }
 
 
-lookupDoc :: DocName -> AppState -> (Maybe DocInfo, Maybe Document)
-lookupDoc k AppState{..} = (M.lookup k images, M.lookup k documents)
-
-getCollection :: AppState -> Collection
-getCollection = upcast
 
 
-
-toExport :: AppState -> Export
-toExport AppState{..} = Export
+toExport :: Store -> Export
+toExport Store{..} = Export
   { config = config
-  , images = M.elems $ M.intersectionWithKey exportImage images documents
+  , images = M.elems $ M.intersectionWithKey trainerImage images documents
   } where
-    exportImage k info doc = ExportImage
+    trainerImage k info doc = ImageE
       { imageFile = k
       , imageSize = info ^. #imageSize
       , category  = info ^. #category
       , instances = M.elems $ doc ^. #instances
       }
 
-fromExport :: Export -> AppState
-fromExport Export {..} = AppState
+fromExport :: Export -> Store
+fromExport Export {..} = Store
   { config = config
   , images = M.fromList (toInfo <$> images)
   , documents = M.fromList (toDoc <$> images)
   } where
-    toDoc  ExportImage{..} = (imageFile, emptyDoc & #instances .~ M.fromList (zip [0..] instances))
-    toInfo ExportImage{..} = (imageFile, DocInfo {modified = Nothing, imageSize = imageSize, category = category})
+    toDoc  ImageE{..} = (imageFile, emptyDoc & #instances .~ M.fromList (zip [0..] instances))
+    toInfo ImageE{..} = (imageFile, DocInfo {modified = Nothing, imageSize = imageSize, category = category})
