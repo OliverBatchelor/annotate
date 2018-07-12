@@ -29,7 +29,7 @@ import Control.Lens as X
   ( (%~), (^.), (^?), (.~), (&), (<&>)
   , over, view, preview
   , Lens, Lens', Traversal, Traversal'
-  , at, _1, _2, _3, _4
+  , at, ix, _1, _2, _3, _4
   , _Just, _Nothing, _Left, _Right
   )
 import Data.Aeson as X

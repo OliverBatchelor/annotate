@@ -30,25 +30,17 @@ data SceneInputs t = SceneInputs
   , keysPressed :: Event t Key
 
   , keyboard :: Dynamic t (Set Key)
-  , hover :: Dynamic t (Set ObjId)
+  , hover :: Dynamic t (Set AnnotationId)
 
   , mouse    :: Dynamic t Position
   , pageMouse :: Dynamic t Position
 
-  , downOn   :: Button -> Event t (Set ObjId)
+  , downOn   :: Button -> Event t (Set AnnotationId)
   , keyCombo  :: Key -> [Key] -> Event t ()
 
 } deriving Generic
 
 
-
-data Action = Action
-  { cursor      :: Text
-  , lock        :: Bool
-  } deriving (Generic, Eq, Show)
-
-instance Default Action where
-  def = Action "default" False
 
 data Viewport = Viewport
   { image    :: Size
@@ -69,10 +61,10 @@ data Scene t = Scene
 
   , document :: Dynamic t Document
 
-  , selection :: Dynamic t (Set ObjId)
-  , objects  :: Patched t (PatchMap ObjId Object)
+  , selection :: Dynamic t (Set AnnotationId)
+  , annotations  :: Patched t (PatchMap AnnotationId Annotation)
 
-  , nextId       :: Dynamic t ObjId
+  , nextId       :: Dynamic t AnnotationId
   , currentClass :: Dynamic t ClassId
 
   } deriving (Generic)

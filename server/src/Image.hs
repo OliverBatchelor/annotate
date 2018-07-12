@@ -4,6 +4,7 @@ import Annotate.Common
 import Annotate.Types
 
 import qualified Data.Map as M
+import qualified Data.Set as S
 
 import System.Process (readProcessWithExitCode)
 
@@ -48,11 +49,11 @@ findImages config root = do
   return $ fromString <$> filter (validExtension exts) contents
     where exts = Text.unpack <$> config ^. #extensions
 
-findNewImages :: Config -> FilePath -> Map DocName DocInfo -> IO [(DocName, DocInfo)]
+findNewImages :: Config -> FilePath -> Set DocName -> IO [(DocName, DocInfo)]
 findNewImages config root existing = do
   images <- findImages config root
 
-  catMaybes <$> for (filter (`M.notMember` existing) images) 
+  catMaybes <$> for (filter (`S.notMember` existing) images) 
     (\image -> fmap (image, ) <$> imageInfo root image)
 
 

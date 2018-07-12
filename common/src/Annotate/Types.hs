@@ -14,7 +14,7 @@ import Annotate.Geometry
 
 import Control.Lens (makePrisms)
 
-type ObjId = Int
+type AnnotationId = Int
 type ClientId = Int
 type ClassId = Int
 
@@ -25,9 +25,9 @@ data DocCmd = DocEdit Edit | DocUndo | DocRedo
   deriving (Show, Eq, Generic)
 
 data Edit
-  = Add [(ObjId, Object)]
-  | Delete [ObjId]
-  | Transform [ObjId] Float Vec
+  = Add [(AnnotationId, Annotation)]
+  | Delete [AnnotationId]
+  | Transform [AnnotationId] Float Vec
   deriving (Generic, Show, Eq)
 
 -- instance Monoid Edit where
@@ -36,20 +36,30 @@ data Edit
 --   mappend e (Many []) = e
   -- mappend e e' = Many [e, e']
 
-data Shape = CircleShape Circle
-           | BoxShape    Box
+data Shape = BoxShape     Box
+           | PolygonShape Polygon
+           | LineShape    WideLine
    deriving (Generic, Show, Eq)
+   
 
-data Object = Object { shape :: Shape, label :: ClassId, predictions :: [(ClassId, Float)] }
+instance HasBounds Shape where
+ getBounds (BoxShape s)     = getBounds s
+ getBounds (PolygonShape s) = getBounds s
+ getBounds (LineShape s)    = getBounds s
+   
+
+data Annotation = Annotation { shape :: Shape, label :: ClassId, predictions :: [(ClassId, Float)] }
     deriving (Generic, Show, Eq)
 
 
-type ObjectMap = Map ObjId Object
+type AnnotationMap = Map AnnotationId Annotation
 
 data Document = Document
   { undos :: [Edit]
   , redos :: [Edit]
-  , instances :: ObjectMap
+  , name  :: DocName
+  , info  :: DocInfo
+  , annotations :: AnnotationMap
   } deriving (Generic, Show, Eq)
 
 
@@ -81,18 +91,16 @@ data ErrCode = ErrDecode Text | ErrNotFound DocName | ErrNotRunning | ErrTrainer
 data ServerMsg
   = ServerHello ClientId
   | ServerUpdateInfo DocName DocInfo
-  | ServerDocument DocName DocInfo Document
+  | ServerDocument Document
   | ServerOpen (Maybe DocName) ClientId DateTime
-  | ServerCmd DocName DocCmd
   | ServerError ErrCode
   | ServerEnd
       deriving (Generic, Show, Eq)
 
 data ClientMsg
   = ClientOpen DocName
-  | ClientCmd DocName DocCmd
   | ClientNext (Maybe DocName)
-  | ClientSubmit DocName ImageCat Document
+  | ClientSubmit Document
   | ClientDiscard DocName
   | ClientDetect DocName
 
@@ -103,7 +111,7 @@ instance FromJSON Edit
 instance FromJSON DocCmd
 instance FromJSON ImageCat
 instance FromJSON Shape
-instance FromJSON Object
+instance FromJSON Annotation
 instance FromJSON Document
 instance FromJSON Config
 instance FromJSON DocInfo
@@ -116,7 +124,7 @@ instance ToJSON Edit
 instance ToJSON DocCmd
 instance ToJSON ImageCat
 instance ToJSON Shape
-instance ToJSON Object
+instance ToJSON Annotation
 instance ToJSON Document
 instance ToJSON Config
 instance ToJSON DocInfo

@@ -29,7 +29,7 @@ library
   exposed-modules:     Reflex.Classes
                       , Scene.Viewport, Scene.View, Scene.Types, Scene.Events
                       , Input.Events, Input.Window
-                      , Client.Widgets, Client.Main
+                      , Client.Widgets, Client.Main, Client.Common, Client.Dialog
 
   ghc-options:         -O2
 
@@ -53,6 +53,9 @@ library
                      , lens
                      , semigroupoids
                      , mtl
+                     
+                     , dependent-sum
+                     , dependent-map
 
   if !impl(ghcjs)
     build-depends:     jsaddle-warp

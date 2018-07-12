@@ -1,7 +1,7 @@
 module Server.Trainer where
 
 import Server.Common
-import Server.Store (toExport)
+import Server.Store (exportCollection)
 
 import qualified Data.Map as M
 
@@ -29,7 +29,7 @@ closeTrainer env = do
 trainerLoop :: Env -> WS.Connection ->  IO ()
 trainerLoop env@Env{store} conn = do
   atomically $ do
-    dataset <- toExport <$> readLog store
+    dataset <- exportCollection <$> readLog store
     sendTrainer env (TrainerDataset dataset)
 
   runLoop

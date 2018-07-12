@@ -28,14 +28,12 @@ import Data.Generics.Product.Subtype (upcast)
 
 data Store = Store
   { config    :: Config
-  , images    :: Map DocName DocInfo
-  , documents :: Map DocName Document
+  , images :: Map DocName Document
   } deriving (Show, Eq, Generic)
 
 data Command where
-  CmdDoc :: DocName -> DocCmd -> UTCTime -> Command
   CmdCategory :: DocName -> ImageCat -> Command
-  CmdSubmit :: DocName -> Document -> UTCTime -> Command
+  CmdSubmit :: Document -> UTCTime  -> Command
 
   CmdModified :: DocName -> UTCTime -> Command
   CmdImages :: [(DocName, DocInfo)] -> Command
@@ -74,8 +72,8 @@ data ServerException = LogError String | DecodeError Text | FileError Text
 instance Exception ServerException
 
 data ToTrainer
-  = TrainerDataset Export
-  | TrainerUpdate DocName (Maybe ImageE)
+  = TrainerDataset TrainCollection
+  | TrainerUpdate DocName (Maybe TrainImage)
   | TrainerDetect ClientId DocName
     deriving (Show, Generic, Eq)
 
@@ -88,29 +86,30 @@ data FromTrainer
 
 
 -- Input/export types
-data ImageE = ImageE
-  { imageFile :: DocName,
-    instances :: [Object],
-    imageSize :: (Int, Int),
-    category :: ImageCat
+data TrainImage = TrainImage
+  { imageFile   :: DocName,
+    annotations :: [Annotation],
+    imageSize   :: (Int, Int),
+    category    :: ImageCat
   } deriving (Show, Eq, Generic)
 
-data Export = Export
+
+data TrainCollection = TrainCollection
   { config :: Config
-  , images :: [ImageE]
+  , images :: [TrainImage]
   } deriving (Show, Eq, Generic)
 
 
 
 instance FromJSON ToTrainer
 instance FromJSON FromTrainer
-instance FromJSON Export
-instance FromJSON ImageE
+instance FromJSON TrainCollection
+instance FromJSON TrainImage
 
 instance ToJSON ToTrainer
 instance ToJSON FromTrainer
-instance ToJSON Export
-instance ToJSON ImageE
+instance ToJSON TrainCollection
+instance ToJSON TrainImage
 
 -- Collection of miscellaneous utilities / common functions
 
@@ -176,11 +175,14 @@ broadcast env msg = do
     writeTChan connection (Just msg)
 
 
-lookupDoc :: DocName -> Store -> (Maybe DocInfo, Maybe Document)
-lookupDoc k Store{..} = (M.lookup k images, M.lookup k documents)
+lookupDoc :: DocName -> Store -> Maybe Document
+lookupDoc k Store{..} = M.lookup k images
 
 getCollection :: Store -> Collection
-getCollection = upcast
+getCollection Store{..} = Collection 
+  { config = config
+  , images = view #info <$> images
+  }
 
 
 

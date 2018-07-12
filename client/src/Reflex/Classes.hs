@@ -12,6 +12,7 @@ import Reflex.Dom hiding (switchHold, switch, (=:), sample, Builder, link, Delet
 import Reflex.Active
 
 import Data.Functor
+import Data.Functor.Compose
 import Data.Functor.Alt ((<!>))
 import Data.String
 
@@ -27,12 +28,19 @@ import Control.Applicative
 import Data.Sequence ( ViewL(..), Seq(..), viewl, (|>) )
 import qualified Data.Sequence as Seq
 
+import Data.Dependent.Sum
+import Data.GADT.Compare
+
 
 data Updated t a = Updated a (Event t a)
 data Patched t p = Patched (PatchTarget p) (Event t p)
 
-observeChanges ::  Reflex t => Dynamic t a -> (a -> a -> b) -> Event t b
-observeChanges d f = attachWith f (current d) (updated d)
+changes ::  Reflex t => Dynamic t a -> (a -> a -> b) -> Event t b
+changes d f = attachWith f (current d) (updated d)
+
+maybeChanges ::  Reflex t => Dynamic t a -> (a -> a -> Maybe b) -> Event t b
+maybeChanges d f = attachWithMaybe f (current d) (updated d)
+
 
 
 instance Reflex t => Functor (Updated t) where
@@ -182,9 +190,12 @@ instance (Reflex t, Num a) => Num (Dynamic t a) where
 
 
 
-
-gated :: (Reflex t, Monoid a) => a -> Dynamic t Bool -> Dynamic t a
+gated :: (Functor f, Monoid a) => a -> f Bool -> f a
 gated a d = ffor d $ \cond -> if cond then a else mempty
+
+swapping :: (Functor f) => (a, a) -> f Bool -> f a
+swapping (a, b) d = ffor d $ \cond -> if cond then a else b
+
 
 partition :: Reflex t => Behavior t Bool -> Event t a -> (Event t a, Event t a)
 partition b e = (gate b e, gate (not <$> b) e)
@@ -269,11 +280,11 @@ patchMapWithUpdates (Patched m0 m') f = do
 
 -- Workflow related
 mapTransition ::  (MonadHold t m, Reflex t) => (Event t (Workflow t m a) -> Event t (Workflow t m a)) -> Workflow t m a -> Workflow t m a
-mapTransition f = mapTransition' (fmap (mapTransition f) . f)
+mapTransition f = mapTransitionOnce (fmap (mapTransition f) . f)
 
 
-mapTransition' ::  (MonadHold t m, Reflex t) => (Event t (Workflow t m a) -> Event t (Workflow t m a)) -> Workflow t m a -> Workflow t m a
-mapTransition' f (Workflow m) = Workflow (over _2 f <$> m)
+mapTransitionOnce ::  (MonadHold t m, Reflex t) => (Event t (Workflow t m a) -> Event t (Workflow t m a)) -> Workflow t m a -> Workflow t m a
+mapTransitionOnce f (Workflow m) = Workflow (over _2 f <$> m)
 
 commonTransition :: (MonadHold t m, Reflex t) => Event t (Workflow t m a) -> Workflow t m a -> Workflow t m a
 commonTransition e w = mapTransition (e <!>) w
@@ -288,20 +299,63 @@ workflow' :: (Reflex t, MonadHold t m) => m (Event t (Workflow t m ())) -> Workf
 workflow' m = Workflow $ ((),) <$> m
 
 
+-- Factorisation for Dynamics
 
--- Fan for 'Dynamic' types
+-- valueUpdates :: GEq k => k a -> DSum k f -> Maybe (f a)
+-- valueUpdates k (k' :=> v) = case geq k k' of
+--   Just Refl -> Just v 
+--   Nothing   -> Nothing
+-- 
+-- keyChanges :: GEq k => DSum k f -> DSum k f -> Maybe (DSum k f)
+-- keyChanges (k :=> _) (k' :=> v') = case geq k k' of
+--   Just Refl -> Nothing
+--   Nothing   -> Just (k' :=> v')
+-- 
+-- factorDyn' :: forall t k f. (Reflex t, GEq k) 
+--            => Dynamic t (DSum k f) -> Dynamic t (DSum k (Compose (Dynamic t) f))
+-- factorDyn' d = inner <$> unsafeBuildDynamic initial updates where
+-- 
+--   initial = sample (current d)
+--   updates = maybeChanges d keyChanges
+-- 
+--   inner :: DSum k f -> DSum k (Compose (Dynamic t) f) 
+--   inner (k :=> v) = k :=> Compose (holdDyn v (valueUpdates k <?> updated d))
+-- 
+  
+
+
+
+-- Fan for Dynamics
+fanWith :: (Reflex t, Ord k) => (k -> a -> b) -> (a -> a -> Map k b) -> Dynamic t a -> (k -> Dynamic t b)
+fanWith fromCurrent diffChanges d = \k -> unsafeBuildDynamic (fromCurrent k <$> sample (current d)) (select s (Const2 k))
+  where s = fanMap $ changes d diffChanges
+ 
+
 fanDynMap :: (Reflex t, Ord k, Eq a) => Dynamic t (Map k a)  -> (k -> Dynamic t (Maybe a))
-fanDynMap d = \k -> unsafeBuildDynamic (M.lookup k <$> sample (current d)) (select s (Const2 k))
-    where s = fanMap $ observeChanges d diffMap
+fanDynMap = fanWith M.lookup diffMap
 
-toMap :: Ord k =>  a ->  Set k -> Map k a
-toMap a = M.fromDistinctAscList . fmap (, a) . S.toAscList
+fanDynSet :: (Reflex t, Ord k) => Dynamic t (Set k) -> (k -> Dynamic t Bool)
+fanDynSet = fanWith S.member diffSets
 
 diffSets :: Ord k => Set k -> Set k -> Map k Bool
-diffSets old new = toMap True added <> toMap False deleted
+diffSets old new = setToMap True added <> setToMap False deleted
   where added   = S.difference new old
         deleted = S.difference old new
+        
+setToMap :: Ord k =>  a ->  Set k -> Map k a
+setToMap a = M.fromDistinctAscList . fmap (, a) . S.toAscList        
+  
+fanDyn :: (Reflex t, Ord k) => Dynamic t k -> (k -> Dynamic t Bool)
+fanDyn = fanWith (==) diffEq
 
-fanDynSet :: (Reflex t, Ord k) => Dynamic t (Set k)  -> (k -> Dynamic t Bool)
-fanDynSet d = \k -> unsafeBuildDynamic (S.member k <$> sample (current d)) (select s (Const2 k))
-  where s = fanMap $ observeChanges d diffSets
+diffEq :: Ord k => k -> k -> Map k Bool
+diffEq k k' 
+  | k == k'     = mempty
+  | otherwise   = M.fromList [(k, False), (k', True)]
+
+
+
+
+
+  
+  

@@ -47,10 +47,10 @@ clientDisconnected env clientId = atomically $ do
 
 clientOpen :: Env -> ClientId -> DocName -> STM ()
 clientOpen env clientId k = do
-  (mInfo, mDoc) <- lookupDoc k <$> readLog (env ^. #store)
-  for_ mInfo $ \info -> do
+  mDoc <- lookupDoc k <$> readLog (env ^. #store)
+  for_ mDoc $ \doc -> do
     openDocument env clientId k
-    sendClient env clientId (ServerDocument k info (fromMaybe emptyDoc mDoc))
+    sendClient env clientId (ServerDocument doc)
 
 
 clientLoop :: Env -> WS.Connection -> ClientId -> IO ()
@@ -72,12 +72,11 @@ processMsg env@Env{store} clientId msg = do
   time <- getCurrentTime'
   case msg of
     ClientOpen k    -> clientOpen env clientId k
-    ClientCmd k cmd -> modifyDocument env k cmd
+    -- ClientCmd k cmd -> modifyDocument env k cmd
 
-    ClientSubmit k cat doc -> do
-      updateLog store (CmdSubmit k doc time)
-      updateLog store (CmdCategory k cat)
-      nextImage env clientId (Just k)
+    ClientSubmit doc -> do
+      updateLog store (CmdSubmit doc time)
+      nextImage env clientId (Just (doc ^. #name))
 
     ClientDiscard k -> do
       updateLog store (CmdCategory k Discard)

@@ -10,64 +10,66 @@ import Annotate.Types
 import Data.List (uncons)
 import Data.Maybe (catMaybes)
 
-emptyDoc ::  Document
-emptyDoc = Document
+emptyDoc ::  DocName -> DocInfo -> Document
+emptyDoc name info = Document
   { undos = []
   , redos = []
-  , instances = M.empty
+  , name = name
+  , info = info
+  , annotations = M.empty
   }
 
 
-editTargets :: Edit -> [ObjId]
+editTargets :: Edit -> [AnnotationId]
 editTargets  (Add objs)  = fst <$> objs
 editTargets  (Delete ids) = ids
 editTargets  (Transform ids _ _) = ids
 -- editTargets  (Many edits) = concatMap editTargets edits
 
-allObjects :: Document -> [ObjId]
-allObjects Document{instances} = M.keys instances
+allAnnotations :: Document -> [AnnotationId]
+allAnnotations Document{annotations} = M.keys annotations
 
-lookupObjects :: [ObjId] -> Document -> ObjectMap
-lookupObjects objs Document{instances} = M.fromList $ catMaybes $ fmap lookup' objs
-    where lookup' k = (k, ) <$> M.lookup k instances
+lookupAnnotations :: [AnnotationId] -> Document -> AnnotationMap
+lookupAnnotations objs Document{annotations} = M.fromList $ catMaybes $ fmap lookup' objs
+    where lookup' k = (k, ) <$> M.lookup k annotations
 
 
-maxEdits :: [Edit] -> Maybe ObjId
+maxEdits :: [Edit] -> Maybe AnnotationId
 maxEdits = maximumId . catMaybes . fmap maxEdit
 
 
-maxEdit :: Edit -> Maybe ObjId
+maxEdit :: Edit -> Maybe AnnotationId
 maxEdit (Add objs)  = maximumId (fst <$> objs)
 maxEdit (Delete ids) = maximumId ids
 maxEdit (Transform ids _ _) = maximumId ids
 -- maxEdit (Many edits) = maxEdits edits
 
-maximumId :: [ObjId] -> Maybe ObjId
+maximumId :: [AnnotationId] -> Maybe AnnotationId
 maximumId [] = Nothing
 maximumId xs = Just $ maximum xs
 
 
-maxId :: Document -> Maybe ObjId
+maxId :: Document -> Maybe AnnotationId
 maxId Document{..} = maximumId $ catMaybes
   [ maxEdits undos
   , maxEdits redos
-  , maximumId (M.keys instances)
+  , maximumId (M.keys annotations)
   ]
 
-lookupTargets :: Document -> [ObjId] -> Map ObjId (Maybe Object)
-lookupTargets Document{instances} targets = M.fromList modified where
-  modified = lookup' instances <$> targets
+lookupTargets :: Document -> [AnnotationId] -> Map AnnotationId (Maybe Annotation)
+lookupTargets Document{annotations} targets = M.fromList modified where
+  modified = lookup' annotations <$> targets
   lookup' m k = (k, M.lookup k m)
 
 applyCmd :: DocCmd -> Document -> Document
 applyCmd cmd doc = fromMaybe doc (snd <$> applyCmd' cmd doc)
 
-applyCmdPatch :: DocCmd -> Document -> Maybe (Document, Map ObjId (Maybe Object))
+applyCmdPatch :: DocCmd -> Document -> Maybe (Document, Map AnnotationId (Maybe Annotation))
 applyCmdPatch cmd doc = do
   ((e, _), doc') <- applyCmd' cmd doc
   return (doc', lookupTargets doc' (editTargets e))
 
-editPatch :: ((Edit, Edit), Document) -> Map ObjId (Maybe Object)
+editPatch :: ((Edit, Edit), Document) -> Map AnnotationId (Maybe Annotation)
 editPatch ((e, _), doc') = lookupTargets doc' (editTargets e)
 
 applyCmd' :: DocCmd -> Document -> Maybe ((Edit, Edit), Document)
@@ -98,33 +100,44 @@ applyRedo doc = do
 
 applyEdit' :: Edit -> Document -> Maybe (Edit, Document)
 applyEdit' e doc = do
-   (inverse, objectMap) <- patchEdit e (doc ^. #instances)
-   return (inverse, doc & #instances .~ objectMap)
+   (inverse, annotationMap) <- patchEdit e (doc ^. #annotations)
+   return (inverse, doc & #annotations .~ annotationMap)
 
 
-accumEdits :: Edit -> ([Edit], ObjectMap) -> Maybe ([Edit], ObjectMap)
-accumEdits edit (inverses, objectMap) = do
-    (inv, objectMap') <- patchEdit edit objectMap
-    return (inv : inverses, objectMap')
+accumEdits :: Edit -> ([Edit], AnnotationMap) -> Maybe ([Edit], AnnotationMap)
+accumEdits edit (inverses, annotationMap) = do
+    (inv, annotationMap') <- patchEdit edit annotationMap
+    return (inv : inverses, annotationMap')
 
 
-transformObj :: Float -> Vec -> Object -> Object
+transformObj :: Float -> Vec -> Annotation -> Annotation
 transformObj s t = over #shape $ \case
-  CircleShape (Circle p r) -> CircleShape (Circle (p + t) (r * s))
   BoxShape b      -> BoxShape $ b & boxExtents %~
     (\Extents{..} -> Extents (centre + t) (extents ^* s))
+  
+  PolygonShape poly -> PolygonShape $ poly & over #points (fmap f)
+    where f = scalePoint (boxCentre $ getBounds poly) s . (+ t)
+    
+  LineShape line -> LineShape $ line & over #points (fmap f)
+    where 
+      f (Circle p r) = Circle (scale p + t) (r * s)
+      scale = scalePoint (boxCentre $ getBounds line) s
+      
+scalePoint :: Vec -> Float -> (Vec -> Vec)
+scalePoint c s = (+ c) . (^* s) . subtract c
+  
 
-patchEdit :: Edit -> ObjectMap -> Maybe (Edit, ObjectMap)
-patchEdit edit objectMap =  case edit of
-  Add objs -> return (Delete (fst <$> objs), foldr (uncurry M.insert) objectMap objs)
+patchEdit :: Edit -> AnnotationMap -> Maybe (Edit, AnnotationMap)
+patchEdit edit annotationMap =  case edit of
+  Add objs -> return (Delete (fst <$> objs), foldr (uncurry M.insert) annotationMap objs)
   Delete ks     -> do
-    objs <- forM ks (\k -> (k,) <$> M.lookup k objectMap)
-    return (Add objs, foldr M.delete objectMap ks)
+    objs <- forM ks (\k -> (k,) <$> M.lookup k annotationMap)
+    return (Add objs, foldr M.delete annotationMap ks)
 
   Transform ks s v -> return
     ( Transform ks (1/s) (negate v)
-    , foldr (\k -> over (at k . traverse) (transformObj s v)) objectMap ks)
+    , foldr (\k -> over (at k . traverse) (transformObj s v)) annotationMap ks)
 
   -- Many edits ->  do
-  --   (edits, objectMap') <- foldM (flip accumEdits) ([], objectMap) edits
-  --   return (Many edits, objectMap')
+  --   (edits, annotationMap') <- foldM (flip accumEdits) ([], annotationMap) edits
+  --   return (Many edits, annotationMap')

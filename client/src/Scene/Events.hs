@@ -31,7 +31,7 @@ testCombo key modifiers (held, pressed)
   | otherwise = Nothing
 
 holdInputs :: (MonadFix m, MonadHold t m, Reflex t)
-           => Behavior t Viewport -> Event t (Map ObjId Bool) -> E.Inputs t  -> m (SceneInputs t)
+           => Behavior t Viewport -> Event t (Map AnnotationId Bool) -> E.Inputs t  -> m (SceneInputs t)
 holdInputs viewport hovers inp = do
 
   mousePos      <- holdDyn (V2 0 0) (E.mouseMove inp)

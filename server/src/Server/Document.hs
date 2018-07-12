@@ -28,7 +28,7 @@ findNext' Store{..} docs = \case
 
     where
       editable = M.keysSet (M.filter isFresh images)
-      isFresh = (== New) . view #category
+      isFresh = (== New) . view (#info . #category)
 
 findNext :: Env -> Maybe DocName -> STM (Maybe DocName)
 findNext Env{..} maybeCurrent =
@@ -66,9 +66,8 @@ closeDocument env@Env {..} clientId  = preview (clientDocument clientId) <$> rea
         refs <- M.lookup k <$> readTVar documents
         modifyTVar documents (M.update removeClient k)
 
-        mInfo <- fst . lookupDoc k <$> readLog store
-        forM_ mInfo $ \info ->
-          broadcast env (ServerUpdateInfo k info)
+        mDoc <- lookupDoc k <$> readLog store
+        forM_ mDoc $ broadcast env . ServerUpdateInfo k . view #info
 
     removeClient cs = case filter (/= clientId) cs of
         []  -> Nothing
@@ -78,15 +77,15 @@ closeDocument env@Env {..} clientId  = preview (clientDocument clientId) <$> rea
 ordNub = S.toList . S.fromList
 
 
-modifyDocument :: Env -> DocName -> DocCmd -> STM ()
-modifyDocument env@Env {..} k cmd = do
-
-  time <- getCurrentTime'
-  updateLog store (CmdDoc k cmd time)
-
-  clients <- getEditing <$> readTVar documents
-  for_ clients $ \clientId ->
-    sendClient env clientId (ServerCmd k cmd)
-
-  where
-    getEditing = fromMaybe [] . M.lookup k
+-- modifyDocument :: Env -> DocName -> DocCmd -> STM ()
+-- modifyDocument env@Env {..} k cmd = do
+-- 
+--   time <- getCurrentTime'
+--   updateLog store (CmdDoc k cmd time)
+-- 
+--   clients <- getEditing <$> readTVar documents
+--   for_ clients $ \clientId ->
+--     sendClient env clientId (ServerCmd k cmd)
+-- 
+--   where
+--     getEditing = fromMaybe [] . M.lookup k

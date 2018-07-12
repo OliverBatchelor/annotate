@@ -86,7 +86,7 @@ main = do
     return (initialStore (defaultConfig & #root .~ (fromString root)))
 
   import' <- forM importJson $ \file ->
-    BS.readFile file >>= fmap fromExport . tryDecode
+    BS.readFile file >>= fmap importCollection . tryDecode
 
   store <- case create' <|> import' of
     Just initial -> freshLog initial database
@@ -101,12 +101,12 @@ main = do
 
   atomically $ do
     config <- view #config <$> readLog store
-    existing <- view #images <$> readLog store
+    existing <- M.keysSet . view #images <$> readLog store
     images <- unsafeIOToSTM (findNewImages config root existing)
     updateLog store (CmdImages images)
 
   forM_ exportJson $ \file -> do
-    atomically (readLog store) >>= BS.writeFile file . encodePretty . toExport
+    atomically (readLog store) >>= BS.writeFile file . encodePretty . exportCollection
     putStrLn ("exported store to: " <> file)
 
   -- print =<< atomically (readLog store)
