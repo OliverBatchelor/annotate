@@ -36,7 +36,6 @@ data AppCommand
   | ClearCmd
   | RemoteCmd ClientMsg
   
-  | SidebarCmd 
 
   deriving (Generic, Show)
 
@@ -54,7 +53,7 @@ instance Default Action where
 data AppEnv t = AppEnv 
   { basePath :: Text 
   , commands :: Event t AppCommand
-  , currentDocument :: Dynamic t (Maybe ((DocName, DocInfo), Document))
+  , currentDocument :: Dynamic t (Maybe Document)
   , currentAction  :: Dynamic t Action
   
   }

@@ -11,6 +11,7 @@ import Data.Default
 import Data.Monoid
 
 import Control.Monad.Reader
+import Control.Lens (notNullOf)
 
 import Scene.Viewport
 import Scene.View
@@ -159,15 +160,15 @@ handleHistory loaded = mdo
 type GhcjsAppBuilder t m = (GhcjsBuilder t m, EventWriter t AppCommand m, MonadReader (AppEnv t) m)
 
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
-            => Event t AppCommand -> (DocName, DocInfo, Document) -> m (Dynamic t Action, Dynamic t (Maybe Document))
-sceneWidget cmds (name, info, loaded)  = mdo
+            => Event t AppCommand -> Document -> m (Dynamic t Action, Dynamic t (Maybe Document))
+sceneWidget cmds loaded  = mdo
 
   document <- holdDyn loaded (snd <$> modified)
   let modified = attachWithMaybe (flip applyCmd') (current document) docCmd
       clearCmd = (clearAnnotations <$> current document) <@ (_ClearCmd ?> cmds)
       docCmd = leftmost [_DocCmd ?> cmds, clearCmd]
 
-  viewport <- viewControls cmds info
+  viewport <- viewControls cmds (loaded ^. #info)
   input <- holdInputs (current viewport) hover =<< inputs element
 
   -- Keep track of next id to use for new annotations
@@ -182,7 +183,7 @@ sceneWidget cmds (name, info, loaded)  = mdo
     leftmost [latestAdd, _SelectCmd ?> cmds]
 
   (element, (action, hover)) <- sceneView $ Scene
-    { image    = ("images/" <> name, info ^. #imageSize)
+    { image    = ("images/" <> loaded ^. #name, loaded ^. #info . #imageSize)
     , viewport = viewport
     , input    = input
     , document = document
@@ -198,9 +199,6 @@ sceneWidget cmds (name, info, loaded)  = mdo
     where annotations0 = loaded ^. #annotations
 
 
-docMeta :: (DocName, DocInfo, Document) -> (DocName, DocInfo)
-docMeta (name, info, _) = (name, info)
-
 bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m ()
 bodyWidget host = mdo
   (opened, closed, serverMsg, serverErrors) <- network host clientMsg
@@ -213,8 +211,9 @@ bodyWidget host = mdo
         return (("connected", never), ready <$> hello)
 
       ready clientId = Workflow $ do
+        
         needsLoad <- filterMaybe <$>
-          postCurrent (preview _Nothing <$> current currentFile)
+          postCurrent (preview _Nothing <$> current document)
 
         return (("ready", ClientNext Nothing <$ needsLoad), never)
 
@@ -230,30 +229,28 @@ bodyWidget host = mdo
         ]
 
 
-  urlSelected <- handleHistory (view _1 <$> loaded)
-  currentFile  <- holdDyn Nothing (Just . docMeta <$> loaded)
-
-  setTitle $ ffor currentFile $ \k ->
-    "Annotate - " <> fromMaybe ("no document") (fst <$> k)
+  urlSelected <- handleHistory (view #name <$> loaded)
+  setTitle $ ffor document $ \doc ->
+    "Annotate - " <> fromMaybe ("no document") (view #name <$> doc)
 
   let hello   = preview _ServerHello <?> serverMsg
-      loaded  = preview _ServerDocument <?> serverMsg
+      (loaded :: Event t Document)  = preview _ServerDocument <?> serverMsg
       env = AppEnv 
         { basePath = "http://" <> host
         , currentAction   = action
-        , currentDocument = liftA2 (,) <$> document <*> currentFile
+        , currentDocument = document
         , commands = cmds
         }
 
   ((action, document), cmds) <- flip runReaderT env $ runEventWriterT $ 
     cursorLock action $ do  
       row "expand" $ do
-        sidebar (preview _SidebarCmd <?> cmds)
+        sidebar
         
         div [class_ =: "scene expand"] $ do
           state <- replaceHold 
               (pure (def, pure Nothing)) 
-              (sceneWidget <$> loaded)
+              (sceneWidget cmds <$> loaded)
           overlay document
           return state
 
@@ -294,33 +291,51 @@ selectable initial items = mdo
   open <- holdDyn initial (leftmost clicks)
   return open
   
-sidebar :: AppBuilder t m => Event t () -> m ()
-sidebar toggled = do 
-  isOpen <- toggled False e
+sidebar :: AppBuilder t m => m ()
+sidebar = mdo 
+  isOpen <- div [classList ["sidebar", swapping ("open", "closed") isOpen]] $ do
+    
+    isOpen <- toggler
+    column "" $ do    
+      openTab <- tabs ImagesTab 
+        [ (ClassesTab, tab "Classes") 
+        , (ImagesTab, tab "Images")
+        , (ImagesTab, tab "Detection")
+        ]
+      spacer
+      
+    return isOpen
+  
+  return ()
 
-  div [class_ =: "sidebar", hidden ~: isOpen] $ column "" $ do
-    openTab <- tabs ImagesTab 
-      [ (ClassesTab, tab "Classes") 
-      , (ImagesTab, tab "Images")
-      , (ImagesTab, tab "Detection")
-      ]
-    spacer
-        
+    where
+      toggler = mdo 
+        e <- button_ [class_ =: "btn btn-secondary enable-cursor"] $ 
+            i [classList ["fa", swapping ("fa-chevron-right", "fa-chevron-left") isOpen]] blank
+        isOpen <- toggle False (domEvent Click e)
+        return isOpen
+
 
 -- Main interface
 
+
+
 overlay :: AppBuilder t m => Dynamic t (Maybe Document) -> m ()
 overlay document = column "expand disable-cursor" $ 
-  sequence [header, spacer, footer]
+  sequence_ [header, spacer, footer]
   
   where
-    canUndo = not . null . view #undos <$> document
-    canRedo = not . null . view #redos <$> document
     
+    
+    canUndo = nonEmpty #undos <$> document
+    canRedo = nonEmpty #redos <$> document
+    
+    nonEmpty label = notNullOf (_Just . label . traverse)
+    
+    withDocument f e = fmap f <?> (current document `tag` e)
     docOpen = isJust <$> document
     
     header = buttonRow $ do 
-      sidebarToggler
       spacer
       buttonGroup $ do
         docCommand  (const DocUndo)  =<< toolButton canUndo "Undo" "fa-undo" "Undo last edit"
@@ -328,7 +343,7 @@ overlay document = column "expand disable-cursor" $
         command     (const ClearCmd) =<< toolButton' "Clear" "fa-eraser" "Clear all annotations"
 
       detect <- toolButton docOpen "Detect" "fa-magic" "Detect annotations using current trained model"
-      remoteCommand id (ClientDetect k <$ detect)
+      remoteCommand id (withDocument (ClientDetect . view #name) detect)
       
     footer = buttonRow $ do
       spacer
@@ -338,18 +353,9 @@ overlay document = column "expand disable-cursor" $
         submit  <- toolButton docOpen "Submit" "fa-save" "Submit image for training"
 
         remoteCommand id $ leftmost
-          [ ClientDiscard k     <$ discard
-          , ClientNext (Just k) <$ next
-          , flip ClientSubmit Train <$> current document <@ submit
+          [ withDocument (ClientDiscard . view #name) discard
+          , withDocument (ClientNext . Just . view #name)  next
+          , withDocument ClientSubmit submit
           ]
     
-    
-    sidebarToggler = mdo 
-      e <- fmap (domEvent Click) $ 
-        button_ [class_ =: "btn btn-secondary enable-cursor"] $ 
-          i [classList ["fa", swapping ("fa-chevron-right", "fa-chevron-left") isOpen]] blank
-      command  (const SidebarCmd) e
-      isOpen <- toggle False e
-      return ()
-
     buttonRow = row "p-2 spacing-4"
