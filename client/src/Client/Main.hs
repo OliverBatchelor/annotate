@@ -237,12 +237,11 @@ bodyWidget host = mdo
   let hello   = preview _ServerHello <?> serverMsg
       (loaded :: Event t Document)  = preview _ServerDocument <?> serverMsg
       env = AppEnv 
-        { envBasePath = "http://" <> host
-        , envAction   = action
-        , envDocument = document
-        , envCommands = cmds
-        , envConfig = config
-        , envClass = currentClass
+        { basePath = "http://" <> host
+        , document = document
+        , commands = cmds
+        , config = config
+        , currentClass = currentClass
         }
   
   config <- holdDyn defaultConfig (view _2 <$> hello)
@@ -277,42 +276,72 @@ data SideTab = ClassesTab | ImagesTab | DetectionTab
 
 type Selectable t m = Dynamic t Bool -> m (Event t ()) 
 
-tab :: Builder t m => Text -> Selectable t m
-tab t = \active -> 
+tab :: Builder t m => Text -> Text -> Selectable t m
+tab icon t = \active -> 
   li [class_ =: "nav-item"] $ do
-    e <- a_ [classList ["nav-link h-100", "active" `gated` active], href_ =: "#"] $ text t
+    e <- a_ [classList ["nav-link", "active" `gated` active], href_ =: "#"] $ 
+      row "align-items-center spacing-2" $ do
+        i [classes_ =: ["fa", icon]] blank
+        span [] $ text t
     return (domEvent Click e)
 
-tabs :: (Ord k, Builder t m) => k -> [(k, Selectable t m)] -> m (Dynamic t k)
-tabs initial items = ul [class_ =: "nav nav-tabs background-light enable-cursor "] $ selectable initial items
+tabs :: (Builder t m) => Int -> [(m (), Selectable t m)] -> m ()
+tabs initial items = column "" $ do    
+    openTab <- ul [class_ =: "nav nav-tabs background-light enable-cursor "] $     
+      selectable initial (zip [0..] (snd <$> items))
+    tabContent openTab (zip [0..] (fst <$> items))
 
 selectable :: (Ord k, Builder t m) => k -> [(k, Selectable t m)] -> m (Dynamic t k)
 selectable initial items = mdo
   let isOpen = fanDyn open
   clicks <- for items $ \(k, tab) -> fmap (const k) <$> tab (isOpen k)
-  
   open <- holdDyn initial (leftmost clicks)
   return open
   
+tabContent :: (Ord k, Builder t m) =>  Dynamic t k -> [(k, m ())] -> m ()
+tabContent selected items = void $ div_ [class_ =: "tab-content p-2"] $ traverse_ item items
+  where item (k, m) = div_ [hidden_ ~: fmap (/=k) selected] m
+
+
+selectTable ::  Dynamic t k -> [(k, m ())] -> m (Event t k)
+selectTable = undefined
+  
+  
+classesTab :: AppBuilder t m => m ()
+classesTab = do
+  AppEnv{config} <- ask 
+
+  return ()
+  -- dyn $ ffor config $ \Config{classes} -> mdo
+    
+    -- holdDyn 
+    -- clicked <- selectTable 
+  
+
+imagesTab :: AppBuilder t m => m ()
+imagesTab = text "images"
+
+detectionTab :: AppBuilder t m => m ()
+detectionTab = text "detection"
+  
 sidebar :: AppBuilder t m => m ()
 sidebar = mdo 
+  
   isOpen <- div [classList ["enable-cursor sidebar bg-white p-2", swapping ("closed", "open") isOpen]] $ do
     isOpen <- toggler
-    
-    column "" $ do    
-      openTab <- tabs ImagesTab 
-        [ (ClassesTab, tab "Classes") 
-        , (ImagesTab, tab "Images")
-        , (DetectionTab, tab "Detection")
-        ]
-      spacer
+
+    tabs 0 
+      [ (classesTab,    tab "fa-tags"   "Classes") 
+      , (imagesTab,     tab "fa-images" "Images")
+      , (detectionTab,  tab "fa-magic"  "Detection")
+      ]
       
     return isOpen
   return ()
 
     where
       toggler = mdo 
-        e <- div_ [class_ =: "toggler p-2"] $ 
+        e <- a_ [href_ =: "#", class_ =: "toggler p-2"] $ 
             i [classList ["fa", swapping ("fa-chevron-right", "fa-chevron-left") isOpen]] blank
         isOpen <- toggle False (domEvent Click e)
         return isOpen
@@ -322,7 +351,7 @@ sidebar = mdo
 
 
 
-overlay :: AppBuilder t m => Dynamic t (Maybe Document) -> m ()
+overlay :: AppBuilder t m =>  Dynamic t (Maybe Document) -> m ()
 overlay document = row "expand  disable-cursor" $ do
    sidebar
    column "expand" $ 
@@ -330,8 +359,6 @@ overlay document = row "expand  disable-cursor" $ do
   
   where
     header = buttonRow $ do 
-      toolButton docOpen "Category" "fa-tags" "Choose active category"
-
       
       spacer
       buttonGroup $ do
@@ -342,8 +369,8 @@ overlay document = row "expand  disable-cursor" $ do
       detect <- toolButton docOpen "Detect" "fa-magic" "Detect annotations using current trained model"
       remoteCommand id (withDocument (ClientDetect . view #name) detect)
       
-    canUndo = maybeDocument False (not . null . view #undos)
-    canRedo = maybeDocument False (not . null . view #redos)
+    canUndo = fromDocument False (not . null . view #undos)
+    canRedo = fromDocument False (not . null . view #redos)
             
     footer = buttonRow $ do
       spacer
@@ -361,7 +388,7 @@ overlay document = row "expand  disable-cursor" $ do
     buttonRow = row "p-2 spacing-4"
     nonEmpty label = notNullOf (_Just . label . traverse)
     
-    maybeDocument a f = fromMaybe a . fmap f <$> document
+    fromDocument a f = fromMaybe a . fmap f <$> document
     withDocument f e = fmap f <?> (current document `tag` e)
     docOpen = isJust <$> document    
     

@@ -29,6 +29,18 @@ html, body {
   position: absolute;
 }
 
+
+.tab-content {
+  overflow:hidden;
+  position:relative;
+}
+
+.tab-content > * {
+  position: absolute;
+}
+
+
+
 .disable-cursor {
   pointer-events:none;
 }
@@ -59,19 +71,19 @@ html, body {
   flex-shrink:1;
 }
 
-.spacing-2 > * + * {
+.spacing-1 > * + * {
   margin-left: 2px;
 }
 
-.spacing-4 > * + * {
+.spacing-2 > * + * {
   margin-left: 4px;
 }
 
-.spacing-8 > * + * {
+.spacing-3 > * + * {
   margin-left: 8px;
 }
 
-.spacing-16 > * + * {
+.spacing-4 > * + * {
   margin-left: 16px;
 }
 
