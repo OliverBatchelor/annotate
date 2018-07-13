@@ -52,12 +52,13 @@ instance Default Action where
   def = Action "default" False  
 
 data AppEnv t = AppEnv 
-  { basePath :: Text 
-  , commands :: Event t AppCommand
-  , currentDocument :: Dynamic t (Maybe Document)
-  , currentAction  :: Dynamic t Action
-  
-  }
+  { envBasePath :: Text 
+  , envCommands :: Event t AppCommand
+  , envDocument :: Dynamic t (Maybe Document)
+  , envAction   :: Dynamic t Action
+  , envConfig   :: Dynamic t Config
+  , envClass    :: Dynamic t ClassId
+  } deriving Generic
 
 localPath :: MonadReader (AppEnv t) m => Text -> m Text
 localPath path = do

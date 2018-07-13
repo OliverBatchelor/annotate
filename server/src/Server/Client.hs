@@ -20,7 +20,9 @@ nextClient :: Map ClientId Client -> ClientId
 nextClient m = fromMaybe 0 (succ . fst . fst <$>  M.maxViewWithKey m)
 
 sendHello :: Env -> ClientId -> STM ()
-sendHello env clientId = sendClient env clientId (ServerHello clientId)
+sendHello env clientId = do 
+  config <- view #config <$> readLog (env ^. #store)
+  sendClient env clientId (ServerHello clientId config) 
 
 connectClient :: Env -> WS.Connection ->  IO ClientId
 connectClient env conn = do

@@ -105,12 +105,17 @@ main = do
     images <- unsafeIOToSTM (findNewImages config root existing)
     updateLog store (CmdImages images)
 
-  forM_ exportJson $ \file -> do
-    atomically (readLog store) >>= BS.writeFile file . encodePretty . exportCollection
-    putStrLn ("exported store to: " <> file)
-
-  -- print =<< atomically (readLog store)
   let env = Env {..}
 
+  forM_ exportJson $ \file -> do
+    state <- atomically $ do
+      writeLog env $ "Exporting store to: " <> file 
+      readLog store 
+      
+    BS.writeFile file (encodePretty (exportCollection state))
+    
+  
+  atomically $ writeLog env "Anotate server listening."
+  
   forkIO $ WS.runServer "127.0.0.1" 2160 $ trainerServer env
   Warp.run 3000 $ serve (Proxy @ Api) (server root env)

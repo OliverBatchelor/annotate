@@ -179,6 +179,8 @@ sceneWidget cmds loaded  = mdo
       latestAdd = fmap (S.fromList . fmap fst) . preview _Add <?> latestEdit
   selection <- holdDyn S.empty $
     leftmost [latestAdd, _SelectCmd ?> cmds]
+    
+  env <- ask
 
   (element, (action, hover)) <- sceneView $ Scene
     { image    = ("images/" <> loaded ^. #name, loaded ^. #info . #imageSize)
@@ -190,7 +192,8 @@ sceneWidget cmds loaded  = mdo
     , annotations = Patched annotations0 (PatchMap . editPatch <$> modified)
 
     , nextId = nextId
-    , currentClass = pure 0
+    , currentClass = view #currentClass env
+    , config = view #config env
     }
 
   return (action, (Just <$> document))
@@ -208,7 +211,7 @@ bodyWidget host = mdo
       connected = Workflow $ do
         return (("connected", never), ready <$> hello)
 
-      ready clientId = Workflow $ do
+      ready _ = Workflow $ do
         
         needsLoad <- filterMaybe <$>
           postCurrent (preview _Nothing <$> current document)
@@ -234,11 +237,16 @@ bodyWidget host = mdo
   let hello   = preview _ServerHello <?> serverMsg
       (loaded :: Event t Document)  = preview _ServerDocument <?> serverMsg
       env = AppEnv 
-        { basePath = "http://" <> host
-        , currentAction   = action
-        , currentDocument = document
-        , commands = cmds
+        { envBasePath = "http://" <> host
+        , envAction   = action
+        , envDocument = document
+        , envCommands = cmds
+        , envConfig = config
+        , envClass = currentClass
         }
+  
+  config <- holdDyn defaultConfig (view _2 <$> hello)
+  currentClass <- holdDyn 0 never
 
   ((action, document), cmds) <- flip runReaderT env $ runEventWriterT $ 
     cursorLock action $ do
@@ -304,7 +312,7 @@ sidebar = mdo
 
     where
       toggler = mdo 
-        e <- div_ [class_ =: "toggler bg-light p-3 rounded-right"] $ 
+        e <- div_ [class_ =: "toggler p-2"] $ 
             i [classList ["fa", swapping ("fa-chevron-right", "fa-chevron-left") isOpen]] blank
         isOpen <- toggle False (domEvent Click e)
         return isOpen
@@ -315,13 +323,16 @@ sidebar = mdo
 
 
 overlay :: AppBuilder t m => Dynamic t (Maybe Document) -> m ()
-overlay document = row "expand" $ do
-   --sidebar
-   column "expand disable-cursor" $ 
-      sequence_ [header, spacer, footer]
+overlay document = row "expand  disable-cursor" $ do
+   sidebar
+   column "expand" $ 
+    sequence_ [header, spacer, footer]
   
   where
     header = buttonRow $ do 
+      toolButton docOpen "Category" "fa-tags" "Choose active category"
+
+      
       spacer
       buttonGroup $ do
         docCommand  (const DocUndo)  =<< toolButton canUndo "Undo" "fa-undo" "Undo last edit"

@@ -36,7 +36,7 @@ import Data.Aeson as X
   (ToJSON(..), FromJSON(..), FromJSONKey(..), ToJSONKey(..)
   , decode, decode', encode, decodeStrict, decodeStrict', eitherDecode, eitherDecodeStrict)
 
-import Data.List as X (intersperse, filter, zip, zip3, zipWith, zipWith3, lookup, take, drop, elem)
+import Data.List as X (intersperse, filter, zip, zip3, zipWith, zipWith3, lookup, take, drop, elem, uncons)
 import Data.Maybe as X (fromMaybe, maybe, catMaybes, Maybe (..), maybeToList, isJust, isNothing)
 import Data.Either as X (either, Either (..), isLeft, isRight)
 

@@ -1,11 +1,13 @@
 module Annotate.Types (
   module Annotate.Types,
   module Annotate.Geometry,
+  module Annotate.Colour,
 
   Generic(..),
 ) where
 
 import Annotate.Common
+import Annotate.Colour
 
 import qualified Data.Map as M
 
@@ -30,17 +32,14 @@ data Edit
   | Transform [AnnotationId] Float Vec
   deriving (Generic, Show, Eq)
 
--- instance Monoid Edit where
---   mempty = Many []
---   mappend (Many []) e = e
---   mappend e (Many []) = e
-  -- mappend e e' = Many [e, e']
 
 data Shape = BoxShape     Box
            | PolygonShape Polygon
            | LineShape    WideLine
    deriving (Generic, Show, Eq)
-   
+
+data ShapeConfig = BoxConfig | PolygonConfig | LineConfig   
+  deriving (Generic, Show, Eq)
 
 instance HasBounds Shape where
  getBounds (BoxShape s)     = getBounds s
@@ -72,10 +71,18 @@ data DocInfo = DocInfo
   } deriving (Generic, Show, Eq)
 
 
+data ClassConfig = ClassConfig 
+  { name :: Text
+  , shape :: ShapeConfig
+  , colour :: HexColour
+  }
+  deriving (Generic, Show, Eq)
+  
+  
 data Config = Config
   { root      :: Text
   , extensions :: [Text]
-  , classes    :: Map ClassId Text
+  , classes    :: Map ClassId ClassConfig
   } deriving (Generic, Show, Eq)
 
 data Collection = Collection
@@ -89,7 +96,7 @@ data ErrCode = ErrDecode Text | ErrNotFound DocName | ErrNotRunning | ErrTrainer
 
 
 data ServerMsg
-  = ServerHello ClientId
+  = ServerHello ClientId Config
   | ServerUpdateInfo DocName DocInfo
   | ServerDocument Document
   | ServerOpen (Maybe DocName) ClientId DateTime
@@ -106,6 +113,8 @@ data ClientMsg
 
       deriving (Generic, Show, Eq)
 
+instance FromJSON ShapeConfig
+instance FromJSON ClassConfig
 
 instance FromJSON Edit
 instance FromJSON DocCmd
@@ -119,6 +128,9 @@ instance FromJSON Collection
 instance FromJSON ServerMsg
 instance FromJSON ClientMsg
 instance FromJSON ErrCode
+
+instance ToJSON ShapeConfig
+instance ToJSON ClassConfig
 
 instance ToJSON Edit
 instance ToJSON DocCmd
@@ -138,8 +150,15 @@ defaultConfig :: Config
 defaultConfig = Config
   { root = ""
   , extensions = [".png", ".jpg", ".jpeg"]
-  , classes    = M.fromList [(0, "default")]
+  , classes    = M.fromList [(0, defaultClass)]
   }
+  
+  where
+    defaultClass = ClassConfig 
+      { name    = "default" 
+      , colour  = fromMaybe 0xFFFF00 $ fmap fst (uncons defaultColours)
+      , shape   = BoxConfig
+      }
 
 makePrisms ''ClientMsg
 makePrisms ''ServerMsg

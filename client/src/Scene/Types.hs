@@ -66,5 +66,6 @@ data Scene t = Scene
 
   , nextId       :: Dynamic t AnnotationId
   , currentClass :: Dynamic t ClassId
+  , config       :: Dynamic t Config
 
   } deriving (Generic)

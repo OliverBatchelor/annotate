@@ -28,6 +28,9 @@ $(deriveSafeCopy 0 'base ''ImageCat)
 $(deriveSafeCopy 0 'base ''Document)
 $(deriveSafeCopy 0 'base ''DocInfo)
 $(deriveSafeCopy 0 'base ''Config)
+$(deriveSafeCopy 0 'base ''ClassConfig)
+$(deriveSafeCopy 0 'base ''ShapeConfig)
+
 $(deriveSafeCopy 0 'base ''Store)
 
 $(deriveSafeCopy 0 'base ''Command)
