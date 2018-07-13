@@ -4,6 +4,7 @@ module Input.Events
   ) where
 
 import Annotate.Common
+import Client.Common
 
 import Reflex.Classes
 import Builder.Element (ElemType)
@@ -20,6 +21,9 @@ import Data.Default
 import qualified GHCJS.DOM as DOM
 import qualified GHCJS.DOM.Types as DOM
 import qualified GHCJS.DOM.EventM as DOM
+import qualified GHCJS.DOM.Element as DOM
+import qualified GHCJS.DOM.DOMRectReadOnly as DOM
+
 
 import qualified GHCJS.DOM.WheelEvent as DOM
 
@@ -60,9 +64,29 @@ toButton n = OtherButton n
 makePrisms ''Button
 
 
-inputs :: (DomBuilderSpace m ~ GhcjsDomSpace, Reflex t, MonadFix m, MonadHold t m, TriggerEvent t m, MonadJSM m)
-            => ElemType t m -> m (Inputs t)
+getCoords :: MonadJSM m => DOM.HTMLElement -> m Box
+getCoords e = DOM.liftJSM $ do
+   rect <- DOM.getBoundingClientRect e
+   
+   pos <-  V2 <$> DOM.getX rect     <*> DOM.getY rect
+   size <- V2 <$> DOM.getWidth rect <*> DOM.getY rect
+   
+   return $ Box (realToFrac <$> pos) (realToFrac <$> size)
+
+pollBoundingBox :: (GhcjsBuilder t m, MonadJSM m) => ElemType t m -> m (Dynamic t Box)
+pollBoundingBox e = do
+  t0 <- liftIO getCurrentTime
+  timer <- tickLossy (1.0/30.0) t0
+  
+  updates <- performEvent (getCoords raw <$ timer)
+  let initial = Box (V2 0 0) (V2 0 0)
+  
+  holdUniqDyn =<< holdDyn initial updates
+    where raw = DOM.uncheckedCastTo DOM.HTMLElement $ _element_raw e
+
+inputs :: (GhcjsBuilder t m) => ElemType t m -> m (Inputs t)
 inputs scene = do
+  
   window <- DOM.currentWindowUnchecked
 
   -- Mouse down events on the element

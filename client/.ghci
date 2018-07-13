@@ -1,3 +1,4 @@
+import Annotate.Common
 :set -fno-break-on-exception
 :module +Language.Javascript.JSaddle.Warp 
 :def! reload (const $ return "::reload\nLanguage.Javascript.JSaddle.Warp.debug 3708 Client.Main.main")

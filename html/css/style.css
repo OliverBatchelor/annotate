@@ -19,13 +19,13 @@ html, body {
 }
 
 
-#scene {
+.scene {
   background-color: gray;
   overflow:hidden;
   position:relative;
 }
 
-#scene > * {
+.scene > * {
   position: absolute;
 }
 
@@ -107,14 +107,14 @@ html, body {
   fill-opacity: 0.4;
 }
 
-.object {
+.annotation {
   stroke: black;
   fill: blue;
   vector-effect: non-scaling-stroke;
   fill-opacity: 0.4;
 }
 
-.object:hover {
+.annotation:hover {
   .fill-opacity:0.6;
   stroke-width:2;
 }
@@ -143,4 +143,25 @@ html, body {
   transform:translate(0px, -100%);
   top:0px;
   right:0px;
+}
+
+
+.sidebar {
+  position: relative;
+  width:600px;
+  overflow: visible; 
+  
+  transition-duration: .3s;  
+}
+ 
+.sidebar.closed {
+  margin-left: -600px;
+}
+
+.toggler {
+  position: absolute;
+  top: 0px;
+  left: 100%;
+  z-index:2;
+
 }

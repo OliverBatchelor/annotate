@@ -27,7 +27,7 @@ iconText name icon = column "" $ do
 
 toolButton :: Builder t m => Dynamic t Bool -> Text -> Text -> Text -> m (Event t ())
 toolButton enabled name icon tooltip = fmap (domEvent Click) $
-    button_ [class_ =: "btn btn-secondary enable-cursor", title_ =: tooltip, disabled_ ~: not <$> enabled] $
+    button_ [class_ =: "btn btn-light enable-cursor", title_ =: tooltip, disabled_ ~: not <$> enabled] $
       iconText name icon
 
 

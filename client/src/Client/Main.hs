@@ -157,8 +157,6 @@ handleHistory loaded = mdo
         }
 
 
-type GhcjsAppBuilder t m = (GhcjsBuilder t m, EventWriter t AppCommand m, MonadReader (AppEnv t) m)
-
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
             => Event t AppCommand -> Document -> m (Dynamic t Action, Dynamic t (Maybe Document))
 sceneWidget cmds loaded  = mdo
@@ -243,17 +241,14 @@ bodyWidget host = mdo
         }
 
   ((action, document), cmds) <- flip runReaderT env $ runEventWriterT $ 
-    cursorLock action $ do  
-      row "expand" $ do
-        sidebar
+    cursorLock action $ do
+      div [class_ =: "scene expand"] $ do
+        state <- replaceHold 
+            (pure (def, pure Nothing)) 
+            (sceneWidget cmds <$> loaded)
+        overlay document
+        return state
         
-        div [class_ =: "scene expand"] $ do
-          state <- replaceHold 
-              (pure (def, pure Nothing)) 
-              (sceneWidget cmds <$> loaded)
-          overlay document
-          return state
-
   return ()
 
 
@@ -269,7 +264,7 @@ cursorLock action child =
 
 
 
-data SideTab = ClassesTab | ImagesTab
+data SideTab = ClassesTab | ImagesTab | DetectionTab
   deriving (Show, Ord, Eq, Generic)
 
 type Selectable t m = Dynamic t Bool -> m (Event t ()) 
@@ -293,24 +288,23 @@ selectable initial items = mdo
   
 sidebar :: AppBuilder t m => m ()
 sidebar = mdo 
-  isOpen <- div [classList ["sidebar", swapping ("open", "closed") isOpen]] $ do
-    
+  isOpen <- div [classList ["enable-cursor sidebar bg-white p-2", swapping ("closed", "open") isOpen]] $ do
     isOpen <- toggler
+    
     column "" $ do    
       openTab <- tabs ImagesTab 
         [ (ClassesTab, tab "Classes") 
         , (ImagesTab, tab "Images")
-        , (ImagesTab, tab "Detection")
+        , (DetectionTab, tab "Detection")
         ]
       spacer
       
     return isOpen
-  
   return ()
 
     where
       toggler = mdo 
-        e <- button_ [class_ =: "btn btn-secondary enable-cursor"] $ 
+        e <- div_ [class_ =: "toggler bg-light p-3 rounded-right"] $ 
             i [classList ["fa", swapping ("fa-chevron-right", "fa-chevron-left") isOpen]] blank
         isOpen <- toggle False (domEvent Click e)
         return isOpen
@@ -321,20 +315,12 @@ sidebar = mdo
 
 
 overlay :: AppBuilder t m => Dynamic t (Maybe Document) -> m ()
-overlay document = column "expand disable-cursor" $ 
-  sequence_ [header, spacer, footer]
+overlay document = row "expand" $ do
+   --sidebar
+   column "expand disable-cursor" $ 
+      sequence_ [header, spacer, footer]
   
   where
-    
-    
-    canUndo = nonEmpty #undos <$> document
-    canRedo = nonEmpty #redos <$> document
-    
-    nonEmpty label = notNullOf (_Just . label . traverse)
-    
-    withDocument f e = fmap f <?> (current document `tag` e)
-    docOpen = isJust <$> document
-    
     header = buttonRow $ do 
       spacer
       buttonGroup $ do
@@ -345,6 +331,9 @@ overlay document = column "expand disable-cursor" $
       detect <- toolButton docOpen "Detect" "fa-magic" "Detect annotations using current trained model"
       remoteCommand id (withDocument (ClientDetect . view #name) detect)
       
+    canUndo = maybeDocument False (not . null . view #undos)
+    canRedo = maybeDocument False (not . null . view #redos)
+            
     footer = buttonRow $ do
       spacer
       buttonGroup $ do
@@ -359,3 +348,9 @@ overlay document = column "expand disable-cursor" $
           ]
     
     buttonRow = row "p-2 spacing-4"
+    nonEmpty label = notNullOf (_Just . label . traverse)
+    
+    maybeDocument a f = fromMaybe a . fmap f <$> document
+    withDocument f e = fmap f <?> (current document `tag` e)
+    docOpen = isJust <$> document    
+    
