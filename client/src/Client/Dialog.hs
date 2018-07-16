@@ -31,8 +31,9 @@ titleClose t = do
   return (domEvent Click e)
 
 iconText :: Builder t m => (Text, Text) -> Text -> m (Event t a)
-iconText (iconClass, icon) content = row "align-items-center spacing-16" $ do
-  i [classes_ =: ["fa", "fa-4x", iconClass, icon]] blank
+iconText (iconClass, icon) content = row "align-items-center spacing-4" $ do
+  i [classes_ =: ["mdi", "mdi-" <> icon, "mdi-48px", iconClass]] blank
+
   span [] $ text content
   return never
 

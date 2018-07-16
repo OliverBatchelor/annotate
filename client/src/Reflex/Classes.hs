@@ -58,6 +58,13 @@ runWithClose e = do
   return result
     where closed = return never
 
+
+active :: (MonadHold t m, DomBuilder t m, PostBuild t m) => Active t (m (Event t a)) -> m (Event t a)
+active (Static m) = m
+active (Dyn d) = dyn d >>= switchHold never 
+
+
+
 holdQueue :: (MonadHold t m, MonadFix m, Reflex t) => Event t [a] -> Dynamic t Bool -> m (Event t a)
 holdQueue input occupied = mdo
   queue  <- fmap current $ holdDyn mempty $

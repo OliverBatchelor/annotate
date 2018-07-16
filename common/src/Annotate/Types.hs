@@ -39,7 +39,7 @@ data Shape = BoxShape     Box
    deriving (Generic, Show, Eq)
 
 data ShapeConfig = BoxConfig | PolygonConfig | LineConfig   
-  deriving (Generic, Show, Eq)
+  deriving (Generic, Show, Eq, Ord)
 
 instance HasBounds Shape where
  getBounds (BoxShape s)     = getBounds s
@@ -75,8 +75,7 @@ data ClassConfig = ClassConfig
   { name :: Text
   , shape :: ShapeConfig
   , colour :: HexColour
-  }
-  deriving (Generic, Show, Eq)
+  } deriving (Generic, Show, Eq)
   
   
 data Config = Config
@@ -97,6 +96,7 @@ data ErrCode = ErrDecode Text | ErrNotFound DocName | ErrNotRunning | ErrTrainer
 
 data ServerMsg
   = ServerHello ClientId Config
+  | ServerConfig Config
   | ServerUpdateInfo DocName DocInfo
   | ServerDocument Document
   | ServerOpen (Maybe DocName) ClientId DateTime
@@ -110,6 +110,7 @@ data ClientMsg
   | ClientSubmit Document
   | ClientDiscard DocName
   | ClientDetect DocName
+  | ClientClass ClassId (Maybe ClassConfig)
 
       deriving (Generic, Show, Eq)
 
@@ -150,15 +151,16 @@ defaultConfig :: Config
 defaultConfig = Config
   { root = ""
   , extensions = [".png", ".jpg", ".jpeg"]
-  , classes    = M.fromList [(0, defaultClass)]
+  , classes    = M.fromList [(0, newClass 0)]
   }
   
-  where
-    defaultClass = ClassConfig 
-      { name    = "default" 
-      , colour  = fromMaybe 0xFFFF00 $ fmap fst (uncons defaultColours)
-      , shape   = BoxConfig
-      }
+    
+newClass :: ClassId -> ClassConfig     
+newClass k = ClassConfig 
+  { name    = "unnamed-" <> fromString (show k)
+  , colour  = fromMaybe 0xFFFF00 $ preview (ix k) defaultColours
+  , shape   = BoxConfig
+  }
 
 makePrisms ''ClientMsg
 makePrisms ''ServerMsg

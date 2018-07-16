@@ -34,6 +34,11 @@ connectClient env conn = do
     return clientId
 
 
+broadcastConfig :: Env -> STM ()
+broadcastConfig env = do 
+  config <- view #config <$> readLog (env ^. #store)
+  broadcast env (ServerConfig config)
+
 clientDisconnected :: Env -> ClientId -> IO ()
 clientDisconnected env clientId = atomically $ do
   withClient (env ^. #clients) clientId $ \Client {..} -> do
@@ -90,6 +95,11 @@ processMsg env@Env{store} clientId msg = do
       running <- sendTrainer env (TrainerDetect clientId k)
       unless running $
         sendClient env clientId (ServerError ErrNotRunning)
+        
+    ClientClass k mClass -> do 
+      updateLog store (CmdClass k mClass)
+      broadcastConfig env
+
 
 
 nextImage :: Env -> ClientId -> Maybe DocName -> STM ()

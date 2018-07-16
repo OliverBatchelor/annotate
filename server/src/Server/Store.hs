@@ -53,7 +53,8 @@ instance Persistable Store where
     where new' = M.mapWithKey emptyDoc (M.fromList new)
     
   
-  update (CmdCategory k cat)    = docInfo k . #category .~ cat
+  update (CmdCategory k cat)      = docInfo k . #category .~ cat
+  update (CmdClass k conf)  = over (#config . #classes) (M.alter (const conf) k)
 
 
 initialStore :: Config -> Store

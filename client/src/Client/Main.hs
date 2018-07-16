@@ -7,6 +7,8 @@ import qualified Data.Text as T
 import qualified Data.Map as M
 import qualified Data.Set as S
 
+import Text.Printf 
+
 import Data.Default
 import Data.Monoid
 
@@ -23,6 +25,7 @@ import Scene.Events
 
 import Reflex.Classes
 import Builder.Html
+import qualified Builder.Html as Html
 
 import Input.Window
 
@@ -52,16 +55,16 @@ headWidget = do
    -- base_ [href_ =: "http://" <> host]
 
    let host = "localhost:3000"
+       css file = stylesheet ("http://" <> host <> "/css/" <> file)
 
-
-   stylesheet "https://use.fontawesome.com/releases/v5.0.13/css/all.css"
-   stylesheet "https://stackpath.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css"
-   stylesheet ("http://" <> host <> "/css/style.css")
+   css "bootstrap.min.css"
+   css "materialdesignicons.min.css"
+   css "style.css"
 
    return host
 
   where
-    stylesheet url = link_ [href_ =: url, rel_ =: ["stylesheet"]]
+    stylesheet url = link_ [href_ =: url, rel_ =: ["stylesheet"], crossorigin_ =: "anonymous"]
     --css = decodeUtf8 $(embedFile "style.css")
 
 nonEmpty :: [a] -> Maybe [a]
@@ -91,7 +94,7 @@ viewControls cmds info = mdo
         Viewport (fromDim image) (fromDim window) pan zoom
 
 errorDialog :: Builder t m => ErrCode -> m (Event t ())
-errorDialog err = Dialog.ok title (Dialog.iconText ("text-danger", "fa-exclamation-circle") msg)
+errorDialog err = Dialog.ok title (Dialog.iconText ("text-danger", "alert-circle") msg)
   where  (title, msg) = errorMessage err
 
 errorMessage :: ErrCode -> (Text, Text)
@@ -244,7 +247,7 @@ bodyWidget host = mdo
         , currentClass = currentClass
         }
   
-  config <- holdDyn defaultConfig (view _2 <$> hello)
+  config <- holdDyn defaultConfig $ leftmost [view _2 <$> hello, preview _ServerConfig <?> serverMsg]
   currentClass <- holdDyn 0 never
 
   ((action, document), cmds) <- flip runReaderT env $ runEventWriterT $ 
@@ -277,46 +280,146 @@ data SideTab = ClassesTab | ImagesTab | DetectionTab
 type Selectable t m = Dynamic t Bool -> m (Event t ()) 
 
 tab :: Builder t m => Text -> Text -> Selectable t m
-tab icon t = \active -> 
+tab iconName t = \active -> 
   li [class_ =: "nav-item"] $ do
     e <- a_ [classList ["nav-link", "active" `gated` active], href_ =: "#"] $ 
-      row "align-items-center spacing-2" $ do
-        i [classes_ =: ["fa", icon]] blank
-        span [] $ text t
+      iconTextH t (def & #name .~ pure iconName)
     return (domEvent Click e)
+    
+
 
 tabs :: (Builder t m) => Int -> [(m (), Selectable t m)] -> m ()
-tabs initial items = column "" $ do    
-    openTab <- ul [class_ =: "nav nav-tabs background-light enable-cursor "] $     
-      selectable initial (zip [0..] (snd <$> items))
-    tabContent openTab (zip [0..] (fst <$> items))
+tabs initial items = column "expand" $ mdo    
+    click <- ul [class_ =: "nav nav-tabs background-light enable-cursor "] $     
+      selectable openTab (pure (enumerate header))
+      
+    openTab <- holdDyn initial click
+    tabContent openTab (enumerate content)
+  where
+    (content, header) = split items
+    
+enumerate :: (Enum k, Num k) => [a] -> [(k, a)]
+enumerate = zip [0..]
 
-selectable :: (Ord k, Builder t m) => k -> [(k, Selectable t m)] -> m (Dynamic t k)
-selectable initial items = mdo
-  let isOpen = fanDyn open
-  clicks <- for items $ \(k, tab) -> fmap (const k) <$> tab (isOpen k)
-  open <- holdDyn initial (leftmost clicks)
-  return open
+selectable :: (Ord k, Builder t m) => Dynamic t k -> Active t [(k, Selectable t m)] -> m (Event t k)
+selectable selected items = active (fmap leftmost . traverse f <$> items) 
+    where 
+      f (k, item) = fmap (const k) <$> item (isOpen k)
+      isOpen = fanDyn selected
   
 tabContent :: (Ord k, Builder t m) =>  Dynamic t k -> [(k, m ())] -> m ()
-tabContent selected items = void $ div_ [class_ =: "tab-content p-2"] $ traverse_ item items
-  where item (k, m) = div_ [hidden_ ~: fmap (/=k) selected] m
+tabContent selected items = void $ div_ [class_ =: "tab-content p-2 grow"] $ traverse_ item items
+  where 
+    item (k, m) = div_ [classList ["tab-pane h-100", "active" `gated` isOpen k]] m
+    isOpen = fanDyn selected
 
 
-selectTable ::  Dynamic t k -> [(k, m ())] -> m (Event t k)
-selectTable = undefined
+
+selectTable :: (Ord k, Builder t m) =>  Dynamic t k -> Active t [(k, m ())] -> m (Event t k)
+selectTable selected items = table [class_ =: "table table-hover"] $ do
+  tbody [] $ selectable selected (fmap (over _2 row) <$> items)
+  
+  where
+    row item = \active -> domEvent Click <$> 
+      tr_ [class_ ~: gated "table-active" active] item
   
   
-classesTab :: AppBuilder t m => m ()
-classesTab = do
-  AppEnv{config} <- ask 
-
-  return ()
-  -- dyn $ ffor config $ \Config{classes} -> mdo
+labelled :: Builder t m => Text -> m a -> m a 
+labelled t inner = row "align-items-stretch" $ do
+  Html.label [class_ =: "grow-1"] $ text t
+  div [class_ =: "grow-2"] inner
+  
     
-    -- holdDyn 
-    -- clicked <- selectTable 
+classesTab :: forall t m. AppBuilder t m => m ()
+classesTab = column "h-100 p-2 v-spacing-2" $ mdo 
+  classes   <- fmap (view #classes) <$> view #config
+  selected <- holdDyn 0 (leftmost [userSelect, added])
+  let selectedClass = M.lookup <$>  selected <*> classes
   
+  (added, removed) <- row "" $ buttonGroup $ do
+    add <- toolButton' "Add" "plus-box" "Add new class"
+    remove  <- toolButton (isJust <$> selectedClass) "Remove" "minus-box" "Remove selected class"
+
+    return (nextClass <$> current classes `tag` add, current selected `tag` remove)
+      
+  
+  userSelect <- div [class_ =: "grow-1 border"] $ do
+    selectTable selected (Dyn (M.toList . fmap showClass <$> classes))
+   
+  (updated :: Event t ClassConfig) <- switchHold never =<< dyn (editClass <$> selectedClass) 
+  
+  remoteCommand id $ leftmost
+    [ newClassCmd    <$> added
+    , removeClassCmd <$> removed
+    , attachWith updateClassCmd (current selected) updated 
+    ]    
+  
+  
+  return ()
+    where
+      nextClass classes = fromMaybe 0 ((+1) . fst <$> M.lookupMax classes)
+      
+      newClassCmd k           = ClientClass k (Just $ newClass k)
+      removeClassCmd k        = ClientClass k Nothing
+      updateClassCmd k update = ClientClass k (Just update)
+      
+      
+      editClass :: Maybe ClassConfig -> m (Event t ClassConfig)
+      editClass conf = do  
+        column "v-spacing-2 p-2 border" $ do        
+          name <- labelled "Name" $ inputElem  [class_ =: "form-control", disable] $ def & 
+            inputElementConfig_initialValue .~ fromMaybe "" (view #name <$> conf)
+            
+          shape <- labelled "Type" $ selectElem_ [class_ =: "form-control", disable] selectConf $ 
+              forM_ (M.keys shapeTypes) $ \k -> option [value_ =: k] $ text k
+
+          labelled "Colour" $ div_ [class_ =: "border expand", bgColour (view #colour <$> conf), disable] blank
+          update <- row "" $ do 
+            spacer 
+            iconButton (pure $ isJust conf) "Update" "content-save" "Update class changes"
+          
+          let value = liftA3 ClassConfig 
+                <$> fmap Just (current (_inputElement_value name))
+                <*> fmap fromDesc (current (_selectElement_value shape))
+                <*> pure (view #colour <$> conf)
+            
+          return $ filterMaybe (value `tag` update)
+            
+            where selectConf = def & selectElementConfig_initialValue .~ 
+                    fromMaybe "" (shapeDesc . view #shape <$> conf)
+                    
+                  disable = disabled_ =: isNothing conf
+                  
+      showClass :: ClassConfig -> m ()
+      showClass ClassConfig{shape, colour, name} = 
+        void $ row "align-items-center spacing-2 p-1" $ do
+          span [] $ text name
+          spacer
+          div [bgColour (Just colour)] $
+            icon $ def & #name .~ pure (shapeIcon shape)
+                
+      bgColour (Just colour) = style_ =: [("background-color", showColour colour)]
+      bgColour Nothing = style_ =: []
+      
+      shapeIcon BoxConfig = "vector-rectangle"
+      shapeIcon PolygonConfig = "vector-polygon"
+      shapeIcon LineConfig = "vector-line"
+
+      shapeDesc BoxConfig = "Box"
+      shapeDesc PolygonConfig = "Polygon"
+      shapeDesc LineConfig = "Line"
+      
+      fromDesc = flip M.lookup shapeTypes
+      
+      shapeTypes = M.fromList
+        [ ("Box", BoxConfig) 
+        , ("Polygon", PolygonConfig)
+        , ("Line", LineConfig)
+        ]
+
+      
+
+showColour = T.pack . printf "#%06X" 
 
 imagesTab :: AppBuilder t m => m ()
 imagesTab = text "images"
@@ -331,9 +434,9 @@ sidebar = mdo
     isOpen <- toggler
 
     tabs 0 
-      [ (classesTab,    tab "fa-tags"   "Classes") 
-      , (imagesTab,     tab "fa-images" "Images")
-      , (detectionTab,  tab "fa-magic"  "Detection")
+      [ (classesTab,    tab "tag-multiple"   "Classes") 
+      , (imagesTab,     tab "folder-multiple-image" "Images")
+      , (detectionTab,  tab "auto-fix"  "Detection")
       ]
       
     return isOpen
@@ -342,9 +445,11 @@ sidebar = mdo
     where
       toggler = mdo 
         e <- a_ [href_ =: "#", class_ =: "toggler p-2"] $ 
-            i [classList ["fa", swapping ("fa-chevron-right", "fa-chevron-left") isOpen]] blank
+            icon (def & #name .~ Dyn (swapping ("chevron-right", "chevron-left") isOpen))
         isOpen <- toggle False (domEvent Click e)
         return isOpen
+
+
 
 
 -- Main interface
@@ -362,11 +467,11 @@ overlay document = row "expand  disable-cursor" $ do
       
       spacer
       buttonGroup $ do
-        docCommand  (const DocUndo)  =<< toolButton canUndo "Undo" "fa-undo" "Undo last edit"
-        docCommand  (const DocRedo)  =<< toolButton canRedo "Redo" "fa-redo" "Re-do last undo"
-        command     (const ClearCmd) =<< toolButton' "Clear" "fa-eraser" "Clear all annotations"
+        docCommand  (const DocUndo)  =<< toolButton canUndo "Undo" "undo" "Undo last edit"
+        docCommand  (const DocRedo)  =<< toolButton canRedo "Redo" "redo" "Re-do last undo"
+        command     (const ClearCmd) =<< toolButton' "Clear" "eraser" "Clear all annotations"
 
-      detect <- toolButton docOpen "Detect" "fa-magic" "Detect annotations using current trained model"
+      detect <- toolButton docOpen "Detect" "auto-fix" "Detect annotations using current trained model"
       remoteCommand id (withDocument (ClientDetect . view #name) detect)
       
     canUndo = fromDocument False (not . null . view #undos)
@@ -375,13 +480,11 @@ overlay document = row "expand  disable-cursor" $ do
     footer = buttonRow $ do
       spacer
       buttonGroup $ do
-        discard <- toolButton docOpen "Discard" "fa-trash" "Discard image from the collection"
-        next    <- toolButton docOpen "Next" "fa-step-forward" "Skip to the next image"
-        submit  <- toolButton docOpen "Submit" "fa-save" "Submit image for training"
+        discard <- toolButton docOpen "Discard" "delete-empty" "Discard image from the collection"
+        submit  <- toolButton docOpen "Submit" "content-save" "Submit image for training"
 
         remoteCommand id $ leftmost
           [ withDocument (ClientDiscard . view #name) discard
-          , withDocument (ClientNext . Just . view #name)  next
           , withDocument ClientSubmit submit
           ]
     

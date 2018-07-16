@@ -30,14 +30,14 @@ html, body {
 }
 
 
-.tab-content {
+/* .tab-content {
   overflow:hidden;
   position:relative;
 }
 
 .tab-content > * {
   position: absolute;
-}
+} */
 
 
 
@@ -70,6 +70,50 @@ html, body {
 .shrink {
   flex-shrink:1;
 }
+
+.neg-v-spacing-1 > * + * {
+  margin-top: -2px;
+}
+
+.neg-v-spacing-2 > * + * {
+  margin-top: -4px;
+}
+
+.neg-v-spacing-3 > * + * {
+  margin-top: -8px;
+}
+
+.neg-v-spacing-4 > * + * {
+  margin-top: -16px;
+}
+
+.v-spacing-0 > * + * {
+  margin-top: 0px;
+}
+
+.v-spacing-1 > * + * {
+  margin-top: 2px;
+}
+
+.v-spacing-2 > * + * {
+  margin-top: 4px;
+}
+
+.v-spacing-3 > * + * {
+  margin-top: 8px;
+}
+
+.v-spacing-4 > * + * {
+  margin-top: 16px;
+}
+
+
+
+
+.spacing-0 > * + * {
+  margin-left: 0px;
+}
+
 
 .spacing-1 > * + * {
   margin-left: 2px;
@@ -167,13 +211,13 @@ html, body {
 }
  
 .sidebar.closed {
-  margin-left: -550px;
+  margin-left: -560px;
 }
  
 .toggler {
   position: absolute;
   top: 0px;
-  right: 0px;
+  right: -8px;
   z-index:2;
 
 }
