@@ -1,6 +1,6 @@
 module Annotate.Colour where
   
-import Annotate.Common
+import Annotate.Prelude
 import qualified Data.Map as M
 
 import Data.Word

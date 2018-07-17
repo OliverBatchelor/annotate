@@ -1,7 +1,7 @@
 module Image (imageInfo, findNewImages, findImages) where
 
+import Annotate.Prelude
 import Annotate.Common
-import Annotate.Types
 
 import qualified Data.Map as M
 import qualified Data.Set as S

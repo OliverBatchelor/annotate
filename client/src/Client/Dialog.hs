@@ -1,6 +1,6 @@
 module Client.Dialog where
 
-import Annotate.Common hiding (div)
+import Annotate.Prelude hiding (div)
 import Client.Common
 
 import Reflex.Classes
@@ -42,6 +42,9 @@ ok title content = modal (pure True) $ sections
   (titleClose title) (never <$ content)
   (domEvent Click <$> button_ [type_ =: "button", class_ =: "btn btn-primary"] (text "Ok"))
 
+
+    
+    
 
 sections :: (Builder t m, Monoid a) => m (Event t a) -> m (Event t a) -> m (Event t a) -> m (Event t a)
 sections title content footer = leftmost <$> sequence

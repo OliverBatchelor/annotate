@@ -1,6 +1,6 @@
 module Scene.View where
 
-import Annotate.Common
+import Annotate.Prelude
 import Client.Common
 
 import Builder.Svg hiding (switch, cursor, view)
@@ -11,13 +11,14 @@ import Input.Events
 import Scene.Events
 
 import qualified Data.Set as S
+import qualified Data.Map as M
 import qualified Web.KeyCode as Key
 
 import Scene.Types
 import Scene.Viewport
 
 import Annotate.Geometry
-import Annotate.Types
+import Annotate.Common
 import Annotate.Document
 
 transforms :: Viewport -> [Svg.Transform]
@@ -120,9 +121,16 @@ selectChange keys existing target
   | otherwise           = target
 
 
+matchShortcuts :: Reflex t => SceneInputs t -> Event t (Map Shortcut ())
+matchShortcuts SceneInputs{..} = mergeMap $ M.fromList
+  [ (ShortUndo, keyCombo Key.KeyZ [Key.Control])
+  , (ShortRedo, keyCombo Key.KeyZ [Key.Control, Key.Shift])
+  , (ShortDelete, keyDown Key.Delete)
+  , (ShortCancel, keyDown Key.Escape)
+  ]
 
 actions :: AppBuilder t m => Scene t -> m (Dynamic t Action)
-actions scene@Scene{input, selection, document} = holdWorkflow $
+actions scene@Scene{input, selection, document, shortcut} = holdWorkflow $
   commonTransition (base <$ cancel) base where
 
   base = Workflow $ do
@@ -135,10 +143,10 @@ actions scene@Scene{input, selection, document} = holdWorkflow $
     command SelectCmd selection'
 
     editCommand $ Delete . S.toList <$> ffilter (not . null)
-      (current selection <@ keyDown Key.Delete)
+      (current selection <@ shortcut ShortDelete)
 
-    docCommand (const DocUndo) (keyCombo Key.KeyZ [Key.Control])
-    docCommand (const DocRedo) (keyCombo Key.KeyZ [Key.Control, Key.Shift])
+    docCommand (const DocUndo) (shortcut ShortUndo)
+    docCommand (const DocRedo) (shortcut ShortRedo)
 
     return (def, leftmost [beginDrag, beginDraw, beginPan])
 

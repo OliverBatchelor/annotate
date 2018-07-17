@@ -1,70 +1,169 @@
-module Annotate.Common
-  ( module X
-  ) where
+module Annotate.Common (
+  module Annotate.Common,
+  module Annotate.Geometry,
+  module Annotate.Colour,
+
+  Generic(..),
+) where
+
+import Annotate.Prelude
+import Annotate.Colour
+
+import qualified Data.Map as M
+
+import Data.Generics.Product
+import Annotate.Geometry
+
+import Control.Lens (makePrisms)
+
+type AnnotationId = Int
+type ClientId = Int
+type ClassId = Int
+
+type DocName = Text
+type DateTime = UTCTime
+
+data DocCmd = DocEdit Edit | DocUndo | DocRedo
+  deriving (Show, Eq, Generic)
+
+data Edit
+  = Add [(AnnotationId, Annotation)]
+  | Delete [AnnotationId]
+  | Transform [AnnotationId] Float Vec
+  deriving (Generic, Show, Eq)
 
 
-import Control.Applicative as X
-import Control.Monad as X
-import Control.Monad.Trans as X
-import Control.Category as X
+data Shape = BoxShape     Box
+           | PolygonShape Polygon
+           | LineShape    WideLine
+   deriving (Generic, Show, Eq)
 
-import Control.Monad.Identity as X (Identity, runIdentity)
-import Control.Monad.Reader.Class as X (MonadReader (..), asks)
-import Control.Monad.State.Class as X (MonadState(..), gets)
-import Control.Monad.Writer.Class as X (MonadWriter (..))
-import Control.Monad.Fix as X (MonadFix (..))
+data ShapeConfig = BoxConfig | PolygonConfig | LineConfig   
+  deriving (Generic, Show, Eq, Ord)
 
-import Control.Exception  as X (Exception(..), throw, finally)
+instance HasBounds Shape where
+ getBounds (BoxShape s)     = getBounds s
+ getBounds (PolygonShape s) = getBounds s
+ getBounds (LineShape s)    = getBounds s
+   
 
-import Control.Monad.IO.Class as X
-
-import Data.Text as X (Text)
-import Data.Functor as X
-import Data.Functor.Contravariant as X
-import Data.Monoid as X
-import Data.Foldable as X
-import Data.Traversable as X
-
-import Control.Lens as X
-  ( (%~), (^.), (^?), (.~), (&), (<&>)
-  , over, view, preview
-  , Lens, Lens', Traversal, Traversal'
-  , at, ix, _1, _2, _3, _4
-  , _Just, _Nothing, _Left, _Right
-  )
-import Data.Aeson as X
-  (ToJSON(..), FromJSON(..), FromJSONKey(..), ToJSONKey(..)
-  , decode, decode', encode, decodeStrict, decodeStrict', eitherDecode, eitherDecodeStrict)
-
-import Data.List as X (intersperse, filter, zip, zip3, zipWith, zipWith3, lookup, take, drop, elem, uncons)
-import Data.Maybe as X (fromMaybe, maybe, catMaybes, Maybe (..), maybeToList, isJust, isNothing)
-import Data.Either as X (either, Either (..), isLeft, isRight)
-
-import Data.Int as X
-import Data.Word as X
-import Data.Bool as X
-
-import Data.Char as X
-import Data.Void as X
-
-import Data.Set as X (Set)
-import Data.Map as X (Map)
-
-import Data.Typeable as X
+data Annotation = Annotation { shape :: Shape, label :: ClassId, predictions :: [(ClassId, Float)] }
+    deriving (Generic, Show, Eq)
 
 
-import GHC.Generics as X (Generic(..))
-import Prelude as X (
-  Read (..), Show(..), Eq(..), Ord(..), Enum(..), Floating(..), Integral(..), Num(..),
-  Real(..), RealFloat(..), Fractional(..), Floating(..), Bounded(..), realToFrac,
-  Integer, Char, Float, Int, Double, String, FilePath, IO,
-  curry, uncurry, flip, const, fst, snd, fromIntegral,
-  ($), undefined, error, subtract, print, putStr, putStrLn)
+type AnnotationMap = Map AnnotationId Annotation
 
-import Data.String as X (IsString(..))
-import Data.Time.Clock as X
+data Document = Document
+  { undos :: [Edit]
+  , redos :: [Edit]
+  , name  :: DocName
+  , info  :: DocInfo
+  , annotations :: AnnotationMap
+  } deriving (Generic, Show, Eq)
 
-import Data.Generics.Labels as X ()
-import GHC.OverloadedLabels as X
 
-import System.Exit as X (ExitCode(..))
+data ImageCat = New | Train | Test | Discard deriving (Eq, Ord, Enum, Generic, Show)
+
+data DocInfo = DocInfo
+  { modified :: Maybe DateTime
+  , category :: ImageCat
+  , imageSize :: (Int, Int)
+  } deriving (Generic, Show, Eq)
+
+
+data ClassConfig = ClassConfig 
+  { name :: Text
+  , shape :: ShapeConfig
+  , colour :: HexColour
+  } deriving (Generic, Show, Eq)
+  
+  
+data Config = Config
+  { root      :: Text
+  , extensions :: [Text]
+  , classes    :: Map ClassId ClassConfig
+  } deriving (Generic, Show, Eq)
+
+data Collection = Collection
+  { config :: Config
+  , images :: Map DocName DocInfo
+  } deriving (Generic, Show, Eq)
+
+
+data ErrCode = ErrDecode Text | ErrNotFound DocName | ErrNotRunning | ErrTrainer Text
+   deriving (Generic, Show, Eq)
+
+
+data ServerMsg
+  = ServerHello ClientId Config
+  | ServerConfig Config
+  | ServerUpdateInfo DocName DocInfo
+  | ServerDocument Document
+  | ServerOpen (Maybe DocName) ClientId DateTime
+  | ServerError ErrCode
+  | ServerEnd
+      deriving (Generic, Show, Eq)
+
+data ClientMsg
+  = ClientOpen DocName
+  | ClientNext (Maybe DocName)
+  | ClientSubmit Document
+  | ClientDiscard DocName
+  | ClientDetect DocName
+  | ClientClass ClassId (Maybe ClassConfig)
+
+      deriving (Generic, Show, Eq)
+
+instance FromJSON ShapeConfig
+instance FromJSON ClassConfig
+
+instance FromJSON Edit
+instance FromJSON DocCmd
+instance FromJSON ImageCat
+instance FromJSON Shape
+instance FromJSON Annotation
+instance FromJSON Document
+instance FromJSON Config
+instance FromJSON DocInfo
+instance FromJSON Collection
+instance FromJSON ServerMsg
+instance FromJSON ClientMsg
+instance FromJSON ErrCode
+
+instance ToJSON ShapeConfig
+instance ToJSON ClassConfig
+
+instance ToJSON Edit
+instance ToJSON DocCmd
+instance ToJSON ImageCat
+instance ToJSON Shape
+instance ToJSON Annotation
+instance ToJSON Document
+instance ToJSON Config
+instance ToJSON DocInfo
+instance ToJSON Collection
+instance ToJSON ServerMsg
+instance ToJSON ClientMsg
+instance ToJSON ErrCode
+
+
+defaultConfig :: Config
+defaultConfig = Config
+  { root = ""
+  , extensions = [".png", ".jpg", ".jpeg"]
+  , classes    = M.fromList [(0, newClass 0)]
+  }
+  
+    
+newClass :: ClassId -> ClassConfig     
+newClass k = ClassConfig 
+  { name    = "unnamed-" <> fromString (show k)
+  , colour  = fromMaybe 0xFFFF00 $ preview (ix k) defaultColours
+  , shape   = BoxConfig
+  }
+
+makePrisms ''ClientMsg
+makePrisms ''ServerMsg
+makePrisms ''DocCmd
+makePrisms ''Shape
+makePrisms ''Edit

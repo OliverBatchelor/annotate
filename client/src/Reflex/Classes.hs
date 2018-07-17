@@ -5,10 +5,10 @@ module Reflex.Classes
   , (<!>)
   ) where
 
-import Annotate.Common
+import Annotate.Prelude
 
 import qualified Reflex as R
-import Reflex.Dom hiding (switchHold, switch, (=:), sample, Builder, link, Delete, Key(..))
+import Reflex.Dom hiding (switchHold, switch, (=:), sample, Builder, link, Delete, Key(..), button)
 import Reflex.Active
 
 import Data.Functor
@@ -61,8 +61,10 @@ runWithClose e = do
 
 active :: (MonadHold t m, DomBuilder t m, PostBuild t m) => Active t (m (Event t a)) -> m (Event t a)
 active (Static m) = m
-active (Dyn d) = dyn d >>= switchHold never 
+active (Dyn d) = dyn' d 
 
+dyn' :: (MonadHold t m, DomBuilder t m, PostBuild t m) => Dynamic t (m (Event t a)) -> m (Event t a)
+dyn' d = dyn d >>= switchHold never 
 
 
 holdQueue :: (MonadHold t m, MonadFix m, Reflex t) => Event t [a] -> Dynamic t Bool -> m (Event t a)
@@ -145,6 +147,14 @@ instance (Reflex t, SwitchHold t a, SwitchHold t b) => SwitchHold t (a, b) where
     switchHold (a, b) e = liftA2 (,)
       (switchHold a (fst <$> e))
       (switchHold b (snd <$> e))
+
+instance (Reflex t, SwitchHold t a, SwitchHold t b, SwitchHold t c) => SwitchHold t (a, b, c) where
+    switchHold (a, b, c) e = liftA3 (,,)
+      (switchHold a (view _1 <$> e))
+      (switchHold b (view _2 <$> e))
+      (switchHold c (view _3 <$> e))
+
+
 
 
 instance Reflex t => SwitchHold t (Dynamic t a) where
@@ -360,7 +370,8 @@ diffEq k k'
   | k == k'     = mempty
   | otherwise   = M.fromList [(k, False), (k', True)]
 
-
+-- fanMap' :: (Reflex t, Ord k) => Event t k -> (k -> Event t k)
+-- fanMap' e = \k -> select (fanMap e) (Const2 k)
 
 
 

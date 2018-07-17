@@ -1,6 +1,6 @@
 module Client.Main where
 
-import Annotate.Common hiding (div)
+import Annotate.Prelude hiding (div)
 import Client.Common
 
 import qualified Data.Text as T
@@ -20,19 +20,26 @@ import Scene.View
 import Scene.Types
 import Scene.Events
 
-import Input.Events (inputs)
 import Scene.Events
 
 import Reflex.Classes
+import qualified Reflex.Classes as R
+
+import Data.Functor.Misc (Const2(..))
+
 import Builder.Html
 import qualified Builder.Html as Html
 
 import Input.Window
+import Input.Events
 
 import Client.Widgets
+import Client.Class
+import Client.Select
+
 import qualified Client.Dialog as Dialog
 
-import Annotate.Types
+import Annotate.Common
 import Annotate.Document
 
 import Language.Javascript.JSaddle
@@ -161,7 +168,7 @@ handleHistory loaded = mdo
 
 
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
-            => Event t AppCommand -> Document -> m (Dynamic t Action, Dynamic t (Maybe Document))
+            => Event t AppCommand -> Document -> m (Event t (Map Shortcut ()), Dynamic t Action, Dynamic t (Maybe Document))
 sceneWidget cmds loaded  = mdo
 
   document <- holdDyn loaded (snd <$> modified)
@@ -170,8 +177,9 @@ sceneWidget cmds loaded  = mdo
       docCmd = leftmost [_DocCmd ?> cmds, clearCmd]
 
   viewport <- viewControls cmds (loaded ^. #info)
-  input <- holdInputs (current viewport) hover =<< inputs element
+  input <- holdInputs (current viewport) hover =<< windowInputs element
 
+  
   -- Keep track of next id to use for new annotations
   let initialId = maybe 0 (+1) (maxId loaded)
       addNew = _DocEdit . _Add ?> docCmd
@@ -197,9 +205,10 @@ sceneWidget cmds loaded  = mdo
     , nextId = nextId
     , currentClass = view #currentClass env
     , config = view #config env
+    , shortcut = view #shortcut env
     }
 
-  return (action, (Just <$> document))
+  return (matchShortcuts input, action, (Just <$> document))
     where annotations0 = loaded ^. #annotations
 
 
@@ -224,8 +233,6 @@ bodyWidget host = mdo
   (state, clientMsgs) <- split <$> (workflow $
     commonTransition (disconnected <$ closed) disconnected)
 
-  runWithClose (errorDialog <$> serverErrors)
-
   let clientMsg = leftmost
         [ switchPrompt clientMsgs
         , ClientOpen <$> urlSelected
@@ -236,31 +243,47 @@ bodyWidget host = mdo
   urlSelected <- handleHistory (view #name <$> loaded)
   setTitle $ ffor document $ \doc ->
     "Annotate - " <> fromMaybe ("no document") (view #name <$> doc)
-
+    
+  
   let hello   = preview _ServerHello <?> serverMsg
       (loaded :: Event t Document)  = preview _ServerDocument <?> serverMsg
+      shortcuts' = fanMap shortcuts
+            
       env = AppEnv 
         { basePath = "http://" <> host
         , document = document
         , commands = cmds
         , config = config
         , currentClass = currentClass
+        , shortcut = \s -> R.select shortcuts' (Const2 s)
         }
   
   config <- holdDyn defaultConfig $ leftmost [view _2 <$> hello, preview _ServerConfig <?> serverMsg]
-  currentClass <- holdDyn 0 never
+  currentClass <- foldDyn validClass 0 (updated config)
 
-  ((action, document), cmds) <- flip runReaderT env $ runEventWriterT $ 
+  ((shortcuts, action, document), cmds) <- flip runReaderT env $ runEventWriterT $ do
+  
+    runWithClose $ leftmost 
+      [ fmap selectClassDialog . preview _SelectClassCmd <?> cmds
+      , errorDialog <$> serverErrors
+      ]
+  
     cursorLock action $ do
       div [class_ =: "scene expand"] $ do
         state <- replaceHold 
-            (pure (def, pure Nothing)) 
+            (pure (never, def, pure Nothing)) 
             (sceneWidget cmds <$> loaded)
         overlay document
         return state
         
   return ()
 
+
+validClass :: Config -> ClassId -> ClassId
+validClass config classId = if (classId `M.member` classes) 
+  then classId
+  else fromMaybe 0 (fst <$> M.lookupMin classes)
+    where classes = view #classes config
 
 
 cursorLock :: Builder t m => Dynamic t Action -> m a -> m a
@@ -274,152 +297,7 @@ cursorLock action child =
 
 
 
-data SideTab = ClassesTab | ImagesTab | DetectionTab
-  deriving (Show, Ord, Eq, Generic)
 
-type Selectable t m = Dynamic t Bool -> m (Event t ()) 
-
-tab :: Builder t m => Text -> Text -> Selectable t m
-tab iconName t = \active -> 
-  li [class_ =: "nav-item"] $ do
-    e <- a_ [classList ["nav-link", "active" `gated` active], href_ =: "#"] $ 
-      iconTextH t (def & #name .~ pure iconName)
-    return (domEvent Click e)
-    
-
-
-tabs :: (Builder t m) => Int -> [(m (), Selectable t m)] -> m ()
-tabs initial items = column "expand" $ mdo    
-    click <- ul [class_ =: "nav nav-tabs background-light enable-cursor "] $     
-      selectable openTab (pure (enumerate header))
-      
-    openTab <- holdDyn initial click
-    tabContent openTab (enumerate content)
-  where
-    (content, header) = split items
-    
-enumerate :: (Enum k, Num k) => [a] -> [(k, a)]
-enumerate = zip [0..]
-
-selectable :: (Ord k, Builder t m) => Dynamic t k -> Active t [(k, Selectable t m)] -> m (Event t k)
-selectable selected items = active (fmap leftmost . traverse f <$> items) 
-    where 
-      f (k, item) = fmap (const k) <$> item (isOpen k)
-      isOpen = fanDyn selected
-  
-tabContent :: (Ord k, Builder t m) =>  Dynamic t k -> [(k, m ())] -> m ()
-tabContent selected items = void $ div_ [class_ =: "tab-content p-2 grow"] $ traverse_ item items
-  where 
-    item (k, m) = div_ [classList ["tab-pane h-100", "active" `gated` isOpen k]] m
-    isOpen = fanDyn selected
-
-
-
-selectTable :: (Ord k, Builder t m) =>  Dynamic t k -> Active t [(k, m ())] -> m (Event t k)
-selectTable selected items = table [class_ =: "table table-hover"] $ do
-  tbody [] $ selectable selected (fmap (over _2 row) <$> items)
-  
-  where
-    row item = \active -> domEvent Click <$> 
-      tr_ [class_ ~: gated "table-active" active] item
-  
-  
-labelled :: Builder t m => Text -> m a -> m a 
-labelled t inner = row "align-items-stretch" $ do
-  Html.label [class_ =: "grow-1"] $ text t
-  div [class_ =: "grow-2"] inner
-  
-    
-classesTab :: forall t m. AppBuilder t m => m ()
-classesTab = column "h-100 p-2 v-spacing-2" $ mdo 
-  classes   <- fmap (view #classes) <$> view #config
-  selected <- holdDyn 0 (leftmost [userSelect, added])
-  let selectedClass = M.lookup <$>  selected <*> classes
-  
-  (added, removed) <- row "" $ buttonGroup $ do
-    add <- toolButton' "Add" "plus-box" "Add new class"
-    remove  <- toolButton (isJust <$> selectedClass) "Remove" "minus-box" "Remove selected class"
-
-    return (nextClass <$> current classes `tag` add, current selected `tag` remove)
-      
-  
-  userSelect <- div [class_ =: "grow-1 border"] $ do
-    selectTable selected (Dyn (M.toList . fmap showClass <$> classes))
-   
-  (updated :: Event t ClassConfig) <- switchHold never =<< dyn (editClass <$> selectedClass) 
-  
-  remoteCommand id $ leftmost
-    [ newClassCmd    <$> added
-    , removeClassCmd <$> removed
-    , attachWith updateClassCmd (current selected) updated 
-    ]    
-  
-  
-  return ()
-    where
-      nextClass classes = fromMaybe 0 ((+1) . fst <$> M.lookupMax classes)
-      
-      newClassCmd k           = ClientClass k (Just $ newClass k)
-      removeClassCmd k        = ClientClass k Nothing
-      updateClassCmd k update = ClientClass k (Just update)
-      
-      
-      editClass :: Maybe ClassConfig -> m (Event t ClassConfig)
-      editClass conf = do  
-        column "v-spacing-2 p-2 border" $ do        
-          name <- labelled "Name" $ inputElem  [class_ =: "form-control", disable] $ def & 
-            inputElementConfig_initialValue .~ fromMaybe "" (view #name <$> conf)
-            
-          shape <- labelled "Type" $ selectElem_ [class_ =: "form-control", disable] selectConf $ 
-              forM_ (M.keys shapeTypes) $ \k -> option [value_ =: k] $ text k
-
-          labelled "Colour" $ div_ [class_ =: "border expand", bgColour (view #colour <$> conf), disable] blank
-          update <- row "" $ do 
-            spacer 
-            iconButton (pure $ isJust conf) "Update" "content-save" "Update class changes"
-          
-          let value = liftA3 ClassConfig 
-                <$> fmap Just (current (_inputElement_value name))
-                <*> fmap fromDesc (current (_selectElement_value shape))
-                <*> pure (view #colour <$> conf)
-            
-          return $ filterMaybe (value `tag` update)
-            
-            where selectConf = def & selectElementConfig_initialValue .~ 
-                    fromMaybe "" (shapeDesc . view #shape <$> conf)
-                    
-                  disable = disabled_ =: isNothing conf
-                  
-      showClass :: ClassConfig -> m ()
-      showClass ClassConfig{shape, colour, name} = 
-        void $ row "align-items-center spacing-2 p-1" $ do
-          span [] $ text name
-          spacer
-          div [bgColour (Just colour)] $
-            icon $ def & #name .~ pure (shapeIcon shape)
-                
-      bgColour (Just colour) = style_ =: [("background-color", showColour colour)]
-      bgColour Nothing = style_ =: []
-      
-      shapeIcon BoxConfig = "vector-rectangle"
-      shapeIcon PolygonConfig = "vector-polygon"
-      shapeIcon LineConfig = "vector-line"
-
-      shapeDesc BoxConfig = "Box"
-      shapeDesc PolygonConfig = "Polygon"
-      shapeDesc LineConfig = "Line"
-      
-      fromDesc = flip M.lookup shapeTypes
-      
-      shapeTypes = M.fromList
-        [ ("Box", BoxConfig) 
-        , ("Polygon", PolygonConfig)
-        , ("Line", LineConfig)
-        ]
-
-      
-
-showColour = T.pack . printf "#%06X" 
 
 imagesTab :: AppBuilder t m => m ()
 imagesTab = text "images"
@@ -450,13 +328,13 @@ sidebar = mdo
         return isOpen
 
 
-
-
 -- Main interface
 
 
+selectedClass :: Reflex t => AppEnv t -> Dynamic t (Maybe ClassConfig)
+selectedClass AppEnv{config, currentClass} = M.lookup <$> currentClass <*> fmap (view #classes) config
 
-overlay :: AppBuilder t m =>  Dynamic t (Maybe Document) -> m ()
+overlay :: AppBuilder t m => Dynamic t (Maybe Document) -> m ()
 overlay document = row "expand  disable-cursor" $ do
    sidebar
    column "expand" $ 
@@ -464,7 +342,8 @@ overlay document = row "expand  disable-cursor" $ do
   
   where
     header = buttonRow $ do 
-      
+      asks selectedClass >>= classToolButton >>= command (const (SelectClassCmd mempty))
+            
       spacer
       buttonGroup $ do
         docCommand  (const DocUndo)  =<< toolButton canUndo "Undo" "undo" "Undo last edit"

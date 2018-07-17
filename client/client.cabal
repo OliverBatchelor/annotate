@@ -30,6 +30,7 @@ library
                       , Scene.Viewport, Scene.View, Scene.Types, Scene.Events
                       , Input.Events, Input.Window
                       , Client.Widgets, Client.Main, Client.Common, Client.Dialog
+                      , Client.Class, Client.Select
 
   ghc-options:         -O2
 

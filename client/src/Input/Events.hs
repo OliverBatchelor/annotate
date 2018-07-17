@@ -3,7 +3,7 @@ module Input.Events
   , Key
   ) where
 
-import Annotate.Common
+import Annotate.Prelude
 import Client.Common
 
 import Reflex.Classes
@@ -31,7 +31,7 @@ import qualified GHCJS.DOM.Window as Window
 import qualified GHCJS.DOM.GlobalEventHandlers as DOM
 import Language.Javascript.JSaddle (MonadJSM)
 
-import Annotate.Types
+import Annotate.Common
 
 data Inputs t = Inputs
   { mouseDown :: Event t Button
@@ -73,27 +73,35 @@ getCoords e = DOM.liftJSM $ do
    
    return $ Box (realToFrac <$> pos) (realToFrac <$> size)
 
+rawElement :: (DomBuilder t m, DomBuilderSpace m ~ GhcjsDomSpace) => ElemType t m -> m DOM.HTMLElement
+rawElement e = return $ DOM.uncheckedCastTo DOM.HTMLElement (_element_raw e)
+
 pollBoundingBox :: (GhcjsBuilder t m, MonadJSM m) => ElemType t m -> m (Dynamic t Box)
 pollBoundingBox e = do
   t0 <- liftIO getCurrentTime
   timer <- tickLossy (1.0/30.0) t0
   
+  raw <- rawElement e
   updates <- performEvent (getCoords raw <$ timer)
   let initial = Box (V2 0 0) (V2 0 0)
   
   holdUniqDyn =<< holdDyn initial updates
-    where raw = DOM.uncheckedCastTo DOM.HTMLElement $ _element_raw e
 
-inputs :: (GhcjsBuilder t m) => ElemType t m -> m (Inputs t)
-inputs scene = do
+
+    
+
+windowInputs :: (GhcjsBuilder t m) => ElemType t m -> m (Inputs t)
+windowInputs scene = do
   
   window <- DOM.currentWindowUnchecked
+  raw <- rawElement scene
+
 
   -- Mouse down events on the element
-  mouseDown <- wrapDomEvent se (`DOM.on` DOM.mouseDown)
+  mouseDown <- wrapDomEvent raw (`DOM.on` DOM.mouseDown)
     (toButton <$> DOM.mouseButton)
 
-  click  <- wrapDomEvent se    (`DOM.on` DOM.click)
+  click  <- wrapDomEvent raw  (`DOM.on` DOM.click)
     (toButton <$> DOM.mouseButton)
 
   -- Other events on the window
@@ -121,9 +129,6 @@ inputs scene = do
 
 
   let focus = leftmost [focusIn, focusOut]
-
-
   return  Inputs{..}
-    where
 
-      se = DOM.uncheckedCastTo DOM.HTMLElement $ _element_raw scene
+

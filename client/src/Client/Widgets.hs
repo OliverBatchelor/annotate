@@ -1,6 +1,7 @@
 module Client.Widgets where
 
-import Annotate.Common hiding (div)
+import Annotate.Prelude hiding (div)
+import Annotate.Common (HexColour)
 import Client.Common
 
 import Reflex.Classes
@@ -8,6 +9,8 @@ import Builder.Html hiding (title)
 
 import qualified Data.Text as T
 import Data.Default
+
+import Text.Printf
 
 column :: Builder t m => Text -> m a -> m a
 column classes children = div [classes_ =: ["d-flex flex-column", classes]] children
@@ -37,8 +40,14 @@ instance Reflex t => Default (IconConfig t) where
 instance Reflex t => IsString (IconConfig t) where
   fromString name = IconConfig (pure $ T.pack name) IconSmall
 
+bgColour :: Maybe HexColour -> [Style]
+bgColour (Just colour) = [("background-color", showColour colour)]
+  where showColour = T.pack . printf "#%06X" 
+bgColour Nothing = []
+
+
 icon :: Builder t m => IconConfig t -> m ()
-icon IconConfig{..} = i [classes_ ~: activeList ["mdi", (mappend "mdi-") <$> name, pure sizeClass]] blank
+icon IconConfig{..} = i [ classes_ ~: activeList ["mdi", (mappend "mdi-") <$> name, pure sizeClass]] blank
   where 
     sizeClass = case size of
       IconTiny  -> "mdi-18px"
@@ -56,6 +65,10 @@ iconTextV :: Builder t m => Text -> IconConfig t -> m ()
 iconTextV t conf = column "neg-v-spacing-3" $ do
   icon conf
   span [class_ =: "small"] $ text t
+  
+
+  
+  
 
 iconButton :: Builder t m => Dynamic t Bool -> Text -> IconConfig t -> Text -> m (Event t ())
 iconButton enabled name conf tooltip = fmap (domEvent Click) $

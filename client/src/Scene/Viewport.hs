@@ -1,7 +1,7 @@
 module Scene.Viewport where
 
+import Annotate.Prelude
 import Annotate.Common
-import Annotate.Types
 import Control.Lens hiding (zoom)
 
 import Scene.Types

@@ -1,6 +1,6 @@
 module Scene.Events  where
 
-import Annotate.Common
+import Annotate.Prelude
 import qualified Input.Events as E
 
 
@@ -8,7 +8,7 @@ import Scene.Types
 import Client.Common
 
 import Scene.Viewport (toLocal)
-import Annotate.Types
+import Annotate.Common
 
 import qualified Data.Set as S
 import qualified Data.Map as M

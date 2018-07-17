@@ -26,8 +26,8 @@ import qualified Network.WebSockets             as WS
 import Servant
 import Servant.Utils.StaticFiles
 
-import Annotate.Types
-import qualified Annotate.Types as Ann
+import Annotate.Common
+import qualified Annotate.Common as Ann
 import qualified Annotate.Document as Doc
 
 import qualified Server.Options as Opt

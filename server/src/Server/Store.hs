@@ -1,7 +1,7 @@
 module Server.Store where
 
 
-import Annotate.Common
+import Annotate.Prelude
 import Server.Common
 
 import qualified Data.Map as M

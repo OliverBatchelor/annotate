@@ -1,6 +1,6 @@
 module Server.Options where
 
-import Annotate.Common
+import Annotate.Prelude
 import System.Console.CmdArgs.Implicit
 
 default (Int, Float)

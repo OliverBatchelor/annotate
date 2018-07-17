@@ -1,11 +1,11 @@
 module Annotate.Document where
 
-import Annotate.Common
+import Annotate.Prelude
 
 import qualified Data.Map as M
 import qualified Data.Set as S
 
-import Annotate.Types
+import Annotate.Common
 
 import Data.List (uncons)
 import Data.Maybe (catMaybes)

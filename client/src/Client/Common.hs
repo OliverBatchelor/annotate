@@ -4,8 +4,8 @@ module Client.Common
   , Key
   ) where
 
-import Annotate.Common hiding ((<>))
-import Annotate.Types
+import Annotate.Prelude hiding ((<>))
+import Annotate.Common
 import Annotate.Document
 
 import Control.Monad.Reader
@@ -30,15 +30,24 @@ data ViewCommand
   | PanView Position Position
   deriving (Generic, Show)
 
+type Selection = Set AnnotationId
+
 data AppCommand
   = ViewCmd ViewCommand
   | DocCmd DocCmd
-  | SelectCmd (Set AnnotationId)
+  | SelectCmd Selection
   | ClearCmd
   | RemoteCmd ClientMsg
+  | SelectClassCmd Selection
   
-
   deriving (Generic, Show)
+  
+  
+data Shortcut = 
+  ShortCancel | ShortUndo | ShortRedo | ShortDelete
+    deriving (Generic, Eq, Ord, Show)
+
+
 
 instance Semigroup AppCommand where
   a <> b = a
@@ -57,6 +66,7 @@ data AppEnv t = AppEnv
   , document :: Dynamic t (Maybe Document)
   , config :: Dynamic t Config
   , currentClass :: Dynamic t ClassId
+  , shortcut     :: Shortcut -> Event t ()
   } deriving Generic
 
 localPath :: MonadReader (AppEnv t) m => Text -> m Text

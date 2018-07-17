@@ -1,6 +1,6 @@
 module Input.Window where
 
-import Annotate.Common
+import Annotate.Prelude
 import Reflex.Dom
 import Builder.Element
 
@@ -43,3 +43,5 @@ setTitle d = do
 
   postBuild <- getPostBuild
   performEvent_ (DOM.liftJSM . Document.setTitle doc <$> leftmost [updated d, current d <@ postBuild])
+  
+

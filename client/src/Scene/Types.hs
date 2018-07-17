@@ -1,13 +1,13 @@
 module Scene.Types where
 
-import Annotate.Common
+import Annotate.Prelude
 
 import Reflex.Classes
 import Data.Semigroup
 import Data.Default
 
 import Annotate.Geometry
-import Annotate.Types
+import Annotate.Common
 
 import Input.Events
 
@@ -67,5 +67,6 @@ data Scene t = Scene
   , nextId       :: Dynamic t AnnotationId
   , currentClass :: Dynamic t ClassId
   , config       :: Dynamic t Config
-
+  
+  , shortcut     :: Shortcut -> Event t ()
   } deriving (Generic)

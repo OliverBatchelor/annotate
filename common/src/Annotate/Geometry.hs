@@ -4,7 +4,7 @@ module Annotate.Geometry
   , module Annotate.Geometry
   ) where
 
-import Annotate.Common
+import Annotate.Prelude
 
 import Linear.V2
 import Linear.Vector
