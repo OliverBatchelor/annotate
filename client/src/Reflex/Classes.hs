@@ -32,7 +32,7 @@ import Data.Dependent.Sum
 import Data.GADT.Compare
 
 
-data Updated t a = Updated a (Event t a)
+data Updated t a = Updated { initial :: a, updates :: Event t a }
 data Patched t p = Patched (PatchTarget p) (Event t p)
 
 changes ::  Reflex t => Dynamic t a -> (a -> a -> b) -> Event t b
@@ -45,6 +45,9 @@ maybeChanges d f = attachWithMaybe f (current d) (updated d)
 
 instance Reflex t => Functor (Updated t) where
   fmap f (Updated initial e) = Updated (f initial) (f <$> e)
+  
+holdUpdated :: (Reflex t, MonadHold t m) => Updated t a -> m (Dynamic t a)
+holdUpdated (Updated a0 a') = holdDyn a0 a'
 
 runWithReplace' :: Adjustable t m => Event t (m b) -> m (Event t b)
 runWithReplace' e = snd <$> runWithReplace blank e
@@ -61,10 +64,10 @@ runWithClose e = do
 
 active :: (MonadHold t m, DomBuilder t m, PostBuild t m) => Active t (m (Event t a)) -> m (Event t a)
 active (Static m) = m
-active (Dyn d) = dyn' d 
+active (Dyn d) = dyn' never d 
 
-dyn' :: (MonadHold t m, DomBuilder t m, PostBuild t m) => Dynamic t (m (Event t a)) -> m (Event t a)
-dyn' d = dyn d >>= switchHold never 
+dyn' :: (MonadHold t m, DomBuilder t m, PostBuild t m, SwitchHold t a) => a -> Dynamic t (m a) -> m a
+dyn' a d = dyn d >>= switchHold a 
 
 
 holdQueue :: (MonadHold t m, MonadFix m, Reflex t) => Event t [a] -> Dynamic t Bool -> m (Event t a)
@@ -104,8 +107,13 @@ replaceFor ::(Adjustable t m, SwitchHold t b, MonadHold t m) => a -> Event t a -
 replaceFor initial e f = replaceHold (f initial) (f <$> e)
 
 split :: Functor f => f (a, b) -> (f a, f b)
-split ab = (fst <$> ab, snd <$> ab)
+split f = (fst <$> f, snd <$> f)
 
+split3 :: Functor f => f (a, b, c) -> (f a, f b, f c)
+split3 f = (view _1 <$> f, view _2 <$> f, view _3 <$> f)
+
+split4 :: Functor f => f (a, b, c, d) -> (f a, f b, f c, f d)
+split4 f = (view _1 <$> f, view _2 <$> f, view _3 <$> f, view _4 <$> f)
 
 splitEither :: Reflex t => Event t (Either a b) -> (Event t a, Event t b)
 splitEither e = (preview _Left <?> e, preview _Right <?> e)
@@ -154,9 +162,6 @@ instance (Reflex t, SwitchHold t a, SwitchHold t b, SwitchHold t c) => SwitchHol
       (switchHold b (view _2 <$> e))
       (switchHold c (view _3 <$> e))
 
-
-
-
 instance Reflex t => SwitchHold t (Dynamic t a) where
   switchHold d ed = do
 
@@ -166,6 +171,31 @@ instance Reflex t => SwitchHold t (Dynamic t a) where
     e <- switchHold (updated d) (updated <$> ed)
     buildDynamic (sample b) (pushAlways sample eb <!> e)
 
+
+class Patch p => InversePatch p where
+  -- t `apply` p `apply` (inverse t p) == t
+  inverse :: PatchTarget p -> p -> p
+  
+
+instance Ord k => InversePatch (PatchMap k v) where
+  inverse m (PatchMap p) = PatchMap (M.mapWithKey lookupPrev p)
+    where lookupPrev k = const (M.lookup k m)
+    
+    
+patchIncremental :: (Semigroup p, InversePatch p, Reflex t) => Incremental t p -> Dynamic t p -> Incremental t p
+patchIncremental inc d = unsafeBuildIncremental s e
+
+  where
+    undo = liftA2 inverse (currentIncremental inc) (current d) `tag` updated d
+
+    e = mconcat [updated d, updatedIncremental inc, undo]
+    s = liftA2 apply' (sample (current d)) (sample (currentIncremental inc))
+    
+    
+apply' :: Patch p => p -> PatchTarget p -> PatchTarget p
+apply' p t = fromMaybe t (apply p t)
+
+    
 
 
 class Reflex t => Sample t f where
@@ -230,6 +260,13 @@ traverseMapWithAdjust :: forall t m k v a. (Ord k, Adjustable t m, MonadHold t m
 traverseMapWithAdjust m0 m' f = sequenceMapWithAdjust
       (M.mapWithKey f m0)
       (mapPatchMapWithKey f <$> m')
+      
+      
+      
+traverseMapView :: forall t m k v a. (Ord k, Adjustable t m, MonadHold t m) => Map k v -> Event t (Map k (Maybe v)) -> (k -> v -> m (Event t a)) -> m (Event t (Map k a))
+traverseMapView m0 m' f = do
+  (e0, e') <- traverseMapWithAdjust m0 (PatchMap <$> m') f
+  mergeMapIncremental <$> holdIncremental e0 e'      
 
 
 mapPatchMapWithKey :: (k -> a -> b) -> PatchMap k a -> PatchMap k b
@@ -294,6 +331,25 @@ patchMapWithUpdates (Patched m0 m') f = do
       updates = unPatchMap <$> m'
 
 
+incrementalMapToEvents :: (PostBuild t m, Ord k) => Incremental t (PatchMap k v) -> m (Event t (PatchMap k v))
+incrementalMapToEvents inc = do
+  postBuild <- getPostBuild
+  
+  return $ mconcat 
+    [ PatchMap . fmap Just <$> (currentIncremental inc `tag` postBuild)
+    , updatedIncremental inc
+    ]
+  
+    
+
+incrementalMapWithUpdates :: (Ord k, Adjustable t m, MonadFix m, MonadHold t m, PostBuild t m)
+                          => Incremental t (PatchMap k v) -> (k -> Updated t v -> m a) -> m (Patched t (PatchMap k a))
+incrementalMapWithUpdates inc f = do
+  e <- incrementalMapToEvents inc
+  patchMapWithUpdates (Patched mempty e) f
+
+
+
 
 -- Workflow related
 mapTransition ::  (MonadHold t m, Reflex t) => (Event t (Workflow t m a) -> Event t (Workflow t m a)) -> Workflow t m a -> Workflow t m a
@@ -346,7 +402,9 @@ workflow' m = Workflow $ ((),) <$> m
 fanWith :: (Reflex t, Ord k) => (k -> a -> b) -> (a -> a -> Map k b) -> Dynamic t a -> (k -> Dynamic t b)
 fanWith fromCurrent diffChanges d = \k -> unsafeBuildDynamic (fromCurrent k <$> sample (current d)) (select s (Const2 k))
   where s = fanMap $ changes d diffChanges
- 
+
+diffDynMap :: (Reflex t, Ord k, Eq v) =>  Dynamic t (Map k v) -> Event t (Map k (Maybe v)) 
+diffDynMap = flip changes diffMap
 
 fanDynMap :: (Reflex t, Ord k, Eq a) => Dynamic t (Map k a)  -> (k -> Dynamic t (Maybe a))
 fanDynMap = fanWith M.lookup diffMap
@@ -374,6 +432,7 @@ diffEq k k'
 -- fanMap' e = \k -> select (fanMap e) (Const2 k)
 
 
-
+logEvent :: (Show a, PerformEvent t m, MonadIO (Performable m)) => Event t a -> m ()
+logEvent = performEvent_ . fmap (liftIO . print)
   
   

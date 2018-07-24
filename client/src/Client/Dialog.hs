@@ -43,10 +43,7 @@ ok title content = modal (pure True) $ sections
   (domEvent Click <$> button_ [type_ =: "button", class_ =: "btn btn-primary"] (text "Ok"))
 
 
-    
-    
-
-sections :: (Builder t m, Monoid a) => m (Event t a) -> m (Event t a) -> m (Event t a) -> m (Event t a)
+sections :: (Builder t m) => m (Event t a) -> m (Event t a) -> m (Event t a) -> m (Event t a)
 sections title content footer = leftmost <$> sequence
   [ div [class_ =: "modal-header"]  title
   , div [class_ =: "modal-body"]    content

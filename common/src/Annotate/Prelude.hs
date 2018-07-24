@@ -21,7 +21,8 @@ import Control.Monad.IO.Class as X
 import Data.Text as X (Text)
 import Data.Functor as X
 import Data.Functor.Contravariant as X
-import Data.Monoid as X
+import Data.Monoid as X (Monoid(..), mempty, First(..), Last(..))
+import Data.Semigroup as X (Semigroup(..), (<>))
 import Data.Foldable as X
 import Data.Traversable as X
 
@@ -49,6 +50,9 @@ import Data.Void as X
 
 import Data.Set as X (Set)
 import Data.Map as X (Map)
+
+import Data.Dependent.Map as X (DMap)
+import Data.Dependent.Sum as X (DSum(..))
 
 import Data.Typeable as X
 

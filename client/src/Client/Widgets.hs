@@ -1,7 +1,7 @@
 module Client.Widgets where
 
 import Annotate.Prelude hiding (div)
-import Annotate.Common (HexColour)
+import Annotate.Common (HexColour, showColour)
 import Client.Common
 
 import Reflex.Classes
@@ -42,7 +42,6 @@ instance Reflex t => IsString (IconConfig t) where
 
 bgColour :: Maybe HexColour -> [Style]
 bgColour (Just colour) = [("background-color", showColour colour)]
-  where showColour = T.pack . printf "#%06X" 
 bgColour Nothing = []
 
 

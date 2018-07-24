@@ -4,12 +4,18 @@ import Annotate.Prelude
 import qualified Data.Map as M
 
 import Data.Word
+import Text.Printf
+
+import qualified Data.Text as T
   
 data Rgb = Rgb {red :: Float, green :: Float, blue :: Float}
   deriving (Eq, Ord, Show, Generic)
   
   
 type HexColour = Word32
+
+showColour :: HexColour -> Text
+showColour = T.pack . printf "#%06X" 
 
 defaultColours :: [HexColour]
 defaultColours = 

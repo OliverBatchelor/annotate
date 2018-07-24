@@ -10,7 +10,6 @@ import qualified Data.Set as S
 import Text.Printf 
 
 import Data.Default
-import Data.Monoid
 
 import Control.Monad.Reader
 import Control.Lens (notNullOf)
@@ -29,12 +28,15 @@ import Data.Functor.Misc (Const2(..))
 
 import Builder.Html
 import qualified Builder.Html as Html
+import qualified Builder.Svg as Svg
+
 
 import Input.Window
 import Input.Events
 
 import Client.Widgets
 import Client.Class
+import Client.Images
 import Client.Select
 
 import qualified Client.Dialog as Dialog
@@ -80,12 +82,13 @@ nonEmpty = \case
   xs -> Just xs
 
 
-viewControls :: GhcjsBuilder t m => Event t AppCommand -> DocInfo -> m (Dynamic t Viewport)
-viewControls cmds info = mdo
+viewControls :: GhcjsBuilder t m => Event t AppCommand -> Dynamic t Dim -> m (Dynamic t Viewport)
+viewControls cmds dim = do
   windowDim  <- windowDimensions
 
-  controls <- holdDyn  (1, V2 0 0) (updateView <$> viewCmds <#> current viewport)
-  let viewport = makeViewport <$> controls <*> pure (info ^. #imageSize) <*> windowDim
+  rec 
+    controls <- holdDyn  (1, V2 0 0) (updateView <$> viewCmds <#> current viewport)
+    let viewport = makeViewport <$> controls <*> dim <*> windowDim
 
   return viewport
 
@@ -111,11 +114,18 @@ errorMessage ErrNotRunning = ("Trainer error", "Trainer process not started.")
 errorMessage (ErrTrainer msg) = ("Trainer error", msg)
 
 
+printLog :: (MonadIO m, Show a) => a -> m ()
+printLog = liftIO . putStrLn . truncate . show where 
+  truncate str = if length str > 160 
+    then take 160 str <> "..."
+    else str
+    
 
-network :: GhcjsBuilder t m => Text -> Event t ClientMsg -> m (Event t (), Event t (Maybe Text), Event t ServerMsg, Event t ErrCode)
+
+network :: GhcjsBuilder t m => Text -> Event t [ClientMsg] -> m (Event t (), Event t (Maybe Text), Event t ServerMsg, Event t ErrCode)
 network host send = do
   socket <- webSocket ("ws://" <> host <> "/clients") $ def
-    & webSocketConfig_send  .~ (pure . encode <$> send)
+    & webSocketConfig_send  .~ (fmap encode <$> send)
 
   let (errs, decoded) = splitEither (eitherDecodeStrict <$> socket ^. webSocket_recv) 
       errors = leftmost
@@ -123,8 +133,8 @@ network host send = do
         , preview _ServerError <?> decoded
         ]
 
-  performEvent_ (liftIO . print <$> send)
-  performEvent_ (liftIO . print <$> decoded)
+  performEvent_ (printLog <$> send)
+  performEvent_ (printLog <$> decoded)
 
   return
     ( socket ^. webSocket_open
@@ -168,17 +178,38 @@ handleHistory loaded = mdo
 
 
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
-            => Event t AppCommand -> Document -> m (Event t (Map Shortcut ()), Dynamic t Action, Dynamic t (Maybe Document))
-sceneWidget cmds loaded  = mdo
+            => Event t AppCommand -> Event t Document -> m (Event t (DMap Shortcut Identity), Dynamic t Action, Dynamic t (Maybe Document))
+sceneWidget cmds loaded = do 
 
-  document <- holdDyn loaded (snd <$> modified)
-  let modified = attachWithMaybe (flip applyCmd') (current document) docCmd
-      clearCmd = (clearAnnotations <$> current document) <@ (_ClearCmd ?> cmds)
-      docCmd = leftmost [_DocCmd ?> cmds, clearCmd]
+  dim <- holdDyn (800, 600) (view (#info . #imageSize) <$> loaded)
+  viewport <- viewControls cmds dim
+  
+  rec 
+    input <- holdInputs (current viewport) sceneEvents =<< windowInputs element  
+    let (action, maybeDoc, sceneEvents) = r
+    
+    (element, r) <- Svg.svg' [class_ =: "expand enable-cursor", version_ =: "2.0"] $ do
+        sceneDefines viewport =<< view #preferences
+            
+        inViewport viewport $ replaceHold 
+            (pure (def, pure Nothing, never)) 
+            (documentEditor input cmds <$> loaded)
 
-  viewport <- viewControls cmds (loaded ^. #info)
-  input <- holdInputs (current viewport) hover =<< windowInputs element
+  return (matchShortcuts input, action, maybeDoc)
+            
 
+documentEditor :: forall t m. (GhcjsAppBuilder t m)
+            => SceneInputs t 
+            -> Event t AppCommand 
+            -> Document 
+            -> m (Dynamic t Action, Dynamic t (Maybe Document), Event t (Map AnnotationId SceneEvent))
+documentEditor input cmds loaded  = do
+
+  rec 
+    document <- holdDyn loaded (snd <$> modified)
+    let modified = attachWithMaybe (flip applyCmd') (current document) docCmd
+        clearCmd = (clearAnnotations <$> current document) <@ (_ClearCmd ?> cmds)
+        docCmd = leftmost [_DocCmd ?> cmds, clearCmd]
   
   -- Keep track of next id to use for new annotations
   let initialId = maybe 0 (+1) (maxId loaded)
@@ -192,25 +223,36 @@ sceneWidget cmds loaded  = mdo
     leftmost [latestAdd, _SelectCmd ?> cmds]
     
   env <- ask
+  
+  rec
+    annotations  <- holdIncremental annotations0 (PatchMap . editPatch <$> modified)
+    let patched = patchIncremental annotations (pending <$> document <*> action)
+    
+    logEvent (updated (pending <$> document <*> action))
+    
+    (action, sceneEvents) <- sceneView $ Scene
+      { image    = ("images/" <> loaded ^. #name, loaded ^. #info . #imageSize)
+      -- , viewport = viewport
+      , input    = input
+      , document = document
 
-  (element, (action, hover)) <- sceneView $ Scene
-    { image    = ("images/" <> loaded ^. #name, loaded ^. #info . #imageSize)
-    , viewport = viewport
-    , input    = input
-    , document = document
+      , selection = selection
+      , annotations = patched
 
-    , selection = selection
-    , annotations = Patched annotations0 (PatchMap . editPatch <$> modified)
+      , nextId = nextId
+      , currentClass = view #currentClass env
+      , config = view #config env
+      , shortcut = view #shortcut env
+      }
 
-    , nextId = nextId
-    , currentClass = view #currentClass env
-    , config = view #config env
-    , shortcut = view #shortcut env
-    }
-
-  return (matchShortcuts input, action, (Just <$> document))
+  return (action, (Just <$> document), sceneEvents)
     where annotations0 = loaded ^. #annotations
 
+
+pending :: Document -> Action -> PatchMap AnnotationId Annotation
+pending doc Action{edit} 
+  | Just e <- edit     = maybe mempty PatchMap (editPatch <$> applyEdit e doc)
+  | otherwise          = mempty
 
 bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m ()
 bodyWidget host = mdo
@@ -225,64 +267,75 @@ bodyWidget host = mdo
 
       ready _ = Workflow $ do
         
-        needsLoad <- filterMaybe <$>
-          postCurrent (preview _Nothing <$> current document)
+        postBuild <- getPostBuild
+        let reqs = mergeList 
+              [ ClientNext Nothing <$ needsLoad
+              , ClientCollection   <$ postBuild ]
+          
+            needsLoad = preview _Nothing <?> (current document `tag` postBuild)
 
-        return (("ready", ClientNext Nothing <$ needsLoad), never)
+        return (("ready", toList <$> reqs), never)
 
   (state, clientMsgs) <- split <$> (workflow $
     commonTransition (disconnected <$ closed) disconnected)
 
-  let clientMsg = leftmost
+  let clientMsg = mconcat
         [ switchPrompt clientMsgs
-        , ClientOpen <$> urlSelected
-        , preview _RemoteCmd <?> cmds
+        , pure . ClientOpen <$> urlSelected
+        , fmap pure . preview _RemoteCmd <?> cmds
         ]
 
 
   urlSelected <- handleHistory (view #name <$> loaded)
   setTitle $ ffor document $ \doc ->
     "Annotate - " <> fromMaybe ("no document") (view #name <$> doc)
+
+  collection <- holdCollection serverMsg
     
-  
   let hello   = preview _ServerHello <?> serverMsg
       (loaded :: Event t Document)  = preview _ServerDocument <?> serverMsg
-      shortcuts' = fanMap shortcuts
             
       env = AppEnv 
         { basePath = "http://" <> host
         , document = document
         , commands = cmds
         , config = config
+        , preferences = preferences
         , currentClass = currentClass
-        , shortcut = \s -> R.select shortcuts' (Const2 s)
+        , shortcut = fan shortcuts
+        , collection = collection
         }
   
   config <- holdDyn defaultConfig $ leftmost [view _2 <$> hello, preview _ServerConfig <?> serverMsg]
-  currentClass <- foldDyn validClass 0 (updated config)
+  preferences <- holdDyn defaultPreferences never
+  
+  let classSelected = preview _ClassCmd <?> cmds 
+  currentClass <- foldDyn ($) 0 $ mergeWith (.)   
+    [ validClass <$> updated config
+    , const . snd <$> classSelected
+    ]
 
   ((shortcuts, action, document), cmds) <- flip runReaderT env $ runEventWriterT $ do
   
     runWithClose $ leftmost 
-      [ fmap selectClassDialog . preview _SelectClassCmd <?> cmds
+      [ fmap runDialog . preview _DialogCmd <?> cmds
       , errorDialog <$> serverErrors
       ]
   
     cursorLock action $ do
-      div [class_ =: "scene expand"] $ do
-        state <- replaceHold 
-            (pure (never, def, pure Nothing)) 
-            (sceneWidget cmds <$> loaded)
-        overlay document
-        return state
-        
+      div [class_ =: "scene expand"] $ 
+        const <$> sceneWidget cmds loaded
+              <*> overlay document
   return ()
+
+runDialog :: AppBuilder t m => Dialog -> m (Event t ())
+runDialog (ClassDialog selection) = selectClassDialog selection
 
 
 validClass :: Config -> ClassId -> ClassId
 validClass config classId = if (classId `M.member` classes) 
   then classId
-  else fromMaybe 0 (fst <$> M.lookupMin classes)
+  else fromMaybe 0 (minKey classes)
     where classes = view #classes config
 
 
@@ -296,11 +349,19 @@ cursorLock action child =
 
 
 
+holdCollection :: (Reflex t, MonadHold t m, MonadFix m) => Event t ServerMsg -> m (Dynamic t Collection)
+holdCollection serverMsg = foldDyn ($) emptyCollection $ mergeWith (.)
+    [ const  <$> collection
+    , applyUpdate <$> update 
+    ]
+
+  where
+    collection = preview _ServerCollection <?> serverMsg
+    update = preview _ServerUpdateInfo <?> serverMsg
+    
+    applyUpdate (k, info) = over #images (M.insert k info)
 
 
-
-imagesTab :: AppBuilder t m => m ()
-imagesTab = text "images"
 
 detectionTab :: AppBuilder t m => m ()
 detectionTab = text "detection"
@@ -342,7 +403,7 @@ overlay document = row "expand  disable-cursor" $ do
   
   where
     header = buttonRow $ do 
-      asks selectedClass >>= classToolButton >>= command (const (SelectClassCmd mempty))
+      asks selectedClass >>= classToolButton >>= command (const (DialogCmd (ClassDialog mempty)))
             
       spacer
       buttonGroup $ do

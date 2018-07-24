@@ -39,7 +39,7 @@ selectable selected items = active (fmap leftmost . traverse f <$> items)
       isOpen = fanDyn selected
   
 tabContent :: (Ord k, Builder t m) =>  Dynamic t k -> [(k, m ())] -> m ()
-tabContent selected items = void $ div_ [class_ =: "tab-content p-2 grow"] $ traverse_ item items
+tabContent selected items = void $ div_ [class_ =: "tab-content p-0 pt-2 grow"] $ traverse_ item items
   where 
     item (k, m) = div_ [classList ["tab-pane h-100", "active" `gated` isOpen k]] m
     isOpen = fanDyn selected

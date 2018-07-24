@@ -40,6 +40,8 @@ data Shape = BoxShape     Box
 
 data ShapeConfig = BoxConfig | PolygonConfig | LineConfig   
   deriving (Generic, Show, Eq, Ord)
+  
+  
 
 instance HasBounds Shape where
  getBounds (BoxShape s)     = getBounds s
@@ -65,9 +67,10 @@ data Document = Document
 data ImageCat = New | Train | Test | Discard deriving (Eq, Ord, Enum, Generic, Show)
 
 data DocInfo = DocInfo
-  { modified :: Maybe DateTime
-  , category :: ImageCat
-  , imageSize :: (Int, Int)
+  { modified    :: Maybe DateTime
+  , numAnnotations :: Int
+  , category    :: ImageCat
+  , imageSize   :: (Int, Int)
   } deriving (Generic, Show, Eq)
 
 
@@ -81,12 +84,16 @@ data ClassConfig = ClassConfig
 data Config = Config
   { root      :: Text
   , extensions :: [Text]
-  , classes    :: Map ClassId ClassConfig
+  , classes     :: Map ClassId ClassConfig
+  } deriving (Generic, Show, Eq)
+  
+data Preferences = Preferences 
+  { controlSize :: Float
   } deriving (Generic, Show, Eq)
 
+
 data Collection = Collection
-  { config :: Config
-  , images :: Map DocName DocInfo
+  { images :: Map DocName DocInfo
   } deriving (Generic, Show, Eq)
 
 
@@ -97,6 +104,7 @@ data ErrCode = ErrDecode Text | ErrNotFound DocName | ErrNotRunning | ErrTrainer
 data ServerMsg
   = ServerHello ClientId Config
   | ServerConfig Config
+  | ServerCollection Collection
   | ServerUpdateInfo DocName DocInfo
   | ServerDocument Document
   | ServerOpen (Maybe DocName) ClientId DateTime
@@ -111,11 +119,14 @@ data ClientMsg
   | ClientDiscard DocName
   | ClientDetect DocName
   | ClientClass ClassId (Maybe ClassConfig)
+  | ClientCollection
 
       deriving (Generic, Show, Eq)
 
 instance FromJSON ShapeConfig
 instance FromJSON ClassConfig
+
+instance FromJSON Preferences
 
 instance FromJSON Edit
 instance FromJSON DocCmd
@@ -132,6 +143,8 @@ instance FromJSON ErrCode
 
 instance ToJSON ShapeConfig
 instance ToJSON ClassConfig
+
+instance ToJSON Preferences
 
 instance ToJSON Edit
 instance ToJSON DocCmd
@@ -154,6 +167,10 @@ defaultConfig = Config
   , classes    = M.fromList [(0, newClass 0)]
   }
   
+defaultPreferences :: Preferences
+defaultPreferences = Preferences 
+  { controlSize = 10
+  }
     
 newClass :: ClassId -> ClassConfig     
 newClass k = ClassConfig 
@@ -161,6 +178,10 @@ newClass k = ClassConfig
   , colour  = fromMaybe 0xFFFF00 $ preview (ix k) defaultColours
   , shape   = BoxConfig
   }
+  
+  
+emptyCollection :: Collection
+emptyCollection = Collection mempty
 
 makePrisms ''ClientMsg
 makePrisms ''ServerMsg

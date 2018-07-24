@@ -23,6 +23,7 @@ defaultInfo dim = DocInfo
   { modified = Nothing
   , category = New
   , imageSize = dim
+  , numAnnotations = 0
   }
 
 

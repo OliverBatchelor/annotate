@@ -96,7 +96,6 @@ windowInputs scene = do
   window <- DOM.currentWindowUnchecked
   raw <- rawElement scene
 
-
   -- Mouse down events on the element
   mouseDown <- wrapDomEvent raw (`DOM.on` DOM.mouseDown)
     (toButton <$> DOM.mouseButton)
@@ -111,8 +110,7 @@ windowInputs scene = do
   mouseUp    <- wrapDomEvent window    (`DOM.on` DOM.mouseUp)
     (toButton <$> DOM.mouseButton)
 
-  wheel  <- wrapDomEvent window    (`DOM.on` DOM.wheel)
-    (realToFrac <$> (DOM.event >>= DOM.getDeltaY))
+  wheel  <- wrapDomEvent raw    (`DOM.on` DOM.wheel) wheelNormalized
 
   focusIn <- wrapDomEvent window    (`DOM.on` DOM.focus) (return True)
   focusOut <- wrapDomEvent window   (`DOM.on` DOM.blur) (return False)
@@ -131,4 +129,17 @@ windowInputs scene = do
   let focus = leftmost [focusIn, focusOut]
   return  Inputs{..}
 
+
+wheelNormalized = do 
+  e <- DOM.event 
+  
+  dy <- realToFrac <$> DOM.getDeltaY e
+  mode <- DOM.getDeltaMode e
+  return (dy * deltaSize mode)
+  
+    where 
+      deltaSize = \case
+        0 -> 1  --DOM_DELTA_PIXEL
+        1 -> 20  --DOM_DELTA_LINE
+        2 -> 400 --DOM_DELTA_PAGE
 

@@ -104,10 +104,10 @@ applyEdit' e doc = do
    return (inverse, doc & #annotations .~ annotationMap)
 
 
-accumEdits :: Edit -> ([Edit], AnnotationMap) -> Maybe ([Edit], AnnotationMap)
-accumEdits edit (inverses, annotationMap) = do
-    (inv, annotationMap') <- patchEdit edit annotationMap
-    return (inv : inverses, annotationMap')
+-- accumEdits :: Edit -> ([Edit], AnnotationMap) -> Maybe ([Edit], AnnotationMap)
+-- accumEdits edit (inverses, annotationMap) = do
+--     (inv, annotationMap') <- patchEdit edit annotationMap
+--     return (inv : inverses, annotationMap')
 
 
 transformObj :: Float -> Vec -> Annotation -> Annotation

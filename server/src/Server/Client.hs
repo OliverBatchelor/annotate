@@ -100,6 +100,11 @@ processMsg env@Env{store} clientId msg = do
       updateLog store (CmdClass k mClass)
       broadcastConfig env
 
+    ClientCollection -> do
+      collection <- getCollection <$> readLog (env ^. #store)
+      sendClient env clientId (ServerCollection collection)
+
+
 
 
 nextImage :: Env -> ClientId -> Maybe DocName -> STM ()

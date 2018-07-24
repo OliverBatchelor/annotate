@@ -13,6 +13,15 @@ import Annotate.Common
 import qualified Data.Set as S
 import qualified Data.Map as M
 
+import qualified Data.Dependent.Map as DM
+
+import Data.Dependent.Map (DMap)
+import Data.Dependent.Sum
+
+import qualified Web.KeyCode as Key
+
+
+  
 
 
 holdKeys :: (MonadFix m, Reflex t, MonadHold t m) => Event t Bool -> (Event t Key, Event t Key) -> m (Dynamic t (Set Key))
@@ -31,18 +40,26 @@ testCombo key modifiers (held, pressed)
   | otherwise = Nothing
 
 holdInputs :: (MonadFix m, MonadHold t m, Reflex t)
-           => Behavior t Viewport -> Event t (Map AnnotationId Bool) -> E.Inputs t  -> m (SceneInputs t)
-holdInputs viewport hovers inp = do
+           => Behavior t Viewport -> Event t (Map AnnotationId SceneEvent) -> E.Inputs t  -> m (SceneInputs t)
+holdInputs viewport sceneEvents inp = do
 
   mousePos      <- holdDyn (V2 0 0) (E.mouseMove inp)
   localMousePos <- holdDyn (V2 0 0) (toLocal <$> viewport <@> E.mouseMove inp)
-
-  keys <- holdKeys (E.focus inp) (E.keyDown inp, E.keyUp inp)
+  
+  let occurances e = ffilter (not . null) $ M.keysSet . M.filter (== e) <$> sceneEvents
+  
   hover <- foldDyn ($) S.empty $ mergeWith (.)
       [ const mempty <$ E.focus inp
-      , S.union . M.keysSet . M.filter id <$> hovers
-      , S.difference . M.keysSet . M.filter not <$> hovers
+      , S.union <$> occurances SceneEnter
+      , S.difference <$> occurances SceneLeave
       ]
+  
+  rec    
+    keys <- holdKeys (E.focus inp) (keysDown, E.keyUp inp)
+    let keysDown = attachWithMaybe uniqueKey (current keys) (E.keyDown inp)
+        uniqueKey s (k :: Key) = if S.member k s then Nothing else Just k
+  
+    
   let mouseDown = selectEq (E.mouseDown inp)
 
   return
@@ -73,3 +90,12 @@ holdInputs viewport hovers inp = do
     , keyCombo = \k held -> testCombo k (S.fromList held) <?>
         (current keys `attach` E.keyDown inp)
   }
+  
+  
+matchShortcuts :: Reflex t => SceneInputs t -> Event t (DMap Shortcut Identity)
+matchShortcuts SceneInputs{..} = merge $ DM.fromList
+    [ (ShortUndo :=> keyCombo Key.KeyZ [Key.Control])
+    , (ShortRedo :=> keyCombo Key.KeyZ [Key.Control, Key.Shift])
+    , (ShortDelete :=> keyDown Key.Delete)
+    , (ShortCancel :=> keyDown Key.Escape)
+    ]

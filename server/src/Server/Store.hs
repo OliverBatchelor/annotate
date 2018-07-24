@@ -39,8 +39,11 @@ $(deriveSafeCopy 0 'base ''Command)
 docInfo :: DocName -> Traversal' Store DocInfo
 docInfo k = #images . ix k . #info
 
-updateModified :: DocName -> UTCTime -> (Store -> Store)
-updateModified k time = docInfo k . #modified .~ Just time
+updateInfo :: Document -> UTCTime -> (Store -> Store)
+updateInfo doc time = over (docInfo k) $ \info -> 
+  info & #modified .~ Just time & #numAnnotations .~ length (doc ^. #annotations)
+    where k = view #name doc
+    
 
 updateDocument :: Document -> (Store -> Store)
 updateDocument doc = #images . at (doc ^. #name) .~ Just doc
@@ -48,7 +51,7 @@ updateDocument doc = #images . at (doc ^. #name) .~ Just doc
 instance Persistable Store where
   type Update Store = Command
 
-  update (CmdSubmit doc time) = updateModified (doc ^. #name) time . updateDocument doc    
+  update (CmdSubmit doc time) = updateInfo doc time . updateDocument doc    
   update (CmdImages new)        = over #images (M.union new') 
     where new' = M.mapWithKey emptyDoc (M.fromList new)
     

@@ -45,17 +45,21 @@ shapeTypes = M.fromList
   , ("Polygon", PolygonConfig)
   , ("Line", LineConfig)
   ]
-
-
   
+  
+
 selectClassDialog :: AppBuilder t m => Selection -> m (Event t ())
 selectClassDialog selection = modal (pure True) $ sections
   (titleClose "Select class") widget
   (domEvent Click <$> button_ [type_ =: "button", class_ =: "btn btn-primary"] (text "Cancel"))
     where
       widget = do
-        shortcut <- view #shortcut
-        return (shortcut ShortCancel)
+        classes <- askClasses
+        selected <- selectTable (-1) (Dyn (M.toList . fmap showClass <$> classes))
+        command (ClassCmd selection) selected
+
+        (Shortcuts shortcut) <- askShortcuts
+        return $ leftmost [shortcut ShortCancel, void selected ]
 
 
 editClass :: Builder t m => Maybe ClassConfig -> m (Event t ClassConfig)
@@ -86,11 +90,13 @@ editClass conf = do
             fromDesc = flip M.lookup shapeTypes
 
 
-    
+
 classesTab :: forall t m. AppBuilder t m => m ()
-classesTab = column "h-100 p-2 v-spacing-2" $ mdo 
-  classes   <- fmap (view #classes) <$> view #config
-  selected <- holdDyn 0 (leftmost [userSelect, added])
+classesTab = column "h-100 p-0 v-spacing-2" $ mdo 
+  classes  <- askClasses
+  selected <- view #currentClass
+  
+  command (ClassCmd mempty) $ leftmost [userSelect, added]
   let selectedClass = M.lookup <$>  selected <*> classes
   
   (added, removed) <- row "" $ buttonGroup $ do
@@ -100,7 +106,7 @@ classesTab = column "h-100 p-2 v-spacing-2" $ mdo
     return (nextClass <$> current classes `tag` add, current selected `tag` remove)
       
   
-  userSelect <- div [class_ =: "grow-1 border"] $ do
+  userSelect <- div [class_ =: "scroll-grow border"] $ do
     selectTable selected (Dyn (M.toList . fmap showClass <$> classes))
    
   (updated :: Event t ClassConfig) <- switchHold never =<< dyn (editClass <$> selectedClass) 
@@ -114,7 +120,7 @@ classesTab = column "h-100 p-2 v-spacing-2" $ mdo
   
   return ()
     where
-      nextClass classes = fromMaybe 0 ((+1) . fst <$> M.lookupMax classes)
+      nextClass classes = fromMaybe 0 ((+1)  <$> maxKey classes)
       
       newClassCmd k           = ClientClass k (Just $ newClass k)
       removeClassCmd k        = ClientClass k Nothing

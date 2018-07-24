@@ -34,7 +34,6 @@ data Store = Store
 data Command where
   CmdCategory :: DocName -> ImageCat -> Command
   CmdSubmit :: Document -> UTCTime  -> Command
-
   CmdModified :: DocName -> UTCTime -> Command
   CmdImages :: [(DocName, DocInfo)] -> Command
   CmdClass :: ClassId -> Maybe ClassConfig -> Command
@@ -180,12 +179,7 @@ lookupDoc :: DocName -> Store -> Maybe Document
 lookupDoc k Store{..} = M.lookup k images
 
 getCollection :: Store -> Collection
-getCollection Store{..} = Collection 
-  { config = config
-  , images = view #info <$> images
-  }
-
-
+getCollection Store{..} = Collection $ view #info <$> images 
 
 
 getCurrentTime' :: STM UTCTime

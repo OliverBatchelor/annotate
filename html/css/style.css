@@ -7,6 +7,7 @@ html, body {
 
 * {
   -webkit-user-drag:none;
+  -moz-user-drag:none;
   user-drag: none;
 
   -moz-user-select:none;
@@ -14,8 +15,9 @@ html, body {
 }
 
 
-.scroll {
-  overflow-y:scroll;
+.scroll-grow {
+  overflow-y:auto;
+  flex: 1 1 0;
 }
 
 
@@ -27,7 +29,11 @@ html, body {
 
 .scene > * {
   position: absolute;
+  user-drag: none;
+
 }
+
+
 
 
 /* .tab-content {
@@ -156,16 +162,25 @@ html, body {
 }
 
 
+.control {
+  stroke: black;
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-width:2;
+}
+
+
 .brush {
   stroke: black;
   fill: blue;
   vector-effect: non-scaling-stroke;
   fill-opacity: 0.4;
+  
+  stroke-width:2;
 }
 
 .annotation {
   stroke: black;
-  fill: blue;
   vector-effect: non-scaling-stroke;
   fill-opacity: 0.4;
 }
@@ -183,7 +198,6 @@ html, body {
 .outline {
   vector-effect: non-scaling-stroke;
 
-  fill:blue;
   fill-opacity: 0.1;
 
   stroke: black;
@@ -204,14 +218,14 @@ html, body {
 
 .sidebar {
   position: relative;
-  width:600px;
+  width:800px;
   overflow: visible; 
   
   transition-duration: .3s;  
 }
  
 .sidebar.closed {
-  margin-left: -560px;
+  margin-left: -760px;
 }
  
 .toggler {
