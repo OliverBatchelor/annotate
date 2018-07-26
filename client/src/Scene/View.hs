@@ -41,20 +41,20 @@ boxElem props b = rect_ $ props <> [xy_ ~: lower, wh_ ~: (upper - lower)] where
 sceneDefines :: Builder t m => Dynamic t Viewport -> Dynamic t Preferences -> m ()
 sceneDefines vp prefs = void $ defs [] $ do
     boxElem [id_ =: controlId, class_ =: "control"] (Dyn $ makeBox <$> prefs <*> vp)
-    
-  where 
-    
-    makeBox prefs vp = getBounds $ Extents (V2 0 0) (V2 s s) 
+
+  where
+
+    makeBox prefs vp = getBounds $ Extents (V2 0 0) (V2 s s)
       where s = (prefs ^. #controlSize) / (vp ^. #zoom)
 
 boxVertices :: Box -> (Position, Position, Position, Position)
-boxVertices (Box (V2 lx ly) (V2 ux uy)) = 
+boxVertices (Box (V2 lx ly) (V2 ux uy)) =
   ( V2 lx ly
   , V2 ux ly
   , V2 ux uy
   , V2 lx uy
   )
-  
+
 
 controlId :: Text
 controlId = "control"
@@ -62,33 +62,33 @@ controlId = "control"
 control :: Builder t m => Dynamic t Position -> m ()
 control p = void $ use_ [href_ =: "#" <> controlId, transform_ ~: toCentre <$> p ]
   where toCentre (V2 x y) = [Translate x y]
-  
+
 boxView :: Builder t m => ShapeProperties t  -> Dynamic t Box -> m (Event t SceneEvent)
 boxView props box = do
   e <- boxElem (shapeProperties props) (Dyn box)
-  
+
   g_ [shown_ ~: props ^. #selected] $ sequence_
     [control v1, control v2, control v3, control v4]
-  
+
   return $ leftmost
     [ SceneEnter <$ domEvent Mouseenter e
     , SceneLeave <$ domEvent Mouseleave e
     , SceneDown <$ domEvent Mousedown e
     ]
-  
-  where 
+
+  where
     (v1, v2, v3, v4) = split4 (boxVertices <$> box)
 
-  
+
 polygonView :: Builder t m => ShapeProperties t  -> Dynamic t Polygon -> m (Event t SceneEvent)
 polygonView props poly = do
   e <- polygonElem (shapeProperties props) (Dyn poly)
   return never
-      
+
 lineView :: Builder t m => ShapeProperties t  -> Dynamic t WideLine -> m (Event t SceneEvent)
 lineView props line = do
   e <- lineElem (shapeProperties props) (Dyn line)
-  
+
   return $ leftmost
     [ SceneEnter <$ domEvent Mouseenter e
     , SceneLeave <$ domEvent Mouseleave e
@@ -100,12 +100,12 @@ circleElem props c  = circle_ $ props <> [cxcy_ ~: centre, r_ ~: view #radius <$
   centre = view #centre <$> c
 
 polygonElem :: (Builder t m) =>  [Property t] -> Active t Polygon -> m (ElemType t m)
-polygonElem props poly  = polygon_ $ props <> [points_ ~: toList . view #points <$> poly] 
+polygonElem props poly  = polygon_ $ props <> [points_ ~: toList . view #points <$> poly]
 
 lineElem  :: (Builder t m) =>  [Property t] -> Active t WideLine -> m (ElemType t m)
 lineElem props line = g_ [] blank
 
-data ShapeProperties t = ShapeProperties 
+data ShapeProperties t = ShapeProperties
   { selected :: !(Dynamic t Bool)
   , fill     :: !(Dynamic t HexColour)
   } deriving Generic
@@ -115,25 +115,25 @@ shapeView props obj  = case view #shape <$> obj of
   Updated (BoxShape s)     e  -> boxView props      =<< holdDyn s (_BoxShape ?> e)
   Updated (PolygonShape s) e  -> polygonView props  =<< holdDyn s (_PolygonShape ?> e)
   Updated (LineShape s)    e  -> lineView props     =<< holdDyn s (_LineShape ?> e)
-  
+
 
 shapeElem :: forall t m. (Builder t m) => [Property t] -> Updated t Annotation -> m (ElemType t m)
 shapeElem props obj  = case view #shape <$> obj of
   Updated (BoxShape s)     e  -> boxElem props     . Dyn =<< holdDyn s (_BoxShape ?> e)
   Updated (PolygonShape s) e  -> polygonElem props . Dyn =<< holdDyn s (_PolygonShape ?> e)
   Updated (LineShape s)    e  -> lineElem props    . Dyn =<< holdDyn s (_LineShape ?> e)
-  
-  
-  
+
+
+
 shapeProperties :: Reflex t => ShapeProperties t -> [Property t]
-shapeProperties ShapeProperties{selected, fill} = 
+shapeProperties ShapeProperties{selected, fill} =
     [ classes_ ~: activeList [pure "annotation", Dyn $ selectClass <$> selected]
-    , style_ ~: style <$> fill ] 
+    , style_ ~: style <$> fill ]
   where
 
     selectClass b = if b then "selected" else ""
-    style colour = [("fill", showColour colour)]  
-  
+    style colour = [("fill", showColour colour)]
+
   -- Updated (CircleShape c) e -> circleView classes . Dyn =<< holdDyn c (_CircleShape ?> e)
 
 outlineView :: forall t m. (Builder t m) => Updated t Annotation -> m ()
@@ -144,13 +144,13 @@ annotationView :: forall t m. (Builder t m) => Dynamic t Config -> Dynamic t Boo
 annotationView config selected k obj = do
   classId <- holdUpdated (view #label <$> obj)
   let colour = classColour <$> config <*> classId
-    
+
   shapeView (ShapeProperties selected colour) obj
     where
       classColour Config{classes} k = case M.lookup k classes of
         Nothing   -> 0x000000
         Just ClassConfig{colour} -> colour
-        
+
 
 imageView :: (AppBuilder t m) =>  Image -> m (ElemType t m)
 imageView  (file, dim) = do
@@ -171,8 +171,8 @@ action m = Workflow $ over _1 (fmap f) <$> m
    where f cursor = Action cursor True Nothing
 
 editAction :: AppBuilder t m => m (Dynamic t Cursor, Dynamic t Edit, Event t (SceneAction t m)) -> SceneAction t m
-editAction m = Workflow $ do 
-    (cursor, edit, transitions) <- m 
+editAction m = Workflow $ do
+    (cursor, edit, transitions) <- m
     return (f <$> cursor <*> edit, transitions)
       where f cursor edit = Action cursor True (Just edit)
 
@@ -186,7 +186,7 @@ drawBoxes :: AppBuilder t m => Scene t -> SceneInputs t -> m ()
 drawBoxes scene SceneInputs{..} = do
   e <- filterMaybe <$> workflowView (idle Nothing)
   addAnnotation scene (boxAnnotation e)
-    
+
   where
     idle r = Workflow $ do
       return (r, drawing <$> (current mouse <@ mouseDown LeftButton))
@@ -194,7 +194,7 @@ drawBoxes scene SceneInputs{..} = do
     drawing p1 = Workflow $ do
       let box = makeBox p1 <$> mouse
           done = current box <@ mouseUp LeftButton
-    
+
       boxElem  [class_ =: "outline"] (Dyn box)
       return (Nothing, idle . Just <$> done)
 
@@ -248,7 +248,7 @@ actions scene@Scene{..} = holdWorkflow $
   -- Draw boxes
   drawMode k config = action $ do
     drawBoxes scene input
-    return ("crosshair", base <$ keyUp Key.Space) 
+    return ("crosshair", base <$ keyUp Key.Space)
 
   -- Pan the view when a blank part of the scene is dragged
   pan origin = action $ do
@@ -269,10 +269,11 @@ sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (Map Anno
 sceneView scene@Scene{..} = do
     imageView image
 
-    hovers <- holdMergePatched =<< incrementalMapWithUpdates annotations annotationView'
+    sceneEvents <- holdMergePatched =<< incrementalMapWithUpdates annotations $ \k ->
+       annotationView config (isSelected k) k
+
     action <- actions scene
 
-    return (action, hovers)
+    return (action, sceneEvents)
       where
-          isSelected    = fanDynSet selection
-          annotationView' k = annotationView config (isSelected k) k
+          isSelected = fanDynSet selection

@@ -12,7 +12,7 @@ import Linear.Vector
 import Control.Lens (iso, Simple, Iso)
 import Data.List.NonEmpty (NonEmpty(..))
 
-import Data.Semigroup 
+import Data.Semigroup
 
 type Vec = V2 Float
 
@@ -29,30 +29,33 @@ mergeBoxes (Box l u) (Box l' u') = Box (liftI2 min l l') (liftI2 max u u')
 
 instance Semigroup Box where
   (<>) = mergeBoxes
-  
+
 
 class HasBounds a where
   getBounds :: a -> Box
-  
+
 instance HasBounds Box where
   getBounds = id
-  
+
 instance HasBounds Circle where
   getBounds (Circle c r) = Box (c - r') (c + r')
     where r' = V2 r r
 
-instance HasBounds Vec where
-  getBounds p = Box p p 
-
 
 instance HasBounds Extents where
   getBounds Extents{..} = Box (centre - extents) (centre + extents)
-    
+
 instance HasBounds Polygon where
   getBounds (Polygon points) = Box (foldl1 (liftI2 min) points) (foldl1 (liftI2 max) points)
 
 instance HasBounds WideLine where
-  getBounds (WideLine points) = sconcat (fmap getBounds points)
+  getBounds (WideLine points) = getBounds points
+
+instance HasBounds Position where
+  getBounds p = Box p p
+
+instance HasBounds a => HasBounds (NonEmpty a) where
+  getBounds as = sconcat (fmap getBounds as)
 
 type Dim = (Int, Int)
 

@@ -10,6 +10,9 @@ import Annotate.Common
 import Data.List (uncons)
 import Data.Maybe (catMaybes)
 
+import Control.Lens hiding (uncons)
+import Data.List.NonEmpty (nonEmpty)
+
 emptyDoc ::  DocName -> DocInfo -> Document
 emptyDoc name info = Document
   { undos = []
@@ -110,22 +113,70 @@ applyEdit' e doc = do
 --     return (inv : inverses, annotationMap')
 
 
+data Corner = BottomLeft | BottomRight | TopRight | TopLeft
+  deriving (Ord, Enum, Eq, Generic, Show, Bounded)
+
+toEnumSet :: forall a. (Bounded a, Enum a, Ord a) => Set Int -> Set a
+toEnumSet = S.mapMonotonic toEnum . S.filter (\i -> i >= lower && i <= upper)
+  where (lower, upper) = (fromEnum (minBound :: a), fromEnum (maxBound :: a))
+
+transformCorners :: Float -> Vec -> Set Corner -> Box -> Box
+transformCorners s (V2 tx ty) corners = over boxExtents
+    (\Extents{..} -> Extents (centre + t') (extents * s'))
+
+  where
+    corner = flip S.member corners
+    s' = V2 (s * mask (left && right)) (s * mask (top && bottom))
+    t' = V2 (tx * mask (top && bottom)) (ty * mask (left && right))
+
+    mask b = if b then 1 else 0
+
+    left   = corner TopLeft     || corner BottomLeft
+    right  = corner BottomRight || corner BottomRight
+    top    = corner TopLeft     || corner TopRight
+    bottom = corner BottomLeft  || corner BottomRight
+
+
+subset indexes = traversed . ifiltered (const . flip S.member indexes)
+
+transformVertices :: Float -> Vec -> Set Int -> Polygon -> Polygon
+transformVertices s t indexes (Polygon points) =  Polygon $ fromMaybe points $ do
+  centre <- boxCentre . getBounds <$> nonEmpty points'
+  return $ over (subset indexes) (transformPoint centre) points
+
+  where
+    points' = toListOf (subset indexes) points
+    transformPoint centre = scalePoint centre s . (+ t)
+
+
+transformCircles :: Float -> Vec -> Set Int -> WideLine -> WideLine
+transformCircles = undefined
+
+transformCircle :: Float -> Vec -> Circle -> Circle
+transformCircle s t (Circle p r) = Circle (p + t) (r * s)
+
+
 transformObj :: Float -> Vec -> Annotation -> Annotation
 transformObj s t = over #shape $ \case
   BoxShape b      -> BoxShape $ b & boxExtents %~
     (\Extents{..} -> Extents (centre + t) (extents ^* s))
-  
+
   PolygonShape poly -> PolygonShape $ poly & over #points (fmap f)
     where f = scalePoint (boxCentre $ getBounds poly) s . (+ t)
-    
-  LineShape line -> LineShape $ line & over #points (fmap f)
-    where 
-      f (Circle p r) = Circle (scale p + t) (r * s)
-      scale = scalePoint (boxCentre $ getBounds line) s
-      
+
+  LineShape line -> LineShape $ line & over #points (fmap (transformCircle s t))
+
+
+
+transformParts :: Float -> Vec -> (Annotation, Set Int) -> Annotation
+transformParts s t (annot, parts) = annot & over #shape (\case
+  BoxShape b        -> BoxShape $ transformCorners s t (toEnumSet parts) b
+  PolygonShape poly -> PolygonShape $ transformVertices s t parts poly
+  LineShape line    -> undefined)
+
 scalePoint :: Vec -> Float -> (Vec -> Vec)
 scalePoint c s = (+ c) . (^* s) . subtract c
-  
+
 
 patchEdit :: Edit -> AnnotationMap -> Maybe (Edit, AnnotationMap)
 patchEdit edit annotationMap =  case edit of

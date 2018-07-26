@@ -18,6 +18,9 @@ data SceneInputs t = SceneInputs
   , mouseUp   :: !(Button -> Event t ())
   , click     :: !(Button -> Event t ())
 
+  , mouseDownOn :: Event t SceneRef
+  , mouseClickOn :: Event t SceneRef
+
   , wheel     :: !(Event t Float)
   , focus     :: !(Event t Bool)
 
@@ -30,7 +33,7 @@ data SceneInputs t = SceneInputs
   , keysPressed :: !(Event t Key)
 
   , keyboard :: !(Dynamic t (Set Key))
-  , hover :: !(Dynamic t (Set AnnotationId))
+  , hover :: !(Dynamic t (Maybe SceneRef))
 
   , mouse    :: !(Dynamic t Position)
   , pageMouse :: !(Dynamic t Position)
@@ -62,10 +65,10 @@ data Scene t = Scene
 
   , selection :: !(Dynamic t (Set AnnotationId))
   , annotations  :: !(Incremental t (PatchMap AnnotationId Annotation))
- 
+
   , nextId       :: !(Dynamic t AnnotationId)
   , currentClass :: !(Dynamic t ClassId)
   , config       :: !(Dynamic t Config)
-  
+
   , shortcut     :: !(EventSelector t Shortcut)
   } deriving (Generic)

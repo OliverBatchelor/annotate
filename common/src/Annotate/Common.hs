@@ -33,21 +33,28 @@ data Edit
   deriving (Generic, Show, Eq)
 
 
+newtype DocParts = DocParts { unParts :: Map AnnotationId (Set Int) }
+instance Monoid DocParts where
+  mempty = DocParts mempty
+  mappend (DocParts p) (DocParts p') = DocParts $ M.unionWith mappend p p'
+
+
+
 data Shape = BoxShape     Box
            | PolygonShape Polygon
            | LineShape    WideLine
    deriving (Generic, Show, Eq)
 
-data ShapeConfig = BoxConfig | PolygonConfig | LineConfig   
+data ShapeConfig = BoxConfig | PolygonConfig | LineConfig
   deriving (Generic, Show, Eq, Ord)
-  
-  
+
+
 
 instance HasBounds Shape where
  getBounds (BoxShape s)     = getBounds s
  getBounds (PolygonShape s) = getBounds s
  getBounds (LineShape s)    = getBounds s
-   
+
 
 data Annotation = Annotation { shape :: Shape, label :: ClassId, predictions :: [(ClassId, Float)] }
     deriving (Generic, Show, Eq)
@@ -74,20 +81,20 @@ data DocInfo = DocInfo
   } deriving (Generic, Show, Eq)
 
 
-data ClassConfig = ClassConfig 
+data ClassConfig = ClassConfig
   { name :: Text
   , shape :: ShapeConfig
   , colour :: HexColour
   } deriving (Generic, Show, Eq)
-  
-  
+
+
 data Config = Config
   { root      :: Text
   , extensions :: [Text]
   , classes     :: Map ClassId ClassConfig
   } deriving (Generic, Show, Eq)
-  
-data Preferences = Preferences 
+
+data Preferences = Preferences
   { controlSize :: Float
   } deriving (Generic, Show, Eq)
 
@@ -166,20 +173,20 @@ defaultConfig = Config
   , extensions = [".png", ".jpg", ".jpeg"]
   , classes    = M.fromList [(0, newClass 0)]
   }
-  
+
 defaultPreferences :: Preferences
-defaultPreferences = Preferences 
+defaultPreferences = Preferences
   { controlSize = 10
   }
-    
-newClass :: ClassId -> ClassConfig     
-newClass k = ClassConfig 
+
+newClass :: ClassId -> ClassConfig
+newClass k = ClassConfig
   { name    = "unnamed-" <> fromString (show k)
   , colour  = fromMaybe 0xFFFF00 $ preview (ix k) defaultColours
   , shape   = BoxConfig
   }
-  
-  
+
+
 emptyCollection :: Collection
 emptyCollection = Collection mempty
 
