@@ -38,6 +38,7 @@ import Data.Aeson as X
   , decode, decode', encode, decodeStrict, decodeStrict', eitherDecode, eitherDecodeStrict)
 
 import Data.List as X (intersperse, filter, zip, zip3, zipWith, zipWith3, lookup, take, drop, elem, uncons)
+import Data.List.NonEmpty as X (NonEmpty(..), nonEmpty)
 import Data.Maybe as X (fromMaybe, maybe, catMaybes, Maybe (..), maybeToList, isJust, isNothing)
 import Data.Either as X (either, Either (..), isLeft, isRight)
 

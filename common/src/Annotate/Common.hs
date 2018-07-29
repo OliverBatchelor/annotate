@@ -10,11 +10,13 @@ import Annotate.Prelude
 import Annotate.Colour
 
 import qualified Data.Map as M
+import qualified Data.Set as S
 
 import Data.Generics.Product
 import Annotate.Geometry
 
 import Control.Lens (makePrisms)
+
 
 type AnnotationId = Int
 type ClientId = Int
@@ -26,24 +28,27 @@ type DateTime = UTCTime
 data DocCmd = DocEdit Edit | DocUndo | DocRedo
   deriving (Show, Eq, Generic)
 
-data Edit
-  = Add [(AnnotationId, Annotation)]
-  | Delete [AnnotationId]
-  | Transform [AnnotationId] Float Vec
+data EditAction
+  = Add Annotation
+  | Delete
+  | Modify Annotation
   deriving (Generic, Show, Eq)
 
+newtype Edit = Edit { unEdit :: Map AnnotationId EditAction }
+  deriving (Eq, Show, Generic, ToJSON, FromJSON)
 
-newtype DocParts = DocParts { unParts :: Map AnnotationId (Set Int) }
-instance Monoid DocParts where
-  mempty = DocParts mempty
-  mappend (DocParts p) (DocParts p') = DocParts $ M.unionWith mappend p p'
+type DocParts = Map AnnotationId (Set Int)
 
+type DocPart = (AnnotationId, Maybe Int)
+
+mergeParts :: DocParts -> DocParts -> DocParts
+mergeParts = M.unionWith mappend
 
 
 data Shape = BoxShape     Box
            | PolygonShape Polygon
            | LineShape    WideLine
-   deriving (Generic, Show, Eq)
+     deriving (Generic, Show, Eq)
 
 data ShapeConfig = BoxConfig | PolygonConfig | LineConfig
   deriving (Generic, Show, Eq, Ord)
@@ -61,6 +66,8 @@ data Annotation = Annotation { shape :: Shape, label :: ClassId, predictions :: 
 
 
 type AnnotationMap = Map AnnotationId Annotation
+type DocumentPatch = Map AnnotationId (Maybe Annotation)
+
 
 data Document = Document
   { undos :: [Edit]
@@ -135,7 +142,7 @@ instance FromJSON ClassConfig
 
 instance FromJSON Preferences
 
-instance FromJSON Edit
+instance FromJSON EditAction
 instance FromJSON DocCmd
 instance FromJSON ImageCat
 instance FromJSON Shape
@@ -153,7 +160,7 @@ instance ToJSON ClassConfig
 
 instance ToJSON Preferences
 
-instance ToJSON Edit
+instance ToJSON EditAction
 instance ToJSON DocCmd
 instance ToJSON ImageCat
 instance ToJSON Shape
@@ -185,6 +192,32 @@ newClass k = ClassConfig
   , colour  = fromMaybe 0xFFFF00 $ preview (ix k) defaultColours
   , shape   = BoxConfig
   }
+
+
+maxKey :: Ord k => Map k a -> Maybe k
+maxKey = fmap fst . maxMap
+
+minKey :: Ord k => Map k a -> Maybe k
+minKey = fmap fst . minMap
+
+
+maxElem :: Ord k => Map k a -> Maybe a
+maxElem = fmap snd . maxMap
+
+minElem :: Ord k => Map k a -> Maybe a
+minElem = fmap snd . minMap
+
+maxMap :: Ord k => Map k a -> Maybe (k, a)
+maxMap m | M.null m = Nothing
+         | otherwise = Just $ M.findMax m
+
+minMap :: Ord k => Map k a -> Maybe (k, a)
+minMap m | M.null m = Nothing
+        | otherwise = Just $ M.findMin m
+
+
+setToMap :: Ord k => Set k -> Map k ()
+setToMap = M.fromDistinctAscList . fmap (, ()) . S.toAscList
 
 
 emptyCollection :: Collection

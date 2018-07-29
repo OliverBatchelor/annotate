@@ -7,7 +7,7 @@ import qualified Data.Text as T
 import qualified Data.Map as M
 import qualified Data.Set as S
 
-import Text.Printf 
+import Text.Printf
 
 import Data.Default
 
@@ -86,7 +86,7 @@ viewControls :: GhcjsBuilder t m => Event t AppCommand -> Dynamic t Dim -> m (Dy
 viewControls cmds dim = do
   windowDim  <- windowDimensions
 
-  rec 
+  rec
     controls <- holdDyn  (1, V2 0 0) (updateView <$> viewCmds <#> current viewport)
     let viewport = makeViewport <$> controls <*> dim <*> windowDim
 
@@ -115,11 +115,11 @@ errorMessage (ErrTrainer msg) = ("Trainer error", msg)
 
 
 printLog :: (MonadIO m, Show a) => a -> m ()
-printLog = liftIO . putStrLn . truncate . show where 
-  truncate str = if length str > 160 
+printLog = liftIO . putStrLn . truncate . show where
+  truncate str = if length str > 160
     then take 160 str <> "..."
     else str
-    
+
 
 
 network :: GhcjsBuilder t m => Text -> Event t [ClientMsg] -> m (Event t (), Event t (Maybe Text), Event t ServerMsg, Event t ErrCode)
@@ -127,7 +127,7 @@ network host send = do
   socket <- webSocket ("ws://" <> host <> "/clients") $ def
     & webSocketConfig_send  .~ (fmap encode <$> send)
 
-  let (errs, decoded) = splitEither (eitherDecodeStrict <$> socket ^. webSocket_recv) 
+  let (errs, decoded) = splitEither (eitherDecodeStrict <$> socket ^. webSocket_recv)
       errors = leftmost
         [ ErrDecode . fromString <$>  errs
         , preview _ServerError <?> decoded
@@ -179,57 +179,55 @@ handleHistory loaded = mdo
 
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
             => Event t AppCommand -> Event t Document -> m (Event t (DMap Shortcut Identity), Dynamic t Action, Dynamic t (Maybe Document))
-sceneWidget cmds loaded = do 
+sceneWidget cmds loaded = do
 
   dim <- holdDyn (800, 600) (view (#info . #imageSize) <$> loaded)
   viewport <- viewControls cmds dim
-  
-  rec 
-    input <- holdInputs (current viewport) sceneEvents =<< windowInputs element  
+
+  rec
+    input <- holdInputs (current viewport) sceneEvents =<< windowInputs element
     let (action, maybeDoc, sceneEvents) = r
-    
+
     (element, r) <- Svg.svg' [class_ =: "expand enable-cursor", version_ =: "2.0"] $ do
         sceneDefines viewport =<< view #preferences
-            
-        inViewport viewport $ replaceHold 
-            (pure (def, pure Nothing, never)) 
+
+        inViewport viewport $ replaceHold
+            (pure (def, pure Nothing, never))
             (documentEditor input cmds <$> loaded)
 
   return (matchShortcuts input, action, maybeDoc)
-            
+
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
-            => SceneInputs t 
-            -> Event t AppCommand 
-            -> Document 
-            -> m (Dynamic t Action, Dynamic t (Maybe Document), Event t (Map AnnotationId SceneEvent))
+            => SceneInputs t
+            -> Event t AppCommand
+            -> Document
+            -> m (Dynamic t Action, Dynamic t (Maybe Document), Event t (DocPart, SceneEvent))
 documentEditor input cmds loaded  = do
 
-  rec 
-    document <- holdDyn loaded (snd <$> modified)
-    let modified = attachWithMaybe (flip applyCmd') (current document) docCmd
+  rec
+    document <- holdDyn loaded never
+    let (patch, document') = split (attachWithMaybe (flip applyCmd') (current document) docCmd)
         clearCmd = (clearAnnotations <$> current document) <@ (_ClearCmd ?> cmds)
         docCmd = leftmost [_DocCmd ?> cmds, clearCmd]
-  
+
   -- Keep track of next id to use for new annotations
   let initialId = maybe 0 (+1) (maxId loaded)
-      addNew = _DocEdit . _Add ?> docCmd
-  nextId <- foldDyn (const (+1)) initialId addNew
+      addNew = (>>= maxEdit) . preview _DocEdit <?> docCmd
+  nextId <- foldDyn (max . (+ 1)) initialId addNew
 
   -- Set selection to the last added annotations (including undo/redo etc.)
-  let latestEdit = fst . fst <$> modified
-      latestAdd = fmap (S.fromList . fmap fst) . preview _Add <?> latestEdit
-  selection <- holdDyn S.empty $
-    leftmost [latestAdd, _SelectCmd ?> cmds]
-    
+  selection <- holdDyn mempty $
+    leftmost [_SelectCmd ?> cmds]
+
   env <- ask
-  
+
   rec
-    annotations  <- holdIncremental annotations0 (PatchMap . editPatch <$> modified)
+    annotations  <- holdIncremental annotations0 (PatchMap <$> patch)
     let patched = patchIncremental annotations (pending <$> document <*> action)
-    
+
     logEvent (updated (pending <$> document <*> action))
-    
+
     (action, sceneEvents) <- sceneView $ Scene
       { image    = ("images/" <> loaded ^. #name, loaded ^. #info . #imageSize)
       -- , viewport = viewport
@@ -250,8 +248,8 @@ documentEditor input cmds loaded  = do
 
 
 pending :: Document -> Action -> PatchMap AnnotationId Annotation
-pending doc Action{edit} 
-  | Just e <- edit     = maybe mempty PatchMap (editPatch <$> applyEdit e doc)
+pending doc Action{edit}
+  | Just e <- edit     = maybe mempty (PatchMap . fst) (applyEdit e doc)
   | otherwise          = mempty
 
 bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m ()
@@ -266,12 +264,12 @@ bodyWidget host = mdo
         return (("connected", never), ready <$> hello)
 
       ready _ = Workflow $ do
-        
+
         postBuild <- getPostBuild
-        let reqs = mergeList 
+        let reqs = mergeList
               [ ClientNext Nothing <$ needsLoad
               , ClientCollection   <$ postBuild ]
-          
+
             needsLoad = preview _Nothing <?> (current document `tag` postBuild)
 
         return (("ready", toList <$> reqs), never)
@@ -291,11 +289,11 @@ bodyWidget host = mdo
     "Annotate - " <> fromMaybe ("no document") (view #name <$> doc)
 
   collection <- holdCollection serverMsg
-    
+
   let hello   = preview _ServerHello <?> serverMsg
       (loaded :: Event t Document)  = preview _ServerDocument <?> serverMsg
-            
-      env = AppEnv 
+
+      env = AppEnv
         { basePath = "http://" <> host
         , document = document
         , commands = cmds
@@ -305,35 +303,35 @@ bodyWidget host = mdo
         , shortcut = fan shortcuts
         , collection = collection
         }
-  
+
   config <- holdDyn defaultConfig $ leftmost [view _2 <$> hello, preview _ServerConfig <?> serverMsg]
   preferences <- holdDyn defaultPreferences never
-  
-  let classSelected = preview _ClassCmd <?> cmds 
-  currentClass <- foldDyn ($) 0 $ mergeWith (.)   
+
+  let classSelected = preview _ClassCmd <?> cmds
+  currentClass <- foldDyn ($) 0 $ mergeWith (.)
     [ validClass <$> updated config
     , const . snd <$> classSelected
     ]
 
   ((shortcuts, action, document), cmds) <- flip runReaderT env $ runEventWriterT $ do
-  
-    runWithClose $ leftmost 
+
+    runWithClose $ leftmost
       [ fmap runDialog . preview _DialogCmd <?> cmds
       , errorDialog <$> serverErrors
       ]
-  
+
     cursorLock action $ do
-      div [class_ =: "scene expand"] $ 
+      div [class_ =: "scene expand"] $
         const <$> sceneWidget cmds loaded
               <*> overlay document
   return ()
 
 runDialog :: AppBuilder t m => Dialog -> m (Event t ())
-runDialog (ClassDialog selection) = selectClassDialog selection
+runDialog (ClassDialog selection) = selectClassDialog (M.keysSet selection)
 
 
 validClass :: Config -> ClassId -> ClassId
-validClass config classId = if (classId `M.member` classes) 
+validClass config classId = if (classId `M.member` classes)
   then classId
   else fromMaybe 0 (minKey classes)
     where classes = view #classes config
@@ -352,38 +350,38 @@ cursorLock action child =
 holdCollection :: (Reflex t, MonadHold t m, MonadFix m) => Event t ServerMsg -> m (Dynamic t Collection)
 holdCollection serverMsg = foldDyn ($) emptyCollection $ mergeWith (.)
     [ const  <$> collection
-    , applyUpdate <$> update 
+    , applyUpdate <$> update
     ]
 
   where
     collection = preview _ServerCollection <?> serverMsg
     update = preview _ServerUpdateInfo <?> serverMsg
-    
+
     applyUpdate (k, info) = over #images (M.insert k info)
 
 
 
 detectionTab :: AppBuilder t m => m ()
 detectionTab = text "detection"
-  
+
 sidebar :: AppBuilder t m => m ()
-sidebar = mdo 
-  
+sidebar = mdo
+
   isOpen <- div [classList ["enable-cursor sidebar bg-white p-2", swapping ("closed", "open") isOpen]] $ do
     isOpen <- toggler
 
-    tabs 0 
-      [ (classesTab,    tab "tag-multiple"   "Classes") 
+    tabs 0
+      [ (classesTab,    tab "tag-multiple"   "Classes")
       , (imagesTab,     tab "folder-multiple-image" "Images")
       , (detectionTab,  tab "auto-fix"  "Detection")
       ]
-      
+
     return isOpen
   return ()
 
     where
-      toggler = mdo 
-        e <- a_ [href_ =: "#", class_ =: "toggler p-2"] $ 
+      toggler = mdo
+        e <- a_ [href_ =: "#", class_ =: "toggler p-2"] $
             icon (def & #name .~ Dyn (swapping ("chevron-right", "chevron-left") isOpen))
         isOpen <- toggle False (domEvent Click e)
         return isOpen
@@ -398,13 +396,13 @@ selectedClass AppEnv{config, currentClass} = M.lookup <$> currentClass <*> fmap 
 overlay :: AppBuilder t m => Dynamic t (Maybe Document) -> m ()
 overlay document = row "expand  disable-cursor" $ do
    sidebar
-   column "expand" $ 
+   column "expand" $
     sequence_ [header, spacer, footer]
-  
+
   where
-    header = buttonRow $ do 
+    header = buttonRow $ do
       asks selectedClass >>= classToolButton >>= command (const (DialogCmd (ClassDialog mempty)))
-            
+
       spacer
       buttonGroup $ do
         docCommand  (const DocUndo)  =<< toolButton canUndo "Undo" "undo" "Undo last edit"
@@ -413,10 +411,10 @@ overlay document = row "expand  disable-cursor" $ do
 
       detect <- toolButton docOpen "Detect" "auto-fix" "Detect annotations using current trained model"
       remoteCommand id (withDocument (ClientDetect . view #name) detect)
-      
+
     canUndo = fromDocument False (not . null . view #undos)
     canRedo = fromDocument False (not . null . view #redos)
-            
+
     footer = buttonRow $ do
       spacer
       buttonGroup $ do
@@ -427,11 +425,10 @@ overlay document = row "expand  disable-cursor" $ do
           [ withDocument (ClientDiscard . view #name) discard
           , withDocument ClientSubmit submit
           ]
-    
+
     buttonRow = row "p-2 spacing-4"
     nonEmpty label = notNullOf (_Just . label . traverse)
-    
+
     fromDocument a f = fromMaybe a . fmap f <$> document
     withDocument f e = fmap f <?> (current document `tag` e)
-    docOpen = isJust <$> document    
-    
+    docOpen = isJust <$> document

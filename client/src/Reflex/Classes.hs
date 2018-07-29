@@ -45,7 +45,7 @@ maybeChanges d f = attachWithMaybe f (current d) (updated d)
 
 instance Reflex t => Functor (Updated t) where
   fmap f (Updated initial e) = Updated (f initial) (f <$> e)
-  
+
 holdUpdated :: (Reflex t, MonadHold t m) => Updated t a -> m (Dynamic t a)
 holdUpdated (Updated a0 a') = holdDyn a0 a'
 
@@ -64,10 +64,10 @@ runWithClose e = do
 
 active :: (MonadHold t m, DomBuilder t m, PostBuild t m) => Active t (m (Event t a)) -> m (Event t a)
 active (Static m) = m
-active (Dyn d) = dyn' never d 
+active (Dyn d) = dyn' never d
 
 dyn' :: (MonadHold t m, DomBuilder t m, PostBuild t m, SwitchHold t a) => a -> Dynamic t (m a) -> m a
-dyn' a d = dyn d >>= switchHold a 
+dyn' a d = dyn d >>= switchHold a
 
 
 holdQueue :: (MonadHold t m, MonadFix m, Reflex t) => Event t [a] -> Dynamic t Bool -> m (Event t a)
@@ -175,13 +175,13 @@ instance Reflex t => SwitchHold t (Dynamic t a) where
 class Patch p => InversePatch p where
   -- t `apply` p `apply` (inverse t p) == t
   inverse :: PatchTarget p -> p -> p
-  
+
 
 instance Ord k => InversePatch (PatchMap k v) where
   inverse m (PatchMap p) = PatchMap (M.mapWithKey lookupPrev p)
     where lookupPrev k = const (M.lookup k m)
-    
-    
+
+
 patchIncremental :: (Semigroup p, InversePatch p, Reflex t) => Incremental t p -> Dynamic t p -> Incremental t p
 patchIncremental inc d = unsafeBuildIncremental s e
 
@@ -190,12 +190,12 @@ patchIncremental inc d = unsafeBuildIncremental s e
 
     e = mconcat [updated d, updatedIncremental inc, undo]
     s = liftA2 apply' (sample (current d)) (sample (currentIncremental inc))
-    
-    
+
+
 apply' :: Patch p => p -> PatchTarget p -> PatchTarget p
 apply' p t = fromMaybe t (apply p t)
 
-    
+
 
 
 class Reflex t => Sample t f where
@@ -260,13 +260,13 @@ traverseMapWithAdjust :: forall t m k v a. (Ord k, Adjustable t m, MonadHold t m
 traverseMapWithAdjust m0 m' f = sequenceMapWithAdjust
       (M.mapWithKey f m0)
       (mapPatchMapWithKey f <$> m')
-      
-      
-      
+
+
+
 traverseMapView :: forall t m k v a. (Ord k, Adjustable t m, MonadHold t m) => Map k v -> Event t (Map k (Maybe v)) -> (k -> v -> m (Event t a)) -> m (Event t (Map k a))
 traverseMapView m0 m' f = do
   (e0, e') <- traverseMapWithAdjust m0 (PatchMap <$> m') f
-  mergeMapIncremental <$> holdIncremental e0 e'      
+  mergeMapIncremental <$> holdIncremental e0 e'
 
 
 mapPatchMapWithKey :: (k -> a -> b) -> PatchMap k a -> PatchMap k b
@@ -334,13 +334,13 @@ patchMapWithUpdates (Patched m0 m') f = do
 incrementalMapToEvents :: (PostBuild t m, Ord k) => Incremental t (PatchMap k v) -> m (Event t (PatchMap k v))
 incrementalMapToEvents inc = do
   postBuild <- getPostBuild
-  
-  return $ mconcat 
+
+  return $ mconcat
     [ PatchMap . fmap Just <$> (currentIncremental inc `tag` postBuild)
     , updatedIncremental inc
     ]
-  
-    
+
+
 
 incrementalMapWithUpdates :: (Ord k, Adjustable t m, MonadFix m, MonadHold t m, PostBuild t m)
                           => Incremental t (PatchMap k v) -> (k -> Updated t v -> m a) -> m (Patched t (PatchMap k a))
@@ -374,27 +374,15 @@ workflow' m = Workflow $ ((),) <$> m
 
 -- Factorisation for Dynamics
 
--- valueUpdates :: GEq k => k a -> DSum k f -> Maybe (f a)
--- valueUpdates k (k' :=> v) = case geq k k' of
---   Just Refl -> Just v 
---   Nothing   -> Nothing
--- 
--- keyChanges :: GEq k => DSum k f -> DSum k f -> Maybe (DSum k f)
--- keyChanges (k :=> _) (k' :=> v') = case geq k k' of
---   Just Refl -> Nothing
---   Nothing   -> Just (k' :=> v')
--- 
--- factorDyn' :: forall t k f. (Reflex t, GEq k) 
---            => Dynamic t (DSum k f) -> Dynamic t (DSum k (Compose (Dynamic t) f))
--- factorDyn' d = inner <$> unsafeBuildDynamic initial updates where
--- 
---   initial = sample (current d)
---   updates = maybeChanges d keyChanges
--- 
---   inner :: DSum k f -> DSum k (Compose (Dynamic t) f) 
---   inner (k :=> v) = k :=> Compose (holdDyn v (valueUpdates k <?> updated d))
--- 
-  
+sumValueUpdates :: GEq k => k a -> DSum k f -> Maybe (f a)
+sumValueUpdates k (k' :=> v) = case geq k k' of
+  Just Refl -> Just v
+  Nothing   -> Nothing
+
+sumKeyUpdates :: GEq k => DSum k f -> DSum k f -> Maybe (DSum k f)
+sumKeyUpdates (k :=> _) (k' :=> v') = case geq k k' of
+  Just Refl -> Nothing
+  Nothing   -> Just (k' :=> v')
 
 
 
@@ -403,7 +391,7 @@ fanWith :: (Reflex t, Ord k) => (k -> a -> b) -> (a -> a -> Map k b) -> Dynamic 
 fanWith fromCurrent diffChanges d = \k -> unsafeBuildDynamic (fromCurrent k <$> sample (current d)) (select s (Const2 k))
   where s = fanMap $ changes d diffChanges
 
-diffDynMap :: (Reflex t, Ord k, Eq v) =>  Dynamic t (Map k v) -> Event t (Map k (Maybe v)) 
+diffDynMap :: (Reflex t, Ord k, Eq v) =>  Dynamic t (Map k v) -> Event t (Map k (Maybe v))
 diffDynMap = flip changes diffMap
 
 fanDynMap :: (Reflex t, Ord k, Eq a) => Dynamic t (Map k a)  -> (k -> Dynamic t (Maybe a))
@@ -416,15 +404,15 @@ diffSets :: Ord k => Set k -> Set k -> Map k Bool
 diffSets old new = setToMap True added <> setToMap False deleted
   where added   = S.difference new old
         deleted = S.difference old new
-        
+
 setToMap :: Ord k =>  a ->  Set k -> Map k a
-setToMap a = M.fromDistinctAscList . fmap (, a) . S.toAscList        
-  
+setToMap a = M.fromDistinctAscList . fmap (, a) . S.toAscList
+
 fanDyn :: (Reflex t, Ord k) => Dynamic t k -> (k -> Dynamic t Bool)
 fanDyn = fanWith (==) diffEq
 
 diffEq :: Ord k => k -> k -> Map k Bool
-diffEq k k' 
+diffEq k k'
   | k == k'     = mempty
   | otherwise   = M.fromList [(k, False), (k', True)]
 
@@ -434,5 +422,3 @@ diffEq k k'
 
 logEvent :: (Show a, PerformEvent t m, MonadIO (Performable m)) => Event t a -> m ()
 logEvent = performEvent_ . fmap (liftIO . print)
-  
-  

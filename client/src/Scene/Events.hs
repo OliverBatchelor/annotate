@@ -21,7 +21,7 @@ import Data.Dependent.Sum
 import qualified Web.KeyCode as Key
 
 
-  
+
 
 
 holdKeys :: (MonadFix m, Reflex t, MonadHold t m) => Event t Bool -> (Event t Key, Event t Key) -> m (Dynamic t (Set Key))
@@ -40,26 +40,26 @@ testCombo key modifiers (held, pressed)
   | otherwise = Nothing
 
 holdInputs :: (MonadFix m, MonadHold t m, Reflex t)
-           => Behavior t Viewport -> Event t (Map AnnotationId SceneEvent) -> E.Inputs t  -> m (SceneInputs t)
+           => Behavior t Viewport -> Event t (DocPart, SceneEvent) -> E.Inputs t  -> m (SceneInputs t)
 holdInputs viewport sceneEvents inp = do
 
   mousePos      <- holdDyn (V2 0 0) (E.mouseMove inp)
   localMousePos <- holdDyn (V2 0 0) (toLocal <$> viewport <@> E.mouseMove inp)
-  
-  let occurances e = ffilter (not . null) $ M.keysSet . M.filter (== e) <$> sceneEvents
-  
-  hover <- foldDyn ($) S.empty $ mergeWith (.)
-      [ const mempty <$ E.focus inp
-      , S.union <$> occurances SceneEnter
-      , S.difference <$> occurances SceneLeave
+
+  let eventType e (part, e') = if e == e' then Just part else Nothing
+      sceneEvent e = eventType e <?> sceneEvents
+
+  hover <- holdDyn Nothing $ leftmost
+      [ Just          <$> sceneEvent SceneEnter
+      , const Nothing <$> sceneEvent SceneLeave
       ]
-  
-  rec    
+
+  rec
     keys <- holdKeys (E.focus inp) (keysDown, E.keyUp inp)
     let keysDown = attachWithMaybe uniqueKey (current keys) (E.keyDown inp)
         uniqueKey s (k :: Key) = if S.member k s then Nothing else Just k
-  
-    
+
+
   let mouseDown = selectEq (E.mouseDown inp)
 
   return
@@ -70,6 +70,12 @@ holdInputs viewport sceneEvents inp = do
     , mouseDown = mouseDown
     , mouseUp = selectEq (E.mouseUp inp)
     , click = selectEq (E.click inp)
+
+    , mouseDownOn = sceneEvent SceneDown
+    , mouseClickOn = sceneEvent SceneClick
+
+    , mouseDoubleClickOn = sceneEvent SceneDoubleClick
+
 
     , keysDown = E.keyDown inp
     , keysUp = E.keyUp inp
@@ -86,12 +92,11 @@ holdInputs viewport sceneEvents inp = do
     , keyboard = keys
     , hover = hover
 
-    , downOn   = \b -> current hover <@ mouseDown b
     , keyCombo = \k held -> testCombo k (S.fromList held) <?>
         (current keys `attach` E.keyDown inp)
   }
-  
-  
+
+
 matchShortcuts :: Reflex t => SceneInputs t -> Event t (DMap Shortcut Identity)
 matchShortcuts SceneInputs{..} = merge $ DM.fromList
     [ (ShortUndo :=> keyCombo Key.KeyZ [Key.Control])

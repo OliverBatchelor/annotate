@@ -34,40 +34,42 @@ data ViewCommand
   = ZoomView Float Position
   | PanView Position Position
   deriving (Generic, Show)
-  
-data Dialog = ClassDialog Selection
+
+data Dialog = ClassDialog DocParts
   deriving (Generic, Show)
 
-type Selection = Set AnnotationId
 
 data AppCommand
   = ViewCmd ViewCommand
   | DocCmd DocCmd
-  | SelectCmd Selection
+  | SelectCmd DocParts
   | ClearCmd
   | RemoteCmd ClientMsg
-  
+
   | DialogCmd Dialog
-  | ClassCmd Selection ClassId
-  
+  | ClassCmd (Set AnnotationId) ClassId
+
   deriving (Generic, Show)
 
-data SceneEvent 
-  = SceneEnter  
-  | SceneLeave  
-  | SceneDown   
+data SceneEvent
+  = SceneEnter
+  | SceneLeave
+  | SceneDown
+  | SceneClick
+  | SceneDoubleClick
+
     deriving (Generic, Show, Eq)
-  
+
 data Shortcut a where
   ShortCancel :: Shortcut ()
   ShortUndo   :: Shortcut ()
   ShortRedo   :: Shortcut ()
   ShortDelete :: Shortcut ()
-  
+
 
 instance Semigroup AppCommand where
   a <> b = a
-  
+
 data Action = Action
   { cursor      :: Text
   , lock        :: Bool
@@ -75,14 +77,14 @@ data Action = Action
   } deriving (Generic, Eq, Show)
 
 instance Default Action where
-  def = Action 
+  def = Action
     { cursor = "default"
     , lock = False
-    , edit = Nothing 
+    , edit = Nothing
     }
 
-data AppEnv t = AppEnv 
-  { basePath :: !Text 
+data AppEnv t = AppEnv
+  { basePath :: !Text
   , commands :: !(Event t AppCommand)
   , document :: !(Dynamic t (Maybe Document))
   , config :: !(Dynamic t Config)
@@ -102,7 +104,7 @@ localPath path = do
 newtype Shortcuts t = Shortcuts (forall a. Shortcut a -> Event t a)
 
 askShortcuts :: (Reflex t, MonadReader (AppEnv t) m) => m (Shortcuts t)
-askShortcuts = do 
+askShortcuts = do
   selector <- view #shortcut
   return (Shortcuts (select selector))
 
@@ -111,7 +113,7 @@ askClasses = fmap (view #classes) <$> view #config
 
 
 lookupClass :: AppBuilder t m => Dynamic t ClassId -> m (Dynamic t (Maybe ClassConfig))
-lookupClass classId = do 
+lookupClass classId = do
   classes <- askClasses
   return $ M.lookup <$> classId <*> classes
 
@@ -144,20 +146,10 @@ commandM' cmd = commandM (const cmd)
 
 
 clearAnnotations :: Document -> DocCmd
-clearAnnotations = DocEdit . Delete . allAnnotations
+clearAnnotations = DocEdit . clearAllEdit
 
 makePrisms ''AppCommand
 makePrisms ''SceneEvent
 
 deriveGCompare ''Shortcut
 deriveGEq ''Shortcut
-
-maxKey :: Ord k => Map k a -> Maybe k
-maxKey m | M.null m = Nothing  
-         | otherwise = Just $ fst (M.findMax m)
-
-minKey :: Ord k => Map k a -> Maybe k
-minKey m | M.null m = Nothing  
-        | otherwise = Just $ fst (M.findMin m)
-
-

@@ -63,36 +63,36 @@ control :: Builder t m => Dynamic t Position -> m ()
 control p = void $ use_ [href_ =: "#" <> controlId, transform_ ~: toCentre <$> p ]
   where toCentre (V2 x y) = [Translate x y]
 
-boxView :: Builder t m => ShapeProperties t  -> Dynamic t Box -> m (Event t SceneEvent)
-boxView props box = do
-  e <- boxElem (shapeProperties props) (Dyn box)
-
-  g_ [shown_ ~: props ^. #selected] $ sequence_
-    [control v1, control v2, control v3, control v4]
-
-  return $ leftmost
+sceneEvents k e = (k,) <$> leftmost
     [ SceneEnter <$ domEvent Mouseenter e
     , SceneLeave <$ domEvent Mouseleave e
     , SceneDown <$ domEvent Mousedown e
     ]
 
+boxView :: Builder t m => ShapeProperties t  -> Dynamic t Box -> m (Event t (Maybe Int, SceneEvent))
+boxView props box = do
+  e <- boxElem (shapeProperties props) (Dyn box)
+
+  g_ [shown_ ~: isJust <$> props ^. #selected] $ sequence_
+    [control v1, control v2, control v3, control v4]
+
+  return $ sceneEvents Nothing e
+
   where
     (v1, v2, v3, v4) = split4 (boxVertices <$> box)
 
 
-polygonView :: Builder t m => ShapeProperties t  -> Dynamic t Polygon -> m (Event t SceneEvent)
+polygonView :: Builder t m => ShapeProperties t  -> Dynamic t Polygon -> m (Event t (Maybe Int, SceneEvent))
 polygonView props poly = do
   e <- polygonElem (shapeProperties props) (Dyn poly)
-  return never
+  return $ sceneEvents Nothing e
 
-lineView :: Builder t m => ShapeProperties t  -> Dynamic t WideLine -> m (Event t SceneEvent)
+
+lineView :: Builder t m => ShapeProperties t  -> Dynamic t WideLine -> m (Event t (Maybe Int, SceneEvent))
 lineView props line = do
   e <- lineElem (shapeProperties props) (Dyn line)
 
-  return $ leftmost
-    [ SceneEnter <$ domEvent Mouseenter e
-    , SceneLeave <$ domEvent Mouseleave e
-    ]
+  return $ sceneEvents Nothing e
 
 
 circleElem :: (Builder t m) =>  [Property t] -> Active t Circle -> m (ElemType t m)
@@ -106,11 +106,11 @@ lineElem  :: (Builder t m) =>  [Property t] -> Active t WideLine -> m (ElemType 
 lineElem props line = g_ [] blank
 
 data ShapeProperties t = ShapeProperties
-  { selected :: !(Dynamic t Bool)
+  { selected :: !(Dynamic t (Maybe (Set Int)))
   , fill     :: !(Dynamic t HexColour)
   } deriving Generic
 
-shapeView :: forall t m. (Builder t m) => ShapeProperties t -> Updated t Annotation -> m (Event t SceneEvent)
+shapeView :: forall t m. (Builder t m) => ShapeProperties t -> Updated t Annotation -> m (Event t (Maybe Int, SceneEvent))
 shapeView props obj  = case view #shape <$> obj of
   Updated (BoxShape s)     e  -> boxView props      =<< holdDyn s (_BoxShape ?> e)
   Updated (PolygonShape s) e  -> polygonView props  =<< holdDyn s (_PolygonShape ?> e)
@@ -131,7 +131,7 @@ shapeProperties ShapeProperties{selected, fill} =
     , style_ ~: style <$> fill ]
   where
 
-    selectClass b = if b then "selected" else ""
+    selectClass s = if isJust s then "selected" else ""
     style colour = [("fill", showColour colour)]
 
   -- Updated (CircleShape c) e -> circleView classes . Dyn =<< holdDyn c (_CircleShape ?> e)
@@ -140,13 +140,14 @@ outlineView :: forall t m. (Builder t m) => Updated t Annotation -> m ()
 outlineView = void . shapeElem [class_ =: "outline"]
 
 
-annotationView :: forall t m. (Builder t m) => Dynamic t Config -> Dynamic t Bool -> AnnotationId -> Updated t Annotation -> m (Event t SceneEvent)
+annotationView :: forall t m. (Builder t m) => Dynamic t Config -> Dynamic t (Maybe (Set Int)) -> AnnotationId -> Updated t Annotation -> m (Event t (DocPart, SceneEvent))
 annotationView config selected k obj = do
   classId <- holdUpdated (view #label <$> obj)
   let colour = classColour <$> config <*> classId
 
-  shapeView (ShapeProperties selected colour) obj
+  fmap (arrange k) <$> shapeView (ShapeProperties selected colour) obj
     where
+      arrange k (part, e) = ((k, part), e)
       classColour Config{classes} k = case M.lookup k classes of
         Nothing   -> 0x000000
         Just ClassConfig{colour} -> colour
@@ -178,7 +179,7 @@ editAction m = Workflow $ do
 
 
 addAnnotation :: AppBuilder t m => Scene t -> Event t Annotation -> m ()
-addAnnotation Scene{nextId} add = editCommand (Add . pure <$> current nextId `attach` add)
+addAnnotation Scene{nextId} add = editCommand (addEdit <$> current nextId <@> add)
 
 
 
@@ -202,11 +203,28 @@ drawBoxes scene SceneInputs{..} = do
     boxAnnotation e = makeAnnotation <$> current (scene ^. #currentClass) <@> e
     makeAnnotation classId box = Annotation (BoxShape box) classId []
 
-selectChange :: Set Key -> Set AnnotationId -> Set AnnotationId -> Set AnnotationId
-selectChange keys existing target
-  | S.member Key.Shift keys = existing <> target
-  | otherwise           = target
 
+parts :: Document -> AnnotationId -> Set Int
+parts doc k = fromMaybe mempty $ do
+  ann <- M.lookup k (doc ^. #annotations)
+  return $ case (ann ^. #shape) of
+    BoxShape _                  -> S.fromList [0..3]
+    LineShape (WideLine points)   -> S.fromList [0..length points]
+    PolygonShape (Polygon points) -> S.fromList [0..length points]
+
+-- togglePart :: Document -> DocPart -> DocParts -> DocParts
+-- togglePart
+
+part :: Document -> DocPart -> DocParts
+part doc (k, p) = case p of
+  Nothing -> M.singleton k (parts doc k)
+  Just i  -> M.singleton k (parts doc k)
+
+selectChange :: Set Key -> Document -> DocParts -> DocPart -> DocParts
+selectChange keys doc existing target
+  | S.member Key.Shift keys = existing <> target'
+  | otherwise               = target'
+    where target' = part doc target
 
 actions :: AppBuilder t m => Scene t -> m (Dynamic t Action)
 actions scene@Scene{..} = holdWorkflow $
@@ -216,13 +234,13 @@ actions scene@Scene{..} = holdWorkflow $
     let beginPan    = pan <$> (current mouse <@ mouseDown LeftButton)
         beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` keyDown Key.Space
         beginDrag   = filterMaybe $ drag <$> current mouse <*> current document <@> selection'
-        selection'  = (selectChange <$> current keyboard <*> current selection) <@> downOn LeftButton
+        selection'  = (selectChange <$> current keyboard <*> current document <*> current selection) <@> mouseClickOn
 
     viewCommand zoomCmd
     command SelectCmd selection'
 
-    editCommand $ Delete . S.toList <$> ffilter (not . null)
-      (current selection <@ select shortcut ShortDelete)
+    editCommand $ deletePartsEdit <$> current selection <*> current document
+       <@ select shortcut ShortDelete
 
     docCommand (const DocUndo) (select shortcut ShortUndo)
     docCommand (const DocRedo) (select shortcut ShortRedo)
@@ -231,17 +249,18 @@ actions scene@Scene{..} = holdWorkflow $
 
   -- Translate dragged annotations
   drag origin doc target
-        | S.null target = Nothing
+        | null   target = Nothing
         | otherwise     = Just $ editAction $ do
     let offset  = mouse - pure origin
-        annotations = lookupAnnotations  (S.toList target) doc
         endDrag = mouseUp LeftButton
 
     scale <- foldDyn (\z -> max 0.1 . (z *)) 1.0 (wheelZoom <$> wheel)
-    let edit = Transform (S.toList target) <$> scale <*> offset
 
-    -- for_ annotations $ \obj -> outlineView $
-    --   Updated obj (updated $ transformObj <$> scale <*> offset <*> pure obj)
+    --transformPartsEdit :: Rigid -> DocParts -> Document -> Edit
+
+    let edit = transformPartsEdit <$> transform <*> pure target <*> pure doc
+        transform = (liftA2 (,) scale offset)
+
     editCommand (current edit <@ endDrag)
     return ("pointer", edit, base <$ endDrag)
 
@@ -264,16 +283,14 @@ actions scene@Scene{..} = holdWorkflow $
   SceneInputs{..} = input
 
 
-
-sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (Map AnnotationId SceneEvent))
+sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart, SceneEvent))
 sceneView scene@Scene{..} = do
     imageView image
 
-    sceneEvents <- holdMergePatched =<< incrementalMapWithUpdates annotations $ \k ->
+    events <- incrementalMapWithUpdates annotations $ \k ->
        annotationView config (isSelected k) k
 
     action <- actions scene
-
-    return (action, sceneEvents)
+    return (action, never) --minElem <?> sceneEvents)
       where
-          isSelected = fanDynSet selection
+          isSelected = fanDynMap selection
