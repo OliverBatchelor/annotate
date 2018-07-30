@@ -13,6 +13,8 @@ import Data.Maybe (catMaybes)
 import Control.Lens hiding (uncons)
 import Data.List.NonEmpty (nonEmpty)
 
+import Debug.Trace
+
 emptyDoc ::  DocName -> DocInfo -> Document
 emptyDoc name info = Document
   { undos = []
@@ -90,10 +92,6 @@ applyRedo doc = do
 
 
 
-
-data Corner = BottomLeft | BottomRight | TopRight | TopLeft
-  deriving (Ord, Enum, Eq, Generic, Show, Bounded)
-
 toEnumSet :: forall a. (Bounded a, Enum a, Ord a) => Set Int -> Set a
 toEnumSet = S.mapMonotonic toEnum . S.filter (\i -> i >= lower && i <= upper)
   where (lower, upper) = (fromEnum (minBound :: a), fromEnum (maxBound :: a))
@@ -102,21 +100,26 @@ toEnumSet = S.mapMonotonic toEnum . S.filter (\i -> i >= lower && i <= upper)
 transformBoxParts :: Rigid -> Set Int -> Box -> Box
 transformBoxParts rigid parts = transformCorners rigid (toEnumSet parts)
 
+sides :: Set Corner -> (Bool, Bool, Bool, Bool)
+sides corners =
+    (corner TopLeft     || corner BottomLeft
+    , corner TopRight    || corner BottomRight
+    , corner TopLeft     || corner TopRight
+    , corner BottomLeft  || corner BottomRight
+    ) where corner = flip S.member corners
+
 transformCorners :: Rigid -> Set Corner -> Box -> Box
-transformCorners (s, V2 tx ty) corners = over boxExtents
-    (\Extents{..} -> Extents (centre + t') (extents * s'))
+transformCorners (s, V2 tx ty) corners = translateBox  . scaleBox scale where
+  scale = V2 (if left && right then s else 1)
+             (if top && bottom then s else 1)
 
-  where
-    corner = flip S.member corners
-    s' = V2 (s * mask (left && right)) (s * mask (top && bottom))
-    t' = V2 (tx * mask (top && bottom)) (ty * mask (left && right))
+  translateBox (Box (V2 lx ly) (V2 ux uy)) = getBounds
+    [ V2 (lx + mask left * tx) (ly + mask top * ty)
+    , V2 (ux + mask right * tx) (uy + mask bottom * ty)
+    ]
 
-    mask b = if b then 1 else 0
-
-    left   = corner TopLeft     || corner BottomLeft
-    right  = corner BottomRight || corner BottomRight
-    top    = corner TopLeft     || corner TopRight
-    bottom = corner BottomLeft  || corner BottomRight
+  mask b = if b then 1 else 0
+  (left, right, top, bottom) = sides corners
 
 
 _subset indexes = traversed . ifiltered (const . flip S.member indexes)
@@ -203,7 +206,10 @@ addEdit k ann = Edit $ M.singleton k (Add ann)
 
 
 patchMap :: (Ord k) =>  Map k (Maybe a) -> Map k a -> Map k a
-patchMap = flip (M.differenceWith (flip const))
+patchMap patch m = m `diff` patch <> M.mapMaybe id adds where
+  adds = patch `M.difference` m
+  diff = M.differenceWith (flip const)
+
 
 
 patchEdit :: AnnotationMap -> Edit -> Maybe (Edit, DocumentPatch)

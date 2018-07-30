@@ -24,6 +24,11 @@ newtype Polygon = Polygon { points :: NonEmpty Vec} deriving (Generic, Show, Eq)
 newtype WideLine = WideLine { points :: NonEmpty Circle} deriving (Generic, Show, Eq)
 
 
+scaleBox :: Vec -> Box -> Box
+scaleBox scale = over boxExtents
+    (\Extents{..} -> Extents centre (extents * scale))
+
+
 mergeBoxes :: Box -> Box -> Box
 mergeBoxes (Box l u) (Box l' u') = Box (liftI2 min l l') (liftI2 max u u')
 
@@ -57,6 +62,11 @@ instance HasBounds Position where
 instance HasBounds a => HasBounds (NonEmpty a) where
   getBounds as = sconcat (fmap getBounds as)
 
+instance HasBounds a => HasBounds [a] where
+  getBounds as = case nonEmpty as of
+    Nothing -> error "HasBounds [a]: empty list"
+    Just as -> getBounds (fmap getBounds as)
+
 type Dim = (Int, Int)
 
 
@@ -79,6 +89,19 @@ boxExtents :: Simple Iso Box Extents
 boxExtents = iso toExtents fromExtents where
   toExtents Box{..}       = Extents (centroid [lower, upper]) ((upper - lower) ^* 0.5)
   fromExtents = getBounds
+
+
+
+data Corner = TopLeft | TopRight | BottomRight | BottomLeft
+  deriving (Ord, Enum, Eq, Generic, Show, Bounded)
+
+boxVertices :: Box -> (Position, Position, Position, Position)
+boxVertices (Box (V2 lx ly) (V2 ux uy)) =
+  ( V2 lx ly
+  , V2 ux ly
+  , V2 ux uy
+  , V2 lx uy
+  )
 
 
 type Position = V2 Float

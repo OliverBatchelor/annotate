@@ -32,6 +32,8 @@ import Control.Lens as X
   , Lens, Lens', Traversal, Traversal'
   , at, ix, _1, _2, _3, _4
   , _Just, _Nothing, _Left, _Right
+
+  , ifor, itraverse
   )
 import Data.Aeson as X
   (ToJSON(..), FromJSON(..), FromJSONKey(..), ToJSONKey(..)

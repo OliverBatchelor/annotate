@@ -21,6 +21,8 @@ import Annotate.Geometry
 import Annotate.Common
 import Annotate.Document
 
+import Debug.Trace
+
 transforms :: Viewport -> [Svg.Transform]
 transforms vp = [Translate tx ty, Scale zoom zoom] where
     (V2 tx ty) = localOffset vp
@@ -40,43 +42,44 @@ boxElem props b = rect_ $ props <> [xy_ ~: lower, wh_ ~: (upper - lower)] where
 
 sceneDefines :: Builder t m => Dynamic t Viewport -> Dynamic t Preferences -> m ()
 sceneDefines vp prefs = void $ defs [] $ do
-    boxElem [id_ =: controlId, class_ =: "control"] (Dyn $ makeBox <$> prefs <*> vp)
+    boxElem [id_ =: controlId] (Dyn $ makeBox <$> prefs <*> vp)
 
   where
 
     makeBox prefs vp = getBounds $ Extents (V2 0 0) (V2 s s)
       where s = (prefs ^. #controlSize) / (vp ^. #zoom)
 
-boxVertices :: Box -> (Position, Position, Position, Position)
-boxVertices (Box (V2 lx ly) (V2 ux uy)) =
-  ( V2 lx ly
-  , V2 ux ly
-  , V2 ux uy
-  , V2 lx uy
-  )
+
 
 
 controlId :: Text
 controlId = "control"
 
-control :: Builder t m => Dynamic t Position -> m ()
-control p = void $ use_ [href_ =: "#" <> controlId, transform_ ~: toCentre <$> p ]
-  where toCentre (V2 x y) = [Translate x y]
+control :: Builder t m => Dynamic t Position -> m (Event t SceneEvent)
+control p = do
+  e <- use_ [href_ =: "#" <> controlId, class_ =: "control", transform_ ~: toCentre <$> p ]
+  return (SceneDown <$ domEvent Mousedown e)
+
+    where toCentre (V2 x y) = [Translate x y]
+
+controls :: Builder t m => [Dynamic t Position] -> m [Event t (Maybe Int, SceneEvent)]
+controls = itraverse $ \k p -> fmap (Just k,) <$> control p
+
 
 sceneEvents k e = (k,) <$> leftmost
     [ SceneEnter <$ domEvent Mouseenter e
     , SceneLeave <$ domEvent Mouseleave e
     , SceneDown <$ domEvent Mousedown e
+    , SceneClick <$ domEvent Click e
+    , SceneDoubleClick <$ domEvent Dblclick e
     ]
 
 boxView :: Builder t m => ShapeProperties t  -> Dynamic t Box -> m (Event t (Maybe Int, SceneEvent))
-boxView props box = do
-  e <- boxElem (shapeProperties props) (Dyn box)
+boxView props box = g [class_ =: "annotation"] $ do
+  e      <- boxElem (shapeProperties props) (Dyn box)
+  events <- controls [v1, v2, v3, v4]
 
-  g_ [shown_ ~: isJust <$> props ^. #selected] $ sequence_
-    [control v1, control v2, control v3, control v4]
-
-  return $ sceneEvents Nothing e
+  return $ leftmost (events <> [sceneEvents Nothing e])
 
   where
     (v1, v2, v3, v4) = split4 (boxVertices <$> box)
@@ -127,7 +130,7 @@ shapeElem props obj  = case view #shape <$> obj of
 
 shapeProperties :: Reflex t => ShapeProperties t -> [Property t]
 shapeProperties ShapeProperties{selected, fill} =
-    [ classes_ ~: activeList [pure "annotation", Dyn $ selectClass <$> selected]
+    [ classes_ ~: activeList [pure "shape", Dyn $ selectClass <$> selected]
     , style_ ~: style <$> fill ]
   where
 
@@ -205,7 +208,7 @@ drawBoxes scene SceneInputs{..} = do
 
 
 parts :: Document -> AnnotationId -> Set Int
-parts doc k = fromMaybe mempty $ do
+parts doc k = fromMaybe mempty $  do
   ann <- M.lookup k (doc ^. #annotations)
   return $ case (ann ^. #shape) of
     BoxShape _                  -> S.fromList [0..3]
@@ -218,7 +221,7 @@ parts doc k = fromMaybe mempty $ do
 part :: Document -> DocPart -> DocParts
 part doc (k, p) = case p of
   Nothing -> M.singleton k (parts doc k)
-  Just i  -> M.singleton k (parts doc k)
+  Just i  -> M.singleton k (S.singleton i)
 
 selectChange :: Set Key -> Document -> DocParts -> DocPart -> DocParts
 selectChange keys doc existing target
@@ -233,8 +236,9 @@ actions scene@Scene{..} = holdWorkflow $
   base = Workflow $ do
     let beginPan    = pan <$> (current mouse <@ mouseDown LeftButton)
         beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` keyDown Key.Space
+
         beginDrag   = filterMaybe $ drag <$> current mouse <*> current document <@> selection'
-        selection'  = (selectChange <$> current keyboard <*> current document <*> current selection) <@> mouseClickOn
+        selection'  = (selectChange <$> current keyboard <*> current document <*> current selection) <@> mouseDownOn
 
     viewCommand zoomCmd
     command SelectCmd selection'
@@ -287,10 +291,10 @@ sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart,
 sceneView scene@Scene{..} = do
     imageView image
 
-    events <- incrementalMapWithUpdates annotations $ \k ->
-       annotationView config (isSelected k) k
+    events <- holdMergePatched =<< incrementalMapWithUpdates annotations (\k ->
+       annotationView config (isSelected k) k)
 
     action <- actions scene
-    return (action, never) --minElem <?> sceneEvents)
+    return (action, minElem <?> events)
       where
           isSelected = fanDynMap selection

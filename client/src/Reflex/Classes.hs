@@ -385,6 +385,17 @@ sumKeyUpdates (k :=> _) (k' :=> v') = case geq k k' of
   Nothing   -> Just (k' :=> v')
 
 
+-- holdSum
+--   :: forall t m k v a. (Reflex t, MonadFix m, MonadHold t m, GEq k)
+--   => DSum k f
+--   -> Event t (DSum k f)
+--   -> m (DSum k (Compose (Dynamic t) f))
+-- factorEvent (k :=> v) e = do
+--   d <- holdDyn v (sumValueUpdates k <$> e)
+--   return (k :=> Compose d)
+--
+
+
 
 -- Fan for Dynamics
 fanWith :: (Reflex t, Ord k) => (k -> a -> b) -> (a -> a -> Map k b) -> Dynamic t a -> (k -> Dynamic t b)

@@ -26,7 +26,7 @@ import Web.KeyCode (Key)
 
 
 type GhcjsBuilder t m = (Builder t m, TriggerEvent t m, MonadJSM m, HasJSContext m, MonadJSM (Performable m), DomBuilderSpace m ~ GhcjsDomSpace,  PerformEvent t m)
-type Builder t m = (Adjustable t m, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m)
+type Builder t m = (Adjustable t m, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m, MonadJSM (Performable m), PerformEvent t m)
 type AppBuilder t m = (MonadIO m, Builder t m, EventWriter t AppCommand m, MonadReader (AppEnv t) m)
 type GhcjsAppBuilder t m = (GhcjsBuilder t m, EventWriter t AppCommand m, MonadReader (AppEnv t) m)
 

@@ -134,7 +134,9 @@ network host send = do
         ]
 
   performEvent_ (printLog <$> send)
+  -- performEvent_ (printLog <$> decoded)
   performEvent_ (printLog <$> decoded)
+
 
   return
     ( socket ^. webSocket_open
@@ -151,13 +153,13 @@ network host send = do
 handleHistory :: GhcjsBuilder t m => Event t DocName -> m (Event t DocName)
 handleHistory loaded = mdo
 
-  currentFile <- hold Nothing (Just <$> leftmost [loaded, changes])
+  file <- holdDyn Nothing (Just <$> leftmost [loaded, changes])
 
-  let update     = id <?> (updateHistory <$> current history <*> currentFile <@> loaded)
+  let update     = id <?> (updateHistory <$> current history <*> current file <@> loaded)
       changes    = uriDocument <$> updated history
 
   history <- manageHistory update
-  return $ new <?> (currentFile `attach` changes)
+  return $ new <?> (current file `attach` changes)
 
    where
      new (Nothing, k)       = Just k
@@ -188,6 +190,7 @@ sceneWidget cmds loaded = do
     input <- holdInputs (current viewport) sceneEvents =<< windowInputs element
     let (action, maybeDoc, sceneEvents) = r
 
+
     (element, r) <- Svg.svg' [class_ =: "expand enable-cursor", version_ =: "2.0"] $ do
         sceneDefines viewport =<< view #preferences
 
@@ -206,7 +209,7 @@ documentEditor :: forall t m. (GhcjsAppBuilder t m)
 documentEditor input cmds loaded  = do
 
   rec
-    document <- holdDyn loaded never
+    document <- holdDyn loaded document'
     let (patch, document') = split (attachWithMaybe (flip applyCmd') (current document) docCmd)
         clearCmd = (clearAnnotations <$> current document) <@ (_ClearCmd ?> cmds)
         docCmd = leftmost [_DocCmd ?> cmds, clearCmd]
@@ -226,7 +229,7 @@ documentEditor input cmds loaded  = do
     annotations  <- holdIncremental annotations0 (PatchMap <$> patch)
     let patched = patchIncremental annotations (pending <$> document <*> action)
 
-    logEvent (updated (pending <$> document <*> action))
+    -- logEvent (updated (pending <$> document <*> action))
 
     (action, sceneEvents) <- sceneView $ Scene
       { image    = ("images/" <> loaded ^. #name, loaded ^. #info . #imageSize)
@@ -283,8 +286,9 @@ bodyWidget host = mdo
         , fmap pure . preview _RemoteCmd <?> cmds
         ]
 
-
   urlSelected <- handleHistory (view #name <$> loaded)
+
+
   setTitle $ ffor document $ \doc ->
     "Annotate - " <> fromMaybe ("no document") (view #name <$> doc)
 

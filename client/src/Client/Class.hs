@@ -96,7 +96,7 @@ classesTab = column "h-100 p-0 v-spacing-2" $ mdo
   classes  <- askClasses
   selected <- view #currentClass
 
-  command (ClassCmd mempty) $ leftmost [userSelect, added]
+  command (ClassCmd mempty) $ leftmost [userSelect]
   let selectedClass = M.lookup <$>  selected <*> classes
 
   (added, removed) <- row "" $ buttonGroup $ do
