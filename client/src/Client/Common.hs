@@ -16,6 +16,7 @@ import Data.Semigroup
 import Reflex.Classes
 
 import qualified Data.Map as M
+import qualified Data.Text as T
 
 import Data.GADT.Compare.TH
 
@@ -25,10 +26,14 @@ import Control.Lens (makePrisms)
 import Web.KeyCode (Key)
 
 
-type GhcjsBuilder t m = (Builder t m, TriggerEvent t m, MonadJSM m, HasJSContext m, MonadJSM (Performable m), DomBuilderSpace m ~ GhcjsDomSpace,  PerformEvent t m)
-type Builder t m = (Adjustable t m, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m, MonadJSM (Performable m), PerformEvent t m)
-type AppBuilder t m = (MonadIO m, Builder t m, EventWriter t AppCommand m, MonadReader (AppEnv t) m)
-type GhcjsAppBuilder t m = (GhcjsBuilder t m, EventWriter t AppCommand m, MonadReader (AppEnv t) m)
+type Builder t m = (Adjustable t m, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m
+                   , MonadJSM (Performable m), PerformEvent t m, TriggerEvent t m, MonadJSM m
+                   , HasJSContext m, MonadJSM (Performable m), DomBuilderSpace m ~ GhcjsDomSpace,  PerformEvent t m)
+
+type AppBuilder t m = (Builder t m, EventWriter t [AppCommand] m, MonadReader (AppEnv t) m)
+
+type GhcjsBuilder t m = Builder t m
+type GhcjsAppBuilder t m = AppBuilder t m
 
 data ViewCommand
   = ZoomView Float Position
@@ -39,6 +44,19 @@ data Dialog = ClassDialog DocParts
   deriving (Generic, Show)
 
 
+data PrefCommand
+  = ZoomBrush Float
+  | SetOpacity Float
+  | SetControlSize Float
+  | SetInstanceColors Bool
+  | ShowClass (ClassId, Bool)
+
+  | SetNms Float
+  | SetThreshold Float
+  | SetDetections Int
+
+  deriving (Generic, Show)
+
 data AppCommand
   = ViewCmd ViewCommand
   | DocCmd DocCmd
@@ -48,6 +66,8 @@ data AppCommand
 
   | DialogCmd Dialog
   | ClassCmd (Set AnnotationId) ClassId
+  | LoadCmd DocName
+  | PrefCmd PrefCommand
 
   deriving (Generic, Show)
 
@@ -67,8 +87,6 @@ data Shortcut a where
   ShortDelete :: Shortcut ()
 
 
-instance Semigroup AppCommand where
-  a <> b = a
 
 data Action = Action
   { cursor      :: Text
@@ -85,11 +103,12 @@ instance Default Action where
 
 data AppEnv t = AppEnv
   { basePath :: !Text
-  , commands :: !(Event t AppCommand)
+  , commands :: !(Event t [AppCommand])
   , document :: !(Dynamic t (Maybe Document))
   , config :: !(Dynamic t Config)
   , preferences :: !(Dynamic t Preferences)
   , currentClass :: !(Dynamic t ClassId)
+  , userSelected :: !(Dynamic t (Maybe DocName))
   , shortcut     :: !(EventSelector t Shortcut)
   , collection :: !(Dynamic t Collection)
   } deriving Generic
@@ -127,12 +146,16 @@ docCommand f = command (DocCmd . f)
 viewCommand :: AppBuilder t m => Event t ViewCommand -> m ()
 viewCommand = command ViewCmd
 
+prefCommand :: AppBuilder t m => Event t PrefCommand -> m ()
+prefCommand = command PrefCmd
+
+
 editCommand :: AppBuilder t m => Event t Edit -> m ()
 editCommand  = docCommand DocEdit
 
 
 command :: AppBuilder t m => (a -> AppCommand) -> Event t a -> m ()
-command f  = tellEvent . fmap f
+command f  = tellEvent . fmap (pure . f)
 
 command' :: AppBuilder t m => AppCommand -> Event t a -> m ()
 command' cmd = command (const cmd)
@@ -144,6 +167,8 @@ commandM f m  = m >>= command f
 commandM' :: AppBuilder t m => AppCommand -> m (Event t a) -> m ()
 commandM' cmd = commandM (const cmd)
 
+showText :: Show a => a -> Text
+showText = T.pack . show 
 
 clearAnnotations :: Document -> DocCmd
 clearAnnotations = DocEdit . clearAllEdit

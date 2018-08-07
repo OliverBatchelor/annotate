@@ -1,6 +1,6 @@
 module Server.Options where
 
-import Annotate.Prelude
+import Annotate.Prelude hiding (def)
 import System.Console.CmdArgs.Implicit
 
 default (Int, Float)

@@ -102,7 +102,20 @@ data Config = Config
   } deriving (Generic, Show, Eq)
 
 data Preferences = Preferences
-  { controlSize :: Float
+  { controlSize       :: Float
+  , brushSize         :: Float
+
+  , instanceColours   :: Bool
+  , opacity           :: Float
+  , hiddenClasses     :: Set Int
+
+  , detection    :: DetectionParams
+  } deriving (Generic, Show, Eq)
+
+data DetectionParams = DetectionParams
+  {   nms            :: Float
+  ,   threshold      :: Float
+  ,   detections     :: Int
   } deriving (Generic, Show, Eq)
 
 
@@ -140,6 +153,7 @@ data ClientMsg
 instance FromJSON ShapeConfig
 instance FromJSON ClassConfig
 
+instance FromJSON DetectionParams
 instance FromJSON Preferences
 
 instance FromJSON EditAction
@@ -158,6 +172,7 @@ instance FromJSON ErrCode
 instance ToJSON ShapeConfig
 instance ToJSON ClassConfig
 
+instance ToJSON DetectionParams
 instance ToJSON Preferences
 
 instance ToJSON EditAction
@@ -173,18 +188,31 @@ instance ToJSON ServerMsg
 instance ToJSON ClientMsg
 instance ToJSON ErrCode
 
+instance Default Config where
+  def = Config
+    { root = ""
+    , extensions = [".png", ".jpg", ".jpeg"]
+    , classes    = M.fromList [(0, newClass 0)]
+    }
 
-defaultConfig :: Config
-defaultConfig = Config
-  { root = ""
-  , extensions = [".png", ".jpg", ".jpeg"]
-  , classes    = M.fromList [(0, newClass 0)]
-  }
+instance Default Preferences where
+  def = Preferences
+    { controlSize = 25
+    , brushSize = 40
+    , instanceColours = False
+    , opacity = 0.4
+    , hiddenClasses = mempty
+    , detection = def
+    }
 
-defaultPreferences :: Preferences
-defaultPreferences = Preferences
-  { controlSize = 10
-  }
+instance Default DetectionParams where
+  def = DetectionParams
+    { nms = 0.5
+    , threshold = 0.05
+    , detections = 1000
+    }
+
+
 
 newClass :: ClassId -> ClassConfig
 newClass k = ClassConfig

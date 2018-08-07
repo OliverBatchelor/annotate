@@ -2,12 +2,14 @@ module Annotate.Geometry
   ( module Linear.V2
   , module Linear.Vector
   , module Annotate.Geometry
+  , module Linear.Metric
   ) where
 
 import Annotate.Prelude
 
 import Linear.V2
 import Linear.Vector
+import Linear.Metric
 
 import Control.Lens (iso, Simple, Iso)
 import Data.List.NonEmpty (NonEmpty(..))
@@ -23,6 +25,7 @@ data Extents = Extents { centre :: Vec, extents :: Vec } deriving (Generic, Show
 newtype Polygon = Polygon { points :: NonEmpty Vec} deriving (Generic, Show, Eq)
 newtype WideLine = WideLine { points :: NonEmpty Circle} deriving (Generic, Show, Eq)
 
+data Segment = Segment { point1 :: Position, point2 :: Position } deriving (Generic, Show, Eq)
 
 scaleBox :: Vec -> Box -> Box
 scaleBox scale = over boxExtents
@@ -55,6 +58,9 @@ instance HasBounds Polygon where
 
 instance HasBounds WideLine where
   getBounds (WideLine points) = getBounds points
+
+instance HasBounds Segment where
+  getBounds (Segment p1 p2) = getBounds [p1, p2]
 
 instance HasBounds Position where
   getBounds p = Box p p
@@ -114,7 +120,7 @@ instance FromJSON Box
 instance FromJSON Circle
 instance FromJSON Polygon
 instance FromJSON WideLine
-
+instance FromJSON Segment
 
 instance FromJSON Extents
 instance FromJSON a => FromJSON (V2 a)
@@ -123,6 +129,7 @@ instance ToJSON Box
 instance ToJSON Circle
 instance ToJSON Polygon
 instance ToJSON WideLine
+instance ToJSON Segment
 
 instance ToJSON Extents
 instance ToJSON a => ToJSON (V2 a)

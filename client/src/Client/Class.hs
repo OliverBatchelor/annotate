@@ -23,8 +23,8 @@ showClass ClassConfig{shape, colour, name} =
 
 
 labelled :: Builder t m => Text -> m a -> m a
-labelled t inner = row "align-items-stretch" $ do
-  Html.label [class_ =: "grow-1"] $ text t
+labelled t inner = row "align-items-stretch " $ do
+  Html.label [class_ =: "grow-1 align-self-center"] $ text t
   div [class_ =: "grow-2"] inner
 
 

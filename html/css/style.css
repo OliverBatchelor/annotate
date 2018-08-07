@@ -174,44 +174,30 @@ html, body {
   stroke-width:2;
 }
 
-.annotation {
-  stroke: black;
-  vector-effect: non-scaling-stroke;
-  fill-opacity: 0.4;
+
+.selected {
+  fill-opacity: 0.5 !important;
 }
 
-.annotation:hover {
-  fill-opacity:0.6;
-  /* stroke-width:2; */
-}
-
-.shape:hover ~ .control {
-  stroke-width:2;
-}
-
-.control:hover {
-  stroke-width:2;
-}
 
 .control {
   stroke:black;
-  fill: none;
+  fill:black;
+  fill-opacity: 0.3;
   vector-effect: non-scaling-stroke;
   stroke-width: 0.5;
   pointer-events:all;
 }
 
 
-.selected {
-  stroke-width:2;
-}
+
+
 
 
 .outline {
   vector-effect: non-scaling-stroke;
 
-  fill-opacity: 0.1;
-
+  fill-opacity: 0.3;
   stroke: black;
   stroke-width:2;
   stroke-dasharray: 5, 5;

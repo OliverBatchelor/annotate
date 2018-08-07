@@ -83,7 +83,7 @@ main = do
 
   create' <- forM create $ \root -> do
     createDirectoryIfMissing True root
-    return (initialStore (defaultConfig & #root .~ (fromString root)))
+    return (initialStore (def & #root .~ (fromString root)))
 
   import' <- forM importJson $ \file ->
     BS.readFile file >>= fmap importCollection . tryDecode
@@ -109,13 +109,13 @@ main = do
 
   forM_ exportJson $ \file -> do
     state <- atomically $ do
-      writeLog env $ "Exporting store to: " <> file 
-      readLog store 
-      
+      writeLog env $ "Exporting store to: " <> file
+      readLog store
+
     BS.writeFile file (encodePretty (exportCollection state))
-    
-  
+
+
   atomically $ writeLog env "Anotate server listening."
-  
+
   forkIO $ WS.runServer "127.0.0.1" 2160 $ trainerServer env
   Warp.run 3000 $ serve (Proxy @ Api) (server root env)

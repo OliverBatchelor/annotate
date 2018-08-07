@@ -115,6 +115,8 @@ split3 f = (view _1 <$> f, view _2 <$> f, view _3 <$> f)
 split4 :: Functor f => f (a, b, c, d) -> (f a, f b, f c, f d)
 split4 f = (view _1 <$> f, view _2 <$> f, view _3 <$> f, view _4 <$> f)
 
+
+
 splitEither :: Reflex t => Event t (Either a b) -> (Event t a, Event t b)
 splitEither e = (preview _Left <?> e, preview _Right <?> e)
 
@@ -218,6 +220,8 @@ filterMaybe = fmapMaybe id
 
 (<?>) :: FunctorMaybe f => (a -> Maybe b) -> f a -> f b
 (<?>) = fmapMaybe
+
+
 
 (?>) :: FunctorMaybe f => Getting (First a) s a -> f s -> f a
 (?>) getter f = preview getter <?> f
@@ -340,6 +344,58 @@ incrementalMapToEvents inc = do
     , updatedIncremental inc
     ]
 
+enumerateMap :: (Foldable f, Enum k, Num k) => f a -> Map k a
+enumerateMap = M.fromDistinctAscList . enumerate
+
+enumerate :: (Foldable f, Enum k, Num k) => f a -> [(k, a)]
+enumerate = zip [0..] . toList
+
+
+dynList' :: (DomBuilder t m, MonadFix m, MonadHold t m, Foldable f)
+        => (Map Int (Dynamic t a) -> m b) -> Dynamic t (f a) -> m (Dynamic t b)
+dynList' f d = do
+  initial <- enumerateMap <$> sample d
+
+  rec
+    r <- widgetHold (viewList initial)
+      (attachWithMaybe maybeView (current d) updates)
+
+  return r
+
+  where
+    updates = enumerateMap <$> updated d
+    updatesFor k = M.lookup k <?> updates
+
+    maybeView old new = do
+      guard (length old /= M.size new)
+      return (viewList new)
+
+    viewList m = do
+      items <- ifor m $ \k a -> holdDyn a (updatesFor k)
+      f items
+
+
+dynList :: (DomBuilder t m, MonadFix m, MonadHold t m, Foldable f)
+        => (Int -> Dynamic t a -> m b) -> Dynamic t (f a) -> m (Dynamic t (Map Int b))
+dynList f d = do
+  initial <- enumerateMap <$> sample d
+
+  rec
+    r <- widgetHold (viewList initial)
+      (attachWithMaybe maybeView (current r) updates)
+
+  return r
+    where
+      updates = enumerateMap <$> updated d
+      updatesFor k = M.lookup k <?> updates
+
+      maybeView old new = do
+        guard (M.size old /= M.size new)
+        return (viewList new)
+
+      viewList = itraverse $ \k a ->
+        f k =<< holdDyn a (updatesFor k)
+
 
 
 incrementalMapWithUpdates :: (Ord k, Adjustable t m, MonadFix m, MonadHold t m, PostBuild t m)
@@ -347,8 +403,6 @@ incrementalMapWithUpdates :: (Ord k, Adjustable t m, MonadFix m, MonadHold t m, 
 incrementalMapWithUpdates inc f = do
   e <- incrementalMapToEvents inc
   patchMapWithUpdates (Patched mempty e) f
-
-
 
 
 -- Workflow related

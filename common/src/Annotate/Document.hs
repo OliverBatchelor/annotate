@@ -10,7 +10,7 @@ import Annotate.Common
 import Data.List (uncons)
 import Data.Maybe (catMaybes)
 
-import Control.Lens hiding (uncons)
+import Control.Lens hiding (uncons, without)
 import Data.List.NonEmpty (nonEmpty)
 
 import Debug.Trace
@@ -124,8 +124,15 @@ transformCorners (s, V2 tx ty) corners = translateBox  . scaleBox scale where
 
 _subset indexes = traversed . ifiltered (const . flip S.member indexes)
 
-subset :: Traversable f =>  Set Int -> f a -> [a]
+_without indexes = traversed . ifiltered (const . not . flip S.member indexes)
+
+
+subset :: Traversable f => Set Int -> f a -> [a]
 subset indexes f = toListOf (_subset indexes) f
+
+without :: Traversable f => Set Int -> f a -> [a]
+without indexes f = toListOf (_without indexes) f
+
 
 type Rigid = (Float, Vec)
 
@@ -175,8 +182,9 @@ transformParts rigid parts = \case
 deleteParts :: Set Int -> Shape -> Maybe Shape
 deleteParts parts = \case
   BoxShape b        -> Nothing
-  PolygonShape poly -> undefined
-  LineShape line    -> undefined
+  PolygonShape (Polygon points)  -> PolygonShape . Polygon <$> nonEmpty (without parts points)
+  LineShape    (WideLine points) -> LineShape . WideLine   <$> nonEmpty (without parts points)
+
 
 
 modifyShapes :: (a -> Shape -> Maybe Shape) -> Map AnnotationId a -> Document -> Edit

@@ -20,9 +20,9 @@ nextClient :: Map ClientId Client -> ClientId
 nextClient m = fromMaybe 0 (succ . fst . fst <$>  M.maxViewWithKey m)
 
 sendHello :: Env -> ClientId -> STM ()
-sendHello env clientId = do 
+sendHello env clientId = do
   config <- view #config <$> readLog (env ^. #store)
-  sendClient env clientId (ServerHello clientId config) 
+  sendClient env clientId (ServerHello clientId config)
 
 connectClient :: Env -> WS.Connection ->  IO ClientId
 connectClient env conn = do
@@ -35,7 +35,7 @@ connectClient env conn = do
 
 
 broadcastConfig :: Env -> STM ()
-broadcastConfig env = do 
+broadcastConfig env = do
   config <- view #config <$> readLog (env ^. #store)
   broadcast env (ServerConfig config)
 
@@ -55,9 +55,12 @@ clientDisconnected env clientId = atomically $ do
 clientOpen :: Env -> ClientId -> DocName -> STM ()
 clientOpen env clientId k = do
   mDoc <- lookupDoc k <$> readLog (env ^. #store)
-  for_ mDoc $ \doc -> do
-    openDocument env clientId k
-    sendClient env clientId (ServerDocument doc)
+  case mDoc of
+    Nothing  -> sendClient env clientId $
+      ServerError (ErrNotFound k)
+    Just doc -> do
+      openDocument env clientId k
+      sendClient env clientId (ServerDocument doc)
 
 
 clientLoop :: Env -> WS.Connection -> ClientId -> IO ()
@@ -70,7 +73,7 @@ clientLoop env conn clientId = do
         writeLog env (show clientId <> " <- error decoding " <> show str <> ", " <> show err)
         sendClient env clientId (ServerError (ErrDecode (fromString err)))
 
-      Right msg -> do 
+      Right msg -> do
         writeLog env (show clientId <> " <- " <> show msg)
         processMsg env clientId msg
 
@@ -95,8 +98,8 @@ processMsg env@Env{store} clientId msg = do
       running <- sendTrainer env (TrainerDetect clientId k)
       unless running $
         sendClient env clientId (ServerError ErrNotRunning)
-        
-    ClientClass k mClass -> do 
+
+    ClientClass k mClass -> do
       updateLog store (CmdClass k mClass)
       broadcastConfig env
 

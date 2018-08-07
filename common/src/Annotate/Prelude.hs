@@ -33,7 +33,7 @@ import Control.Lens as X
   , at, ix, _1, _2, _3, _4
   , _Just, _Nothing, _Left, _Right
 
-  , ifor, itraverse
+  , ifor, itraverse, ifor_, itraverse_
   )
 import Data.Aeson as X
   (ToJSON(..), FromJSON(..), FromJSONKey(..), ToJSONKey(..)
@@ -47,6 +47,8 @@ import Data.Either as X (either, Either (..), isLeft, isRight)
 import Data.Int as X
 import Data.Word as X
 import Data.Bool as X
+
+import Data.Default as X
 
 import Data.Char as X
 import Data.Void as X
@@ -62,7 +64,7 @@ import Data.Typeable as X
 
 import GHC.Generics as X (Generic(..))
 import Prelude as X (
-  Read (..), Show(..), Eq(..), Ord(..), Enum(..), Floating(..), Integral(..), Num(..),
+  Read (..), read, Show(..), Eq(..), Ord(..), Enum(..), Floating(..), Integral(..), Num(..),
   Real(..), RealFloat(..), Fractional(..), Floating(..), Bounded(..), realToFrac,
   Integer, Char, Float, Int, Double, String, FilePath, IO,
   curry, uncurry, flip, const, fst, snd, fromIntegral,

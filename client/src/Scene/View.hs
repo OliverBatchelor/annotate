@@ -4,6 +4,8 @@ import Annotate.Prelude
 import Client.Common
 
 import Builder.Svg hiding (switch, cursor, view)
+import Builder.Html (classList)
+
 
 import qualified Builder.Svg as Svg
 
@@ -12,6 +14,8 @@ import Scene.Events
 
 import qualified Data.Set as S
 import qualified Data.Map as M
+import qualified Data.List.NonEmpty as NE
+
 import qualified Web.KeyCode as Key
 
 import Scene.Types
@@ -31,18 +35,14 @@ transforms vp = [Translate tx ty, Scale zoom zoom] where
 inViewport :: (Builder t m) => Dynamic t Viewport -> m a -> m a
 inViewport vp child = g [transform_ ~: (transforms <$> vp)] child
 
-splitBox :: Functor f => f Box -> (f (V2 Float), f (V2 Float))
-splitBox ab = (view #lower <$> ab, view #upper <$> ab)
 
-
-boxElem :: (Builder t m) => [Property t] -> Active t Box -> m (ElemType t m)
-boxElem props b = rect_ $ props <> [xy_ ~: lower, wh_ ~: (upper - lower)] where
-  (lower, upper) = splitBox b
 
 
 sceneDefines :: Builder t m => Dynamic t Viewport -> Dynamic t Preferences -> m ()
 sceneDefines vp prefs = void $ defs [] $ do
-    boxElem [id_ =: controlId] (Dyn $ makeBox <$> prefs <*> vp)
+    boxElem [ id_ =: controlId ] (makeBox <$> prefs <*> vp)
+    -- Svg.filter [id_ =: "select-filter"] $
+    --   feMorphology [operator_ =: "dilate" radius_ =: 2]
 
   where
 
@@ -50,20 +50,57 @@ sceneDefines vp prefs = void $ defs [] $ do
       where s = (prefs ^. #controlSize) / (vp ^. #zoom)
 
 
-
-
 controlId :: Text
 controlId = "control"
 
-control :: Builder t m => Dynamic t Position -> m (Event t SceneEvent)
-control p = do
-  e <- use_ [href_ =: "#" <> controlId, class_ =: "control", transform_ ~: toCentre <$> p ]
-  return (SceneDown <$ domEvent Mousedown e)
+control :: Builder t m => Dynamic t Bool -> Dynamic t Position -> m (Event t SceneEvent)
+control selected point = do
+  e <- use_ [ href_ =: "#" <> controlId
+            , classList ["control", "selected" `gated` selected]
+            , transform_ ~: toCentre <$> point ]
+
+  return $ leftmost
+    [ SceneEnter <$ domEvent Mouseenter e
+    , SceneLeave <$ domEvent Mouseleave e
+    , SceneDown  <$ domEvent Mousedown e
+    ]
 
     where toCentre (V2 x y) = [Translate x y]
 
-controls :: Builder t m => [Dynamic t Position] -> m [Event t (Maybe Int, SceneEvent)]
-controls = itraverse $ \k p -> fmap (Just k,) <$> control p
+controlCircle :: Builder t m => Dynamic t Bool -> Dynamic t Circle -> m (Event t SceneEvent)
+controlCircle selected point = do
+  e <- circleElem [classList ["control", "selected" `gated` selected]] point
+
+  return $ leftmost
+    [ SceneEnter <$ domEvent Mouseenter e
+    , SceneLeave <$ domEvent Mouseleave e
+    , SceneDown  <$ domEvent Mousedown e
+    ]
+
+    where toCentre (V2 x y) = [Translate x y]
+
+
+
+
+controls :: Builder t m => Dynamic t (Maybe (Set Int)) -> [Dynamic t Position] -> m [Event t (Maybe Int, SceneEvent)]
+controls selection = itraverse control' where
+  control' k point = fmap (Just k,) <$>
+    control (isSelected k <$> selection) point
+
+  isSelected k = maybe False (S.member k)
+
+dynControls :: (Foldable f, Builder t m)
+            => (Dynamic t Bool -> Dynamic t a -> m (Event t SceneEvent))
+            -> Dynamic t (Maybe (Set Int)) -> Dynamic t (f a) -> m (Event t (Maybe Int, SceneEvent))
+dynControls makeControl selection ps = do
+  e <- current <$> dynList control' ps
+  return (minElem <?> switch (mergeMap <$> e))
+
+  where
+    control' k point = fmap (Just k,) <$>
+      makeControl (isSelected k <$> selection) point
+
+    isSelected k = maybe False (S.member k)
 
 
 sceneEvents k e = (k,) <$> leftmost
@@ -74,10 +111,11 @@ sceneEvents k e = (k,) <$> leftmost
     , SceneDoubleClick <$ domEvent Dblclick e
     ]
 
+
 boxView :: Builder t m => ShapeProperties t  -> Dynamic t Box -> m (Event t (Maybe Int, SceneEvent))
 boxView props box = g [class_ =: "annotation"] $ do
-  e      <- boxElem (shapeProperties props) (Dyn box)
-  events <- controls [v1, v2, v3, v4]
+  e      <- boxElem (shapeProperties props) box
+  events <- controls (props ^. #selected) [v1, v2, v3, v4]
 
   return $ leftmost (events <> [sceneEvents Nothing e])
 
@@ -86,31 +124,102 @@ boxView props box = g [class_ =: "annotation"] $ do
 
 
 polygonView :: Builder t m => ShapeProperties t  -> Dynamic t Polygon -> m (Event t (Maybe Int, SceneEvent))
-polygonView props poly = do
-  e <- polygonElem (shapeProperties props) (Dyn poly)
-  return $ sceneEvents Nothing e
+polygonView props poly = g [class_ =: "annotation"] $ do
+  e <- polygonElem (shapeProperties props) poly
+  events <- dynControls control (props ^. #selected) (view #points <$> poly)
+
+  return $ leftmost [events, sceneEvents Nothing e]
+
 
 
 lineView :: Builder t m => ShapeProperties t  -> Dynamic t WideLine -> m (Event t (Maybe Int, SceneEvent))
 lineView props line = do
-  e <- lineElem (shapeProperties props) (Dyn line)
+  e <- lineElem (props ^. #elemId) (shapeProperties props) line
+  events <- dynControls controlCircle (props ^. #selected) (view #points <$> line)
 
-  return $ sceneEvents Nothing e
+  return $ leftmost [events, sceneEvents Nothing e]
 
 
-circleElem :: (Builder t m) =>  [Property t] -> Active t Circle -> m (ElemType t m)
-circleElem props c  = circle_ $ props <> [cxcy_ ~: centre, r_ ~: view #radius <$> c] where
+splitBox :: Functor f => f Box -> (f (V2 Float), f (V2 Float))
+splitBox ab = (view #lower <$> ab, view #upper <$> ab)
+
+
+bounds_ :: Attribute Box
+bounds_ =  contramap (view #lower) xy_ <> contramap boxSize wh_
+
+
+boxElem :: (Builder t m) =>  [Property t] -> Dynamic t Box -> m (ElemType t m)
+boxElem props b = rect_ $ props <> [xy_ ~: lower, wh_ ~: (upper - lower)] where
+  (lower, upper) = splitBox b
+
+
+circleElem :: (Builder t m) =>  [Property t] -> Dynamic t Circle -> m (ElemType t m)
+circleElem props c  = circle_ $ props <> [ cxcy_ ~: centre, r_ ~: view #radius <$> c] where
   centre = view #centre <$> c
 
-polygonElem :: (Builder t m) =>  [Property t] -> Active t Polygon -> m (ElemType t m)
+polygonElem :: (Builder t m) =>  [Property t] -> Dynamic t Polygon -> m (ElemType t m)
 polygonElem props poly  = polygon_ $ props <> [points_ ~: toList . view #points <$> poly]
 
-lineElem  :: (Builder t m) =>  [Property t] -> Active t WideLine -> m (ElemType t m)
-lineElem props line = g_ [] blank
+urlId :: Text -> Text
+urlId i = "url(#" <> i <> ")"
+
+href_id_ :: Attribute Text
+href_id_ = contramap urlId href_
+
+mask_id_ :: Attribute Text
+mask_id_ = contramap urlId mask_
+
+
+
+lineElem  :: (Builder t m) => Text -> [Property t] -> Dynamic t WideLine -> m (ElemType t m)
+lineElem elemId props line = do
+    dynList' (lineShape maskId . toList) linePoints
+    boxElem (props <> [mask_id_ =: maskId]) bounds
+
+    where
+      linePoints = view #points <$> line
+      bounds = getBounds <$> linePoints
+
+      maskId = "mask_" <> elemId
+
+lineShape :: Builder t m => Text -> [Dynamic t Circle] -> m ()
+lineShape maskId points = do
+  defs [] $ void $ do
+    g [id_ =: shapeId] $
+      shapes [fill_ =: "white"]
+
+    mask [id_ =: maskId] $
+      use_ [ href_ =: "#" <> shapeId ]
+
+  where
+    shapeId = "shape_" <> maskId
+    shapes properties = do
+      traverse_ (circleElem properties) points
+      traverse_ (polygonElem properties)
+        (zipWith (liftA2 between) points (drop 1 points))
+
+
+between :: Circle -> Circle -> Polygon
+between (Circle p1 r1) (Circle p2 r2) = Polygon $ NE.fromList [p1 - v1 , p1 + v1, p2 + v2, p2 - v2]
+  where
+    v = normalize $ perp (p2 - p1)
+    (v1, v2) = (v ^* r1, v ^* r2)
+
+-- 
+-- type ClassMap = Map ClassId ClassProperties
+--
+-- data ClassProperties = ClassProperties
+--   { hidden :: Bool
+--   , fill   :: HexColor
+--   , name   :: Text
+--   } deriving (Generic, Eq)
+
 
 data ShapeProperties t = ShapeProperties
   { selected :: !(Dynamic t (Maybe (Set Int)))
   , fill     :: !(Dynamic t HexColour)
+  -- , hidden   :: !(Dynamic t Bool)
+  , elemId   :: !Text
   } deriving Generic
 
 shapeView :: forall t m. (Builder t m) => ShapeProperties t -> Updated t Annotation -> m (Event t (Maybe Int, SceneEvent))
@@ -118,13 +227,6 @@ shapeView props obj  = case view #shape <$> obj of
   Updated (BoxShape s)     e  -> boxView props      =<< holdDyn s (_BoxShape ?> e)
   Updated (PolygonShape s) e  -> polygonView props  =<< holdDyn s (_PolygonShape ?> e)
   Updated (LineShape s)    e  -> lineView props     =<< holdDyn s (_LineShape ?> e)
-
-
-shapeElem :: forall t m. (Builder t m) => [Property t] -> Updated t Annotation -> m (ElemType t m)
-shapeElem props obj  = case view #shape <$> obj of
-  Updated (BoxShape s)     e  -> boxElem props     . Dyn =<< holdDyn s (_BoxShape ?> e)
-  Updated (PolygonShape s) e  -> polygonElem props . Dyn =<< holdDyn s (_PolygonShape ?> e)
-  Updated (LineShape s)    e  -> lineElem props    . Dyn =<< holdDyn s (_LineShape ?> e)
 
 
 
@@ -139,8 +241,6 @@ shapeProperties ShapeProperties{selected, fill} =
 
   -- Updated (CircleShape c) e -> circleView classes . Dyn =<< holdDyn c (_CircleShape ?> e)
 
-outlineView :: forall t m. (Builder t m) => Updated t Annotation -> m ()
-outlineView = void . shapeElem [class_ =: "outline"]
 
 
 annotationView :: forall t m. (Builder t m) => Dynamic t Config -> Dynamic t (Maybe (Set Int)) -> AnnotationId -> Updated t Annotation -> m (Event t (DocPart, SceneEvent))
@@ -148,8 +248,9 @@ annotationView config selected k obj = do
   classId <- holdUpdated (view #label <$> obj)
   let colour = classColour <$> config <*> classId
 
-  fmap (arrange k) <$> shapeView (ShapeProperties selected colour) obj
+  fmap (arrange k) <$> shapeView (ShapeProperties selected colour shapeId) obj
     where
+      shapeId = "ann" <> fromString (show k)
       arrange k (part, e) = ((k, part), e)
       classColour Config{classes} k = case M.lookup k classes of
         Nothing   -> 0x000000
@@ -186,48 +287,127 @@ addAnnotation Scene{nextId} add = editCommand (addEdit <$> current nextId <@> ad
 
 
 
-drawBoxes :: AppBuilder t m => Scene t -> SceneInputs t -> m ()
-drawBoxes scene SceneInputs{..} = do
-  e <- filterMaybe <$> workflowView (idle Nothing)
-  addAnnotation scene (boxAnnotation e)
+drawBoxes :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
+drawBoxes scene SceneInputs{..} _ =
+  addShapes scene . filterMaybe =<< workflowView (idle Nothing)
 
   where
     idle r = Workflow $ do
-      return (r, drawing <$> (current mouse <@ mouseDown LeftButton))
+      return (r, drawing <$> (current mouse <@ click LeftButton))
 
     drawing p1 = Workflow $ do
       let box = makeBox p1 <$> mouse
-          done = current box <@ mouseUp LeftButton
+          done = current box <@ click LeftButton
 
-      boxElem  [class_ =: "outline"] (Dyn box)
-      return (Nothing, idle . Just <$> done)
+      boxElem  [class_ =: "outline"] box
+      return (Nothing, idle . Just . BoxShape <$> done)
 
     makeBox p1 p2 = Box (liftI2 min p1 p2) (liftI2 max p1 p2)
-    boxAnnotation e = makeAnnotation <$> current (scene ^. #currentClass) <@> e
-    makeAnnotation classId box = Annotation (BoxShape box) classId []
 
 
-parts :: Document -> AnnotationId -> Set Int
-parts doc k = fromMaybe mempty $  do
+drawPolygons :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
+drawPolygons scene SceneInputs{..} finish =
+  addShapes scene . filterMaybe =<< workflowView (idle Nothing)
+
+  where
+    idle r = Workflow $ do
+      return (r, drawing . pure <$> (current mouse `tag` click LeftButton))
+
+    drawing points = Workflow $ do
+      let points'  = (`NE.cons` points) <$> mouse
+          shape     = PolygonShape (Polygon points)
+          next     = current points' `tag` click LeftButton
+
+      polygonElem  [class_ =: "outline"] (Polygon <$> points')
+      return (Nothing, leftmost
+        [ idle (Just shape) <$ finish
+        , drawing <$> next
+        ])
+
+
+drawLines :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
+drawLines scene SceneInputs{..} finish = do
+  prefCommand (ZoomBrush <$> wheel)
+  circleElem [class_ =: "outline"] cursor
+
+
+  addShapes scene . filterMaybe =<< workflowView (idle Nothing)
+
+  where
+    brushSize = view #brushSize <$> (scene ^. #preferences)
+    cursor = Circle <$> mouse <*> brushSize
+
+    idle r = Workflow $ do
+      return (r, drawing . pure <$> (current cursor `tag` click LeftButton))
+
+    drawing points = Workflow $ do
+      let points'  = (`NE.cons` points) <$> cursor
+          shape    = LineShape (WideLine points)
+          next     = current points' `tag` click LeftButton
+
+      lineElem "draw" [class_ =: "outline"] (WideLine <$> points')
+      return (Nothing, leftmost
+        [ idle (Just shape) <$ finish
+        , drawing <$> next
+        ])
+
+
+addShapes :: AppBuilder t m => Scene t -> Event t Shape -> m ()
+addShapes scene e = addAnnotation scene (makeAnnotation e)
+  where
+    makeAnnotation e = create <$> current (scene ^. #currentClass) <@> e
+    create classId shape = Annotation shape classId []
+
+
+
+subParts :: Document -> AnnotationId -> Set Int
+subParts doc k = fromMaybe mempty $  do
   ann <- M.lookup k (doc ^. #annotations)
   return $ case (ann ^. #shape) of
     BoxShape _                  -> S.fromList [0..3]
     LineShape (WideLine points)   -> S.fromList [0..length points]
     PolygonShape (Polygon points) -> S.fromList [0..length points]
 
--- togglePart :: Document -> DocPart -> DocParts -> DocParts
--- togglePart
+alterPart ::  AnnotationId -> (Set Int -> Set Int) -> DocParts -> DocParts
+alterPart k f = M.alter f' k where
+  f' p = if null result then Nothing else Just result
+    where result = f (fromMaybe mempty p)
 
-part :: Document -> DocPart -> DocParts
-part doc (k, p) = case p of
-  Nothing -> M.singleton k (parts doc k)
+
+togglePart :: Document -> DocPart -> DocParts -> DocParts
+togglePart doc (k, sub) = alterPart k $ \existing ->
+  case sub of
+    Nothing -> if existing == allParts then S.empty else allParts
+    Just i  -> toggleSet i existing
+
+  where
+    allParts = subParts doc k
+    toggleSet i s = if S.member i s then S.delete i s else S.insert i s
+
+addPart :: Document -> DocPart -> DocParts -> DocParts
+addPart doc part = mergeParts (toParts doc part)
+
+toParts :: Document -> DocPart -> DocParts
+toParts doc (k, p) = case p of
+  Nothing -> M.singleton k (subParts doc k)
   Just i  -> M.singleton k (S.singleton i)
 
-selectChange :: Set Key -> Document -> DocParts -> DocPart -> DocParts
+selectChange :: Set Key -> Document -> DocParts -> Maybe DocPart -> DocParts
 selectChange keys doc existing target
-  | S.member Key.Shift keys = existing <> target'
-  | otherwise               = target'
-    where target' = part doc target
+  | S.member Key.Shift keys = fromMaybe existing (flip (addPart doc) existing <$> target)
+  | otherwise               = fromMaybe mempty (toParts doc <$> target)
+
+
+selectParts :: Reflex t => Scene t -> Event t DocParts
+selectParts Scene{document, selection, input} =
+  selectChange <$> current keyboard <*> current document <*> current selection <@> partsClicked
+
+  where
+    partsClicked = leftmost
+      [ Just <$> mouseDownOn
+      , Nothing <$ mouseDown LeftButton
+      ]
+    SceneInputs{keyboard, mouseDown, mouseDownOn} = input
 
 actions :: AppBuilder t m => Scene t -> m (Dynamic t Action)
 actions scene@Scene{..} = holdWorkflow $
@@ -236,9 +416,10 @@ actions scene@Scene{..} = holdWorkflow $
   base = Workflow $ do
     let beginPan    = pan <$> (current mouse <@ mouseDown LeftButton)
         beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` keyDown Key.Space
-
         beginDrag   = filterMaybe $ drag <$> current mouse <*> current document <@> selection'
-        selection'  = (selectChange <$> current keyboard <*> current document <*> current selection) <@> mouseDownOn
+
+        selection'  = selectParts scene
+
 
     viewCommand zoomCmd
     command SelectCmd selection'
@@ -270,8 +451,16 @@ actions scene@Scene{..} = holdWorkflow $
 
   -- Draw boxes
   drawMode k config = action $ do
-    drawBoxes scene input
-    return ("crosshair", base <$ keyUp Key.Space)
+    let finish = keyUp Key.Space
+
+    for_ (M.lookup k (config ^. #classes)) $ \classConfig ->
+      case classConfig ^. #shape of
+        BoxConfig     -> drawBoxes scene input finish
+        PolygonConfig -> drawPolygons scene input finish
+        LineConfig    -> drawLines scene input finish
+
+
+    return ("crosshair", base <$ finish)
 
   -- Pan the view when a blank part of the scene is dragged
   pan origin = action $ do

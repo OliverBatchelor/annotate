@@ -70,6 +70,7 @@ data Scene t = Scene
   , nextId       :: !(Dynamic t AnnotationId)
   , currentClass :: !(Dynamic t ClassId)
   , config       :: !(Dynamic t Config)
+  , preferences  :: !(Dynamic t Preferences)
 
   , shortcut     :: !(EventSelector t Shortcut)
   } deriving (Generic)

@@ -1,7 +1,7 @@
 module Client.Images where
 
 import Annotate.Prelude hiding (div)
-import Annotate.Common hiding (label) 
+import Annotate.Common hiding (label)
 
 import Client.Common
 import Client.Widgets
@@ -16,26 +16,23 @@ import qualified Data.Map as M
 import Data.Time.Format.Human
 
 showImage :: Builder t m => DocName -> DocInfo -> m ()
-showImage name DocInfo{..} = 
+showImage name DocInfo{..} =
   void $ row "align-items-center spacing-2 p-1" $ do
     span [] $ text name
-    spacer  
-    div [hidden_ =: (numAnnotations == 0)] $ 
+    spacer
+    div [hidden_ =: (numAnnotations == 0)] $
       icon (def & #name .~ "pencil" & #size .~ IconTiny)
 
 
 imagesTab :: forall t m. AppBuilder t m => m ()
-imagesTab = column "h-100 p-1 v-spacing-2" $ mdo 
+imagesTab = column "h-100 p-1 v-spacing-2" $ mdo
 
-  images <- fmap (view #images) <$> view #collection
-  selected <- fmap selectedKey <$> view #document 
-  
+  images   <- fmap (view #images) <$> view #collection
+  selected <- view #userSelected
+
   userSelect <- div [class_ =: "border scroll-grow"] $ do
-    selectTable selected (Dyn (M.toList . M.mapWithKey showImage <$> images))
-    
-  remoteCommand ClientOpen userSelect
+    selectTable' selected (Dyn (M.toList . M.mapWithKey showImage <$> images))
 
+  command LoadCmd userSelect
 
-  return ()  
-    where 
-      selectedKey = fromMaybe "" . fmap (view #name)
+  return ()

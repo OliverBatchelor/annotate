@@ -8,11 +8,13 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 
 import Text.Printf
+import Data.Text.Encoding
 
 import Data.Default
+import Data.FileEmbed
 
 import Control.Monad.Reader
-import Control.Lens (notNullOf)
+import Control.Lens (notNullOf, Getting, firstOf)
 
 import Scene.Viewport
 import Scene.View
@@ -49,32 +51,47 @@ import qualified Reflex.Dom.Main as Main
 
 import qualified Web.KeyCode as Key
 
+import Stitch
+import Stitch.Combinators
+
 
 main :: JSM ()
-main = Main.mainWidgetWithHead' (const headWidget, bodyWidget)
+main = Main.mainWidgetWithHead' (headWidget, bodyWidget)
 
 
 orLocal :: Text -> Text
 orLocal url = if url == "" then "localhost:3000" else url
 
-headWidget :: GhcjsBuilder t m => m Text
-headWidget = do
+headWidget :: forall t m. GhcjsBuilder t m => AppEnv t -> m Text
+headWidget env = do
 
    -- host <- orLocal <$> getLocationHost
    -- base_ [href_ =: "http://" <> host]
 
-   let host = "localhost:3000"
+   let host = "annotate.dynu.net:3000"
        css file = stylesheet ("http://" <> host <> "/css/" <> file)
 
-   css "bootstrap.min.css"
-   css "materialdesignicons.min.css"
-   css "style.css"
+   Html.style [] $ text appStyle
+   Html.style [] $ text bootstrap
+   Html.style [] $ text icons
+
+   Html.style [] $ dynText (prefsCss <$> env ^. #preferences)
+
 
    return host
 
   where
     stylesheet url = link_ [href_ =: url, rel_ =: ["stylesheet"], crossorigin_ =: "anonymous"]
-    --css = decodeUtf8 $(embedFile "style.css")
+
+    appStyle = decodeUtf8 $(embedFile $ "../html/css/style.css")
+    bootstrap = decodeUtf8 $(embedFile $ "../html/css/bootstrap.min.css")
+    icons = decodeUtf8 $(embedFile $ "../html/css/materialdesignicons.min.css")
+
+prefsCss :: Preferences -> Text
+prefsCss Preferences{opacity} = renderCSS $ do
+  ".annotation" ? do
+    "fill-opacity" .= showText opacity
+
 
 nonEmpty :: [a] -> Maybe [a]
 nonEmpty = \case
@@ -82,7 +99,7 @@ nonEmpty = \case
   xs -> Just xs
 
 
-viewControls :: GhcjsBuilder t m => Event t AppCommand -> Dynamic t Dim -> m (Dynamic t Viewport)
+viewControls :: GhcjsBuilder t m => Event t [AppCommand] -> Dynamic t Dim -> m (Dynamic t Viewport)
 viewControls cmds dim = do
   windowDim  <- windowDimensions
 
@@ -93,7 +110,7 @@ viewControls cmds dim = do
   return viewport
 
   where
-    viewCmds = preview _ViewCmd <?> cmds
+    viewCmds = oneOf _ViewCmd cmds
 
     updateView cmd vp = getControls $ case cmd of
       ZoomView zoom pos -> zoomView zoom pos vp
@@ -150,20 +167,22 @@ network host send = do
     close (False, _, reason)  = Just reason
 
 
-handleHistory :: GhcjsBuilder t m => Event t DocName -> m (Event t DocName)
-handleHistory loaded = mdo
+handleHistory :: GhcjsBuilder t m => Event t DocName -> m (Dynamic t (Maybe DocName))
+handleHistory selected = mdo
 
-  file <- holdDyn Nothing (Just <$> leftmost [loaded, changes])
+  initial <- fromFrag <$> getLocationFragment
+  file <- holdUniqDyn =<< holdDyn initial (Just <$> leftmost [selected, changes])
 
-  let update     = id <?> (updateHistory <$> current history <*> current file <@> loaded)
+  let update     = filterMaybe $ updateHistory <$> current history <*> current file <@> selected
       changes    = uriDocument <$> updated history
 
   history <- manageHistory update
-  return $ new <?> (current file `attach` changes)
+  return file
 
    where
-     new (Nothing, k)       = Just k
-     new (Just previous, k) = k <$ guard (previous /= k)
+     fromFrag "#"   = Nothing
+     fromFrag ""    = Nothing
+     fromFrag frag  = Just (T.drop 1 frag)
 
      uriDocument = T.pack . drop 1 . view #uriFragment . _historyItem_uri
 
@@ -180,7 +199,9 @@ handleHistory loaded = mdo
 
 
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
-            => Event t AppCommand -> Event t Document -> m (Event t (DMap Shortcut Identity), Dynamic t Action, Dynamic t (Maybe Document))
+            => Event t [AppCommand]
+            -> Event t Document
+            -> m (Event t (DMap Shortcut Identity), Dynamic t Action, Dynamic t (Maybe Document))
 sceneWidget cmds loaded = do
 
   dim <- holdDyn (800, 600) (view (#info . #imageSize) <$> loaded)
@@ -203,7 +224,7 @@ sceneWidget cmds loaded = do
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => SceneInputs t
-            -> Event t AppCommand
+            -> Event t [AppCommand]
             -> Document
             -> m (Dynamic t Action, Dynamic t (Maybe Document), Event t (DocPart, SceneEvent))
 documentEditor input cmds loaded  = do
@@ -211,8 +232,8 @@ documentEditor input cmds loaded  = do
   rec
     document <- holdDyn loaded document'
     let (patch, document') = split (attachWithMaybe (flip applyCmd') (current document) docCmd)
-        clearCmd = (clearAnnotations <$> current document) <@ (_ClearCmd ?> cmds)
-        docCmd = leftmost [_DocCmd ?> cmds, clearCmd]
+        clearCmd = (clearAnnotations <$> current document) <@ (oneOf _ClearCmd cmds)
+        docCmd = leftmost [oneOf _DocCmd cmds, clearCmd]
 
   -- Keep track of next id to use for new annotations
   let initialId = maybe 0 (+1) (maxId loaded)
@@ -221,7 +242,7 @@ documentEditor input cmds loaded  = do
 
   -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $
-    leftmost [_SelectCmd ?> cmds]
+    leftmost [oneOf _SelectCmd cmds]
 
   env <- ask
 
@@ -244,6 +265,7 @@ documentEditor input cmds loaded  = do
       , currentClass = view #currentClass env
       , config = view #config env
       , shortcut = view #shortcut env
+      , preferences = view #preferences env
       }
 
   return (action, (Just <$> document), sceneEvents)
@@ -255,7 +277,11 @@ pending doc Action{edit}
   | Just e <- edit     = maybe mempty (PatchMap . fst) (applyEdit e doc)
   | otherwise          = mempty
 
-bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m ()
+
+oneOf :: Reflex t => Getting (First a) s a -> Event t [s] -> Event t a
+oneOf getter = fmapMaybe (preview (traverse . getter))
+
+bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m (AppEnv t)
 bodyWidget host = mdo
   (opened, closed, serverMsg, serverErrors) <- network host clientMsg
 
@@ -269,25 +295,24 @@ bodyWidget host = mdo
       ready _ = Workflow $ do
 
         postBuild <- getPostBuild
-        let reqs = mergeList
-              [ ClientNext Nothing <$ needsLoad
-              , ClientCollection   <$ postBuild ]
-
-            needsLoad = preview _Nothing <?> (current document `tag` postBuild)
+        let initialLoad = maybe (ClientNext Nothing) ClientOpen
+            reqs        = mergeList
+              [ ClientCollection   <$ postBuild
+              , (initialLoad <$> current userSelected) `tag` postBuild
+              ]
 
         return (("ready", toList <$> reqs), never)
 
   (state, clientMsgs) <- split <$> (workflow $
     commonTransition (disconnected <$ closed) disconnected)
 
-  let clientMsg = mconcat
+  let clientMsg = ffilter (not . null) $ mconcat
         [ switchPrompt clientMsgs
-        , pure . ClientOpen <$> urlSelected
-        , fmap pure . preview _RemoteCmd <?> cmds
+        , fmap (pure . ClientOpen) <?> updated userSelected
+        , fmapMaybe (preview _RemoteCmd) <$> cmds
         ]
 
-  urlSelected <- handleHistory (view #name <$> loaded)
-
+  userSelected <- handleHistory (oneOf _LoadCmd cmds)
 
   setTitle $ ffor document $ \doc ->
     "Annotate - " <> fromMaybe ("no document") (view #name <$> doc)
@@ -304,14 +329,15 @@ bodyWidget host = mdo
         , config = config
         , preferences = preferences
         , currentClass = currentClass
+        , userSelected = userSelected
         , shortcut = fan shortcuts
         , collection = collection
         }
 
-  config <- holdDyn defaultConfig $ leftmost [view _2 <$> hello, preview _ServerConfig <?> serverMsg]
-  preferences <- holdDyn defaultPreferences never
+  config <- holdDyn def $ leftmost [view _2 <$> hello, preview _ServerConfig <?> serverMsg]
+  preferences <- foldDyn updatePrefs def (fmapMaybe (preview _PrefCmd) <$> cmds)
 
-  let classSelected = preview _ClassCmd <?> cmds
+  let classSelected = oneOf _ClassCmd cmds
   currentClass <- foldDyn ($) 0 $ mergeWith (.)
     [ validClass <$> updated config
     , const . snd <$> classSelected
@@ -320,7 +346,7 @@ bodyWidget host = mdo
   ((shortcuts, action, document), cmds) <- flip runReaderT env $ runEventWriterT $ do
 
     runWithClose $ leftmost
-      [ fmap runDialog . preview _DialogCmd <?> cmds
+      [ runDialog <$> oneOf _DialogCmd cmds
       , errorDialog <$> serverErrors
       ]
 
@@ -328,10 +354,27 @@ bodyWidget host = mdo
       div [class_ =: "scene expand"] $
         const <$> sceneWidget cmds loaded
               <*> overlay document
-  return ()
+  return env
 
 runDialog :: AppBuilder t m => Dialog -> m (Event t ())
 runDialog (ClassDialog selection) = selectClassDialog (M.keysSet selection)
+
+
+updatePrefs :: [PrefCommand] -> Preferences -> Preferences
+updatePrefs cmds = flip (foldr updatePref) cmds where
+  updatePref :: PrefCommand -> Preferences -> Preferences
+  updatePref (ZoomBrush delta) = #brushSize %~ clamp (2, 400) . (* wheelZoom delta)
+  updatePref (SetOpacity opacity) = #opacity .~ opacity
+  updatePref (SetInstanceColors b) = #instanceColours .~ b
+  updatePref (SetControlSize size) = #controlSize .~ size
+  updatePref (ShowClass (classId, shown)) = #hiddenClasses .
+    at classId .~  if shown then Just () else Nothing
+
+  updatePref (SetThreshold t)  = #detection . #threshold .~ t
+  updatePref (SetNms nms)      = #detection . #nms .~ nms
+  updatePref (SetDetections d) = #detection . #detections .~ d
+
+  --updatePref _ = id
 
 
 validClass :: Config -> ClassId -> ClassId
@@ -365,8 +408,100 @@ holdCollection serverMsg = foldDyn ($) emptyCollection $ mergeWith (.)
 
 
 
-detectionTab :: AppBuilder t m => m ()
-detectionTab = text "detection"
+
+
+rangeSlider :: (Builder t m, Read a, Show a, Num a) => (a, a) -> a -> a -> Event t a -> m (Dynamic t a)
+rangeSlider (l, u) step initial setter = do
+
+  rec
+    slider <- inputElem
+        [ type_ =: "range", showA "min" =: l, showA "max" =: u
+        , showA "step" =: step, class_ =: "custom-range"] $ def
+
+          & inputElementConfig_setValue      .~ (textValue <$> setter)
+          & inputElementConfig_initialValue  .~ (textValue initial)
+
+  holdDyn initial (read . T.unpack <$> _inputElement_input slider)
+
+    where
+      textValue = T.pack . show
+
+rangeView :: (Builder t m, Read a, Show a, Num a, Eq a) => (a, a) -> a -> Dynamic t a -> m (Event t a)
+rangeView range step = toView (rangeSlider range step (fst range))
+
+rangePreview :: (Builder t m, Read a, Show a, Num a, Eq a) => (a -> Text) -> (a, a) -> a -> Dynamic t a -> m (Event t a)
+rangePreview showValue range step value = row "spacing-3" $ do
+  inp <- rangeView range step value
+  span [] $ dynText $ (showValue <$> value)
+  return inp
+
+printFloat :: Float -> Text
+printFloat = T.pack . printf "%2f"
+
+toView :: (Builder t m, Eq a) => (Event t a -> m (Dynamic t a)) -> Dynamic t a -> m (Event t a)
+toView makeWidget value = do
+    postBuild <- getPostBuild
+
+    rec
+      value' <- makeWidget $ leftmost
+        [ (attachPromptlyDynWithMaybe filterEq value' (updated value))
+        , current value `tag` postBuild
+        ]
+
+    return (updated value')
+
+    where
+      filterEq x y = if x == y then Nothing else Just y
+
+
+checkboxLabel :: Builder t m => Text -> Text -> Dynamic t Bool -> m (Event t Bool)
+checkboxLabel i t value = div [class_ =: "custom-control custom-checkbox"] $ do
+    let attrs = M.fromList [("class", "custom-control-input"), ("id", i)]
+
+    inp <- checkboxView (pure attrs) value
+    Html.label [class_ =: "custom-control-label", Html.for_ =: i] $ text t
+
+    return inp
+
+
+settingsTab :: AppBuilder t m => m ()
+settingsTab = column "h-100" $ do
+  prefs <- view #preferences
+
+  column "v-spacing-2 p-2 border" $ do
+    h5 [] $ text "Interface settings"
+
+    instanceCols <- checkboxLabel "instance-cols" "Instance colours" (view #instanceColours <$> prefs)
+    prefCommand (SetInstanceColors <$> instanceCols)
+
+    labelled "Mask opacity" $ do
+        inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #opacity <$> prefs)
+        prefCommand (SetOpacity <$> inp)
+
+    labelled "Control size" $ do
+      inp <- rangePreview printFloat (5.0, 50.0) 1 (view #controlSize <$> prefs)
+      prefCommand (SetControlSize <$> inp)
+
+    return ()
+
+  column "v-spacing-2 p-2 border" $ do
+    h5 [] $ text "Detection settings"
+
+    labelled "Non maxima suppression" $ do
+      inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view (#detection . #nms) <$> prefs)
+      prefCommand (SetNms <$> inp)
+
+    labelled "Detection threshold" $ do
+      inp <- rangePreview printFloat (0.0, 0.5) 0.01 (view (#detection . #threshold) <$> prefs)
+      prefCommand (SetThreshold <$> inp)
+
+    labelled "Maximum detections" $ do
+      inp <- rangePreview (T.pack . show) (0, 1000) 1 (view (#detection . #detections) <$> prefs)
+      prefCommand (SetDetections <$> inp)
+
+  spacer
+
+
 
 sidebar :: AppBuilder t m => m ()
 sidebar = mdo
@@ -377,7 +512,7 @@ sidebar = mdo
     tabs 0
       [ (classesTab,    tab "tag-multiple"   "Classes")
       , (imagesTab,     tab "folder-multiple-image" "Images")
-      , (detectionTab,  tab "auto-fix"  "Detection")
+      , (settingsTab,  tab "settings"  "Settings")
       ]
 
     return isOpen
@@ -385,7 +520,7 @@ sidebar = mdo
 
     where
       toggler = mdo
-        e <- a_ [href_ =: "#", class_ =: "toggler p-2"] $
+        e <- a_ [class_ =: "toggler p-2"] $
             icon (def & #name .~ Dyn (swapping ("chevron-right", "chevron-left") isOpen))
         isOpen <- toggle False (domEvent Click e)
         return isOpen
