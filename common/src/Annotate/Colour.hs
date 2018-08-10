@@ -1,5 +1,5 @@
 module Annotate.Colour where
-  
+
 import Annotate.Prelude
 import qualified Data.Map as M
 
@@ -7,18 +7,22 @@ import Data.Word
 import Text.Printf
 
 import qualified Data.Text as T
-  
+
 data Rgb = Rgb {red :: Float, green :: Float, blue :: Float}
   deriving (Eq, Ord, Show, Generic)
-  
-  
+
+
 type HexColour = Word32
 
 showColour :: HexColour -> Text
-showColour = T.pack . printf "#%06X" 
+showColour = T.pack . printf "#%06X"
+
+
+defaultColourMap :: Map Int HexColour
+defaultColourMap = M.fromList (zip [0..] defaultColours)
 
 defaultColours :: [HexColour]
-defaultColours = 
+defaultColours =
   [ 0xFFFF00, 0x1CE6FF, 0xFF34FF, 0xFF4A46, 0x008941, 0x006FA6, 0xA30059,
     0xFFDBE5, 0x7A4900, 0x0000A6, 0x63FFAC, 0xB79762, 0x004D43, 0x8FB0FF, 0x997D87,
     0x5A0007, 0x809693, 0xFEFFE6, 0x1B4400, 0x4FC601, 0x3B5DFF, 0x4A3B53, 0xFF2F80,

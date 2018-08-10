@@ -112,7 +112,7 @@ sceneEvents k e = (k,) <$> leftmost
     ]
 
 
-boxView :: Builder t m => ShapeProperties t  -> Dynamic t Box -> m (Event t (Maybe Int, SceneEvent))
+boxView :: Builder t m => ShapeAttrs t  -> Dynamic t Box -> m (Event t (Maybe Int, SceneEvent))
 boxView props box = g [class_ =: "annotation"] $ do
   e      <- boxElem (shapeProperties props) box
   events <- controls (props ^. #selected) [v1, v2, v3, v4]
@@ -123,7 +123,7 @@ boxView props box = g [class_ =: "annotation"] $ do
     (v1, v2, v3, v4) = split4 (boxVertices <$> box)
 
 
-polygonView :: Builder t m => ShapeProperties t  -> Dynamic t Polygon -> m (Event t (Maybe Int, SceneEvent))
+polygonView :: Builder t m => ShapeAttrs t  -> Dynamic t Polygon -> m (Event t (Maybe Int, SceneEvent))
 polygonView props poly = g [class_ =: "annotation"] $ do
   e <- polygonElem (shapeProperties props) poly
   events <- dynControls control (props ^. #selected) (view #points <$> poly)
@@ -132,7 +132,7 @@ polygonView props poly = g [class_ =: "annotation"] $ do
 
 
 
-lineView :: Builder t m => ShapeProperties t  -> Dynamic t WideLine -> m (Event t (Maybe Int, SceneEvent))
+lineView :: Builder t m => ShapeAttrs t  -> Dynamic t WideLine -> m (Event t (Maybe Int, SceneEvent))
 lineView props line = do
   e <- lineElem (props ^. #elemId) (shapeProperties props) line
   events <- dynControls controlCircle (props ^. #selected) (view #points <$> line)
@@ -205,24 +205,45 @@ between (Circle p1 r1) (Circle p2 r2) = Polygon $ NE.fromList [p1 - v1 , p1 + v1
     v = normalize $ perp (p2 - p1)
     (v1, v2) = (v ^* r1, v ^* r2)
 
--- 
--- type ClassMap = Map ClassId ClassProperties
---
--- data ClassProperties = ClassProperties
---   { hidden :: Bool
---   , fill   :: HexColor
---   , name   :: Text
---   } deriving (Generic, Eq)
+type ClassMap = Map ClassId ClassAttrs
+
+data ClassAttrs = ClassAttrs
+  { hidden :: Bool
+  , colour   :: HexColour
+  , name   :: Text
+  } deriving (Generic, Eq)
+
+classProperties :: Config -> Preferences -> ClassMap
+classProperties Config{classes} Preferences{hiddenClasses} =
+    flip M.mapWithKey classes $ \k conf ->
+      ClassAttrs
+        { hidden   = S.member k hiddenClasses
+          , colour = conf ^. #colour
+          , name   = conf ^. #name
+        }
 
 
-data ShapeProperties t = ShapeProperties
+data ShapeAttrs t = ShapeAttrs
   { selected :: !(Dynamic t (Maybe (Set Int)))
-  , fill     :: !(Dynamic t HexColour)
-  -- , hidden   :: !(Dynamic t Bool)
+  , colour   :: !(Dynamic t HexColour)
+  , hidden   :: !(Dynamic t Bool)
   , elemId   :: !Text
   } deriving Generic
 
-shapeView :: forall t m. (Builder t m) => ShapeProperties t -> Updated t Annotation -> m (Event t (Maybe Int, SceneEvent))
+
+shapeProperties :: Reflex t => ShapeAttrs t -> [Property t]
+shapeProperties ShapeAttrs{selected, hidden, colour} =
+    [ classes_ ~: activeList [pure "shape", Dyn $ selectClass <$> selected]
+    , hidden_ ~: hidden
+    , style_ ~: style <$> colour ]
+  where
+
+    selectClass s = if isJust s then "selected" else ""
+    style colour = [("fill", showColour colour)]
+
+
+
+shapeView :: forall t m. (Builder t m) => ShapeAttrs t -> Updated t Annotation -> m (Event t (Maybe Int, SceneEvent))
 shapeView props obj  = case view #shape <$> obj of
   Updated (BoxShape s)     e  -> boxView props      =<< holdDyn s (_BoxShape ?> e)
   Updated (PolygonShape s) e  -> polygonView props  =<< holdDyn s (_PolygonShape ?> e)
@@ -230,32 +251,28 @@ shapeView props obj  = case view #shape <$> obj of
 
 
 
-shapeProperties :: Reflex t => ShapeProperties t -> [Property t]
-shapeProperties ShapeProperties{selected, fill} =
-    [ classes_ ~: activeList [pure "shape", Dyn $ selectClass <$> selected]
-    , style_ ~: style <$> fill ]
-  where
-
-    selectClass s = if isJust s then "selected" else ""
-    style colour = [("fill", showColour colour)]
-
-  -- Updated (CircleShape c) e -> circleView classes . Dyn =<< holdDyn c (_CircleShape ?> e)
-
-
-
-annotationView :: forall t m. (Builder t m) => Dynamic t Config -> Dynamic t (Maybe (Set Int)) -> AnnotationId -> Updated t Annotation -> m (Event t (DocPart, SceneEvent))
-annotationView config selected k obj = do
+annotationView :: forall t m. (Builder t m)
+               => Dynamic t ClassMap
+               -> Dynamic t Bool
+               -> Dynamic t (Maybe (Set Int))
+               -> AnnotationId -> Updated t Annotation -> m (Event t (DocPart, SceneEvent))
+annotationView classMap instanceCols selected k obj = do
   classId <- holdUpdated (view #label <$> obj)
-  let colour = classColour <$> config <*> classId
 
-  fmap (arrange k) <$> shapeView (ShapeProperties selected colour shapeId) obj
+  let (colour :: Dynamic t HexColour)    = lookupCol <$> instanceCols <*> classInfo
+      (classInfo :: Dynamic t (Maybe ClassAttrs)) = M.lookup <$> classId <*> classMap
+      hidden    = fromMaybe False . fmap (view #hidden) <$> classInfo
+
+  fmap (arrange k) <$> shapeView (ShapeAttrs  selected colour hidden shapeId) obj
     where
       shapeId = "ann" <> fromString (show k)
-      arrange k (part, e) = ((k, part), e)
-      classColour Config{classes} k = case M.lookup k classes of
-        Nothing   -> 0x000000
-        Just ClassConfig{colour} -> colour
 
+      lookupCol :: Bool -> Maybe ClassAttrs -> HexColour
+      lookupCol instanceCols classInfo = fromMaybe 0x000000 $ if instanceCols
+        then M.lookup (k `mod` length defaultColours) defaultColourMap
+        else (view #colour <$> classInfo)
+
+      arrange k (part, e) = ((k, part), e)
 
 imageView :: (AppBuilder t m) =>  Image -> m (ElemType t m)
 imageView  (file, dim) = do
@@ -480,8 +497,11 @@ sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart,
 sceneView scene@Scene{..} = do
     imageView image
 
+    classMap <- holdUniqDyn (classProperties <$> config <*> preferences)
+    instanceCols <- holdUniqDyn (view #instanceColours <$> preferences)
+
     events <- holdMergePatched =<< incrementalMapWithUpdates annotations (\k ->
-       annotationView config (isSelected k) k)
+       annotationView classMap instanceCols (isSelected k) k)
 
     action <- actions scene
     return (action, minElem <?> events)

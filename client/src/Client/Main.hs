@@ -89,7 +89,7 @@ headWidget env = do
 
 prefsCss :: Preferences -> Text
 prefsCss Preferences{opacity} = renderCSS $ do
-  ".annotation" ? do
+  ".shape" ? do
     "fill-opacity" .= showText opacity
 
 
