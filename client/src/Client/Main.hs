@@ -562,7 +562,7 @@ overlay document = row "expand  disable-cursor" $ do
 
         remoteCommand id $ leftmost
           [ withDocument (ClientDiscard . view #name) discard
-          , withDocument ClientSubmit submit
+          , withDocument (ClientSubmit . category Train) submit  -- TODO: Set category to Train
           ]
 
     buttonRow = row "p-2 spacing-4"
@@ -570,4 +570,7 @@ overlay document = row "expand  disable-cursor" $ do
 
     fromDocument a f = fromMaybe a . fmap f <$> document
     withDocument f e = fmap f <?> (current document `tag` e)
+
+    category = set (#info . #category)
+
     docOpen = isJust <$> document

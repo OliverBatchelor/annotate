@@ -85,10 +85,15 @@ data FromTrainer
     deriving (Show, Generic, Eq)
 
 
+data TrainAnnotation = TrainAnnotation
+  { label :: ClassId
+  , bounds  :: Box
+  } deriving (Show, Eq, Generic)
+
 -- Input/export types
 data TrainImage = TrainImage
   { imageFile   :: DocName,
-    annotations :: [Annotation],
+    annotations :: [TrainAnnotation],
     imageSize   :: (Int, Int),
     category    :: ImageCat
   } deriving (Show, Eq, Generic)
@@ -105,11 +110,14 @@ instance FromJSON ToTrainer
 instance FromJSON FromTrainer
 instance FromJSON TrainCollection
 instance FromJSON TrainImage
+instance FromJSON TrainAnnotation
+
 
 instance ToJSON ToTrainer
 instance ToJSON FromTrainer
 instance ToJSON TrainCollection
 instance ToJSON TrainImage
+instance ToJSON TrainAnnotation
 
 -- Collection of miscellaneous utilities / common functions
 
@@ -179,7 +187,7 @@ lookupDoc :: DocName -> Store -> Maybe Document
 lookupDoc k Store{..} = M.lookup k images
 
 getCollection :: Store -> Collection
-getCollection Store{..} = Collection $ view #info <$> images 
+getCollection Store{..} = Collection $ view #info <$> images
 
 
 getCurrentTime' :: STM UTCTime

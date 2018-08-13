@@ -28,7 +28,7 @@ import Data.Traversable as X
 
 import Control.Lens as X
   ( (%~), (^.), (^?), (.~), (&), (<&>)
-  , over, view, preview
+  , over, view, preview, set
   , Lens, Lens', Traversal, Traversal'
   , at, ix, _1, _2, _3, _4
   , _Just, _Nothing, _Left, _Right

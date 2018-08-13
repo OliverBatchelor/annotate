@@ -80,7 +80,7 @@ exportCollection Store{..} = TrainCollection
       { imageFile = name
       , imageSize = info ^. #imageSize
       , category  = info ^. #category
-      , annotations = M.elems annotations
+      , annotations = exportAnnotation <$> M.elems annotations
       }
 
 importCollection :: TrainCollection -> Store
@@ -92,5 +92,19 @@ importCollection TrainCollection{..} = Store
 importImage :: TrainImage -> (DocName, Document)
 importImage TrainImage{..} = (imageFile, document) where
   document = emptyDoc imageFile info
-    & #annotations .~ M.fromList (zip [0..] annotations)
+    & #annotations .~ M.fromList (zip [0..] $ importAnnotation <$> annotations)
   info = DocInfo {modified = Nothing, imageSize = imageSize, category = category, numAnnotations = 0}
+
+
+exportAnnotation :: Annotation -> TrainAnnotation
+exportAnnotation Annotation{..} = TrainAnnotation
+  { label = label
+  , bounds = getBounds shape
+  }
+
+importAnnotation :: TrainAnnotation -> Annotation
+importAnnotation TrainAnnotation{..} = Annotation
+  { shape   = BoxShape bounds
+  , label = label
+  , predictions = []
+  }
