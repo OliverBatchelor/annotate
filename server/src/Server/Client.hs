@@ -15,6 +15,7 @@ import Data.ByteString.Lazy (ByteString)
 import qualified Network.WebSockets             as WS
 
 import Server.Document
+import Server.Store
 
 nextClient :: Map ClientId Client -> ClientId
 nextClient m = fromMaybe 0 (succ . fst . fst <$>  M.maxViewWithKey m)
@@ -86,6 +87,8 @@ processMsg env@Env{store} clientId msg = do
 
     ClientSubmit doc -> do
       updateLog store (CmdSubmit doc time)
+      sendTrainer env (TrainerUpdate (doc ^. #name) (Just (exportImage doc)))
+
       nextImage env clientId (Just (doc ^. #name))
 
     ClientDiscard k -> do
@@ -94,8 +97,8 @@ processMsg env@Env{store} clientId msg = do
 
     ClientNext current -> nextImage env clientId current
 
-    ClientDetect k -> do
-      running <- sendTrainer env (TrainerDetect clientId k)
+    ClientDetect k params -> do
+      running <- sendTrainer env (TrainerDetect clientId k params)
       unless running $
         sendClient env clientId (ServerError ErrNotRunning)
 

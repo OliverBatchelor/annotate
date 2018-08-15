@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Client.Main where
 
 import Annotate.Prelude hiding (div)
@@ -59,17 +61,15 @@ main :: JSM ()
 main = Main.mainWidgetWithHead' (headWidget, bodyWidget)
 
 
-orLocal :: Text -> Text
-orLocal url = if url == "" then "localhost:3000" else url
 
 headWidget :: forall t m. GhcjsBuilder t m => AppEnv t -> m Text
 headWidget env = do
 
-   -- host <- orLocal <$> getLocationHost
-   -- base_ [href_ =: "http://" <> host]
-
+#ifdef DEBUG
    let host = "annotate.dynu.net:3000"
-       css file = stylesheet ("http://" <> host <> "/css/" <> file)
+#else
+   host <- getLocationHost
+#endif
 
    Html.style [] $ text appStyle
    Html.style [] $ text bootstrap
@@ -353,7 +353,7 @@ bodyWidget host = mdo
     cursorLock action $ do
       div [class_ =: "scene expand"] $
         const <$> sceneWidget cmds loaded
-              <*> overlay document
+              <*> overlay document preferences
   return env
 
 runDialog :: AppBuilder t m => Dialog -> m (Event t ())
@@ -532,8 +532,8 @@ sidebar = mdo
 selectedClass :: Reflex t => AppEnv t -> Dynamic t (Maybe ClassConfig)
 selectedClass AppEnv{config, currentClass} = M.lookup <$> currentClass <*> fmap (view #classes) config
 
-overlay :: AppBuilder t m => Dynamic t (Maybe Document) -> m ()
-overlay document = row "expand  disable-cursor" $ do
+overlay :: AppBuilder t m => Dynamic t (Maybe Document) -> Dynamic t Preferences -> m ()
+overlay document prefs = row "expand  disable-cursor" $ do
    sidebar
    column "expand" $
     sequence_ [header, spacer, footer]
@@ -549,7 +549,9 @@ overlay document = row "expand  disable-cursor" $ do
         command     (const ClearCmd) =<< toolButton' "Clear" "eraser" "Clear all annotations"
 
       detect <- toolButton docOpen "Detect" "auto-fix" "Detect annotations using current trained model"
-      remoteCommand id (withDocument (ClientDetect . view #name) detect)
+
+      let detectCmd doc prefs = ClientDetect <$> (view #name <$> doc) <*> pure (view #detection prefs)
+      remoteCommand id (filterMaybe ((detectCmd <$> current document <*> current prefs) `tag` detect))
 
     canUndo = fromDocument False (not . null . view #undos)
     canRedo = fromDocument False (not . null . view #redos)
@@ -558,11 +560,13 @@ overlay document = row "expand  disable-cursor" $ do
       spacer
       buttonGroup $ do
         discard <- toolButton docOpen "Discard" "delete-empty" "Discard image from the collection"
-        submit  <- toolButton docOpen "Submit" "content-save" "Submit image for training"
+        test  <- toolButton docOpen "Test" "teach" "Submit image for testing"
+        train  <- toolButton docOpen "Train" "book-open-page-variant" "Submit image for training"
 
         remoteCommand id $ leftmost
           [ withDocument (ClientDiscard . view #name) discard
-          , withDocument (ClientSubmit . category Train) submit  -- TODO: Set category to Train
+          , withDocument (ClientSubmit . category Train) train
+          , withDocument (ClientSubmit . category Test) test
           ]
 
     buttonRow = row "p-2 spacing-4"

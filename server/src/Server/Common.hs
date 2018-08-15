@@ -74,26 +74,21 @@ instance Exception ServerException
 data ToTrainer
   = TrainerDataset TrainCollection
   | TrainerUpdate DocName (Maybe TrainImage)
-  | TrainerDetect ClientId DocName
+  | TrainerDetect ClientId DocName DetectionParams
     deriving (Show, Generic, Eq)
 
 
 data FromTrainer
-  =  TrainerDetections ClientId DocName
+  =  TrainerDetections ClientId DocName [Detection]
   | TrainerReqError ClientId Text
   | TrainerError Text
     deriving (Show, Generic, Eq)
 
 
-data TrainAnnotation = TrainAnnotation
-  { label :: ClassId
-  , bounds  :: Box
-  } deriving (Show, Eq, Generic)
-
 -- Input/export types
 data TrainImage = TrainImage
   { imageFile   :: DocName,
-    annotations :: [TrainAnnotation],
+    annotations :: [Annotation],
     imageSize   :: (Int, Int),
     category    :: ImageCat
   } deriving (Show, Eq, Generic)
@@ -110,14 +105,12 @@ instance FromJSON ToTrainer
 instance FromJSON FromTrainer
 instance FromJSON TrainCollection
 instance FromJSON TrainImage
-instance FromJSON TrainAnnotation
 
 
 instance ToJSON ToTrainer
 instance ToJSON FromTrainer
 instance ToJSON TrainCollection
 instance ToJSON TrainImage
-instance ToJSON TrainAnnotation
 
 -- Collection of miscellaneous utilities / common functions
 

@@ -15,6 +15,12 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 
+
+flag debug
+    Description: Enable debug support
+    Manual: True
+    Default: False
+
 executable client
     main-is:      Main.hs
     if impl(ghcjs)
@@ -31,6 +37,9 @@ executable client
 
 
 library
+  if flag(debug)
+    cpp-options: -DDEBUG
+
   exposed-modules:     Reflex.Classes
                       , Scene.Viewport, Scene.View, Scene.Types, Scene.Events
                       , Input.Events, Input.Window

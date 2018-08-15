@@ -61,7 +61,13 @@ instance HasBounds Shape where
  getBounds (LineShape s)    = getBounds s
 
 
-data Annotation = Annotation { shape :: Shape, label :: ClassId, predictions :: [(ClassId, Float)] }
+data Detection = Detection
+  { annotation :: Annotation
+  , confidence :: Float
+  } deriving (Generic, Show, Eq)
+
+
+data Annotation = Annotation { shape :: Shape, label :: ClassId }
     deriving (Generic, Show, Eq)
 
 
@@ -136,6 +142,7 @@ data ServerMsg
   | ServerDocument Document
   | ServerOpen (Maybe DocName) ClientId DateTime
   | ServerError ErrCode
+  | ServerDetection DocName [Detection]
   | ServerEnd
       deriving (Generic, Show, Eq)
 
@@ -144,7 +151,7 @@ data ClientMsg
   | ClientNext (Maybe DocName)
   | ClientSubmit Document
   | ClientDiscard DocName
-  | ClientDetect DocName
+  | ClientDetect DocName DetectionParams
   | ClientClass ClassId (Maybe ClassConfig)
   | ClientCollection
 
@@ -161,6 +168,8 @@ instance FromJSON DocCmd
 instance FromJSON ImageCat
 instance FromJSON Shape
 instance FromJSON Annotation
+instance FromJSON Detection
+
 instance FromJSON Document
 instance FromJSON Config
 instance FromJSON DocInfo
@@ -180,6 +189,7 @@ instance ToJSON DocCmd
 instance ToJSON ImageCat
 instance ToJSON Shape
 instance ToJSON Annotation
+instance ToJSON Detection
 instance ToJSON Document
 instance ToJSON Config
 instance ToJSON DocInfo
@@ -209,7 +219,7 @@ instance Default DetectionParams where
   def = DetectionParams
     { nms = 0.5
     , threshold = 0.05
-    , detections = 1000
+    , detections = 100
     }
 
 

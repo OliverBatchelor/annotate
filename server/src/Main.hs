@@ -114,8 +114,8 @@ main = do
 
     BS.writeFile file (encodePretty (exportCollection state))
 
-
-  atomically $ writeLog env "Anotate server listening."
+  let port' = fromMaybe 3000 port
+  atomically $ writeLog env ("Anotate server listening on port " <> show port')
 
   forkIO $ WS.runServer "127.0.0.1" 2160 $ trainerServer env
-  Warp.run 3000 $ serve (Proxy @ Api) (server root env)
+  Warp.run port' $ serve (Proxy @ Api) (server root env)

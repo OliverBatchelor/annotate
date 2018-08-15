@@ -22,7 +22,7 @@ connectTrainer env conn = do
     writeTVar (env ^. #trainer) (Just $ Trainer chan)
 
 closeTrainer :: Env -> STM ()
-closeTrainer env = do 
+closeTrainer env = do
   sendTrainer' env Nothing
   writeTVar (env ^. #trainer) Nothing
 
@@ -35,21 +35,22 @@ trainerLoop env@Env{store} conn = do
   runLoop
 
     where
-      runLoop = forever $ do 
+      runLoop = forever $ do
         str <- WS.receiveData conn
-        atomically $ case (eitherDecode str) of 
+        atomically $ case (eitherDecode str) of
           Left err  -> do
             writeLog env ("trainer <- error decoding " <> show str <> ", " <> show err)
-          Right msg -> do 
+          Right msg -> do
             writeLog env ("trainer <- " <> show msg)
-            processMsg msg 
-                    
+            processMsg msg
 
       processMsg = \case
-        TrainerDetections clientId k -> return ()
-        TrainerReqError clientId err -> 
+        TrainerDetections clientId k detections ->
+          sendClient env clientId (ServerDetection k detections)
+
+        TrainerReqError clientId err ->
           sendClient env clientId (ServerError (ErrTrainer err))
-        TrainerError err -> 
+        TrainerError err ->
           writeLog env ("trainer error: " <> show err)
 
 trainerServer :: Env -> WS.ServerApp
@@ -60,6 +61,6 @@ trainerServer env pending = do
   WS.forkPingThread conn 30
   finally
     (trainerLoop env conn)
-    (atomically $ do 
+    (atomically $ do
       writeTVar (env ^. #trainer) Nothing
       writeLog env ("trainer closed"))

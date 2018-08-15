@@ -373,7 +373,7 @@ addShapes :: AppBuilder t m => Scene t -> Event t Shape -> m ()
 addShapes scene e = addAnnotation scene (makeAnnotation e)
   where
     makeAnnotation e = create <$> current (scene ^. #currentClass) <@> e
-    create classId shape = Annotation shape classId []
+    create classId shape = Annotation shape classId 
 
 
 

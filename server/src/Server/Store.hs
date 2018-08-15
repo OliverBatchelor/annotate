@@ -10,6 +10,16 @@ import Data.SafeCopy
 import Annotate.Document (emptyDoc, applyCmd)
 import Control.Concurrent.Log
 
+-- data Annotation0 = Annotation0 { shape :: Shape, label :: ClassId, predictions :: [(ClassId, Float)] }
+--     deriving (Generic, Show, Eq)
+--
+-- instance Migrate Annotation where
+--   type MigrateFrom Annotation = Annotation0
+--   migrate Annotation0{..} = Annotation{..}
+--
+--
+-- $(deriveSafeCopy 0 'base ''Annotation0)
+
 
 $(deriveSafeCopy 0 'base ''V2)
 $(deriveSafeCopy 0 'base ''Box)
@@ -19,7 +29,7 @@ $(deriveSafeCopy 0 'base ''WideLine)
 
 $(deriveSafeCopy 0 'base ''Extents)
 
-$(deriveSafeCopy 0 'base ''Annotation)
+$(deriveSafeCopy 1 'base ''Annotation)
 $(deriveSafeCopy 0 'base ''Shape)
 
 $(deriveSafeCopy 0 'base ''EditAction)
@@ -74,14 +84,9 @@ initialStore config = Store
 exportCollection :: Store -> TrainCollection
 exportCollection Store{..} = TrainCollection
   { config = config
-  , images = M.elems (trainerImage <$> images)
-  } where
-    trainerImage Document{..} = TrainImage
-      { imageFile = name
-      , imageSize = info ^. #imageSize
-      , category  = info ^. #category
-      , annotations = exportAnnotation <$> M.elems annotations
-      }
+  , images = M.elems (exportImage <$> images)
+  }
+
 
 importCollection :: TrainCollection -> Store
 importCollection TrainCollection{..} = Store
@@ -92,19 +97,13 @@ importCollection TrainCollection{..} = Store
 importImage :: TrainImage -> (DocName, Document)
 importImage TrainImage{..} = (imageFile, document) where
   document = emptyDoc imageFile info
-    & #annotations .~ M.fromList (zip [0..] $ importAnnotation <$> annotations)
+    & #annotations .~ M.fromList (zip [0..]  annotations)
   info = DocInfo {modified = Nothing, imageSize = imageSize, category = category, numAnnotations = 0}
 
-
-exportAnnotation :: Annotation -> TrainAnnotation
-exportAnnotation Annotation{..} = TrainAnnotation
-  { label = label
-  , bounds = getBounds shape
-  }
-
-importAnnotation :: TrainAnnotation -> Annotation
-importAnnotation TrainAnnotation{..} = Annotation
-  { shape   = BoxShape bounds
-  , label = label
-  , predictions = []
+exportImage :: Document -> TrainImage
+exportImage Document{..} = TrainImage
+  { imageFile = name
+  , imageSize = info ^. #imageSize
+  , category  = info ^. #category
+  , annotations = M.elems annotations
   }
