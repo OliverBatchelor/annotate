@@ -26,13 +26,13 @@ spacer = void $ div_ [class_ =: "m-auto"] blank
 data IconSize = IconTiny | IconSmall | IconMed | IconLarge
   deriving (Show, Eq, Ord, Generic)
 
-data IconConfig t = IconConfig 
+data IconConfig t = IconConfig
   { name :: Active t Text
   , size :: IconSize
   } deriving Generic
-  
+
 instance Reflex t => Default (IconConfig t) where
-  def = IconConfig 
+  def = IconConfig
     { name = "help-circle"
     , size = IconSmall
     }
@@ -47,7 +47,7 @@ bgColour Nothing = []
 
 icon :: Builder t m => IconConfig t -> m ()
 icon IconConfig{..} = i [ classes_ ~: activeList ["mdi", (mappend "mdi-") <$> name, pure sizeClass]] blank
-  where 
+  where
     sizeClass = case size of
       IconTiny  -> "mdi-18px"
       IconSmall -> "mdi-24px"
@@ -64,10 +64,13 @@ iconTextV :: Builder t m => Text -> IconConfig t -> m ()
 iconTextV t conf = column "neg-v-spacing-3" $ do
   icon conf
   span [class_ =: "small"] $ text t
-  
 
-  
-  
+
+closeButton :: Builder t m => m (Event t ())
+closeButton =  do
+  e <- button_ [type_ =: "button", class_ =: "close"] $ span [] $ text "×"
+  return (domEvent Click e)
+
 
 iconButton :: Builder t m => Dynamic t Bool -> Text -> IconConfig t -> Text -> m (Event t ())
 iconButton enabled name conf tooltip = fmap (domEvent Click) $
@@ -75,7 +78,7 @@ iconButton enabled name conf tooltip = fmap (domEvent Click) $
       iconTextH name conf
 
 iconButton' :: Builder t m => Text -> IconConfig t -> Text -> m (Event t ())
-iconButton' = iconButton (pure True) 
+iconButton' = iconButton (pure True)
 
 
 toolButton :: Builder t m => Dynamic t Bool -> Text -> IconConfig t -> Text -> m (Event t ())

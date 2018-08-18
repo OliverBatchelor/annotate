@@ -52,8 +52,10 @@ data PrefCommand
   | ShowClass (ClassId, Bool)
 
   | SetNms Float
-  | SetThreshold Float
+  | SetMinThreshold Float
   | SetDetections Int
+
+  | SetThreshold Float
 
   deriving (Generic, Show)
 
@@ -63,6 +65,9 @@ data AppCommand
   | SelectCmd DocParts
   | ClearCmd
   | RemoteCmd ClientMsg
+  | DetectionsCmd [Detection]
+
+  | DetectionsAddedCmd (Map AnnotationId Detection)
 
   | DialogCmd Dialog
   | ClassCmd (Set AnnotationId) ClassId
@@ -105,6 +110,8 @@ data AppEnv t = AppEnv
   { basePath :: !Text
   , commands :: !(Event t [AppCommand])
   , document :: !(Dynamic t (Maybe Document))
+  , detections :: !(Dynamic t (Map AnnotationId Detection))
+
   , config :: !(Dynamic t Config)
   , preferences :: !(Dynamic t Preferences)
   , currentClass :: !(Dynamic t ClassId)
@@ -168,7 +175,7 @@ commandM' :: AppBuilder t m => AppCommand -> m (Event t a) -> m ()
 commandM' cmd = commandM (const cmd)
 
 showText :: Show a => a -> Text
-showText = T.pack . show 
+showText = T.pack . show
 
 clearAnnotations :: Document -> DocCmd
 clearAnnotations = DocEdit . clearAllEdit

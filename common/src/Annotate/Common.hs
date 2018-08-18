@@ -116,6 +116,7 @@ data Preferences = Preferences
   , hiddenClasses     :: Set Int
 
   , detection    :: DetectionParams
+  , threshold    :: Float
   } deriving (Generic, Show, Eq)
 
 data DetectionParams = DetectionParams
@@ -213,6 +214,7 @@ instance Default Preferences where
     , opacity = 0.4
     , hiddenClasses = mempty
     , detection = def
+    , threshold = 0.5
     }
 
 instance Default DetectionParams where

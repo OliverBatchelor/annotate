@@ -13,6 +13,9 @@ import Data.Maybe (catMaybes)
 import Control.Lens hiding (uncons, without)
 import Data.List.NonEmpty (nonEmpty)
 
+import Data.Align
+import Data.These
+
 import Debug.Trace
 
 emptyDoc ::  DocName -> DocInfo -> Document
@@ -208,6 +211,14 @@ transformEdit rigid ids = modifyShapes (const $ Just . transformShape rigid) (se
 
 clearAllEdit :: Document -> Edit
 clearAllEdit doc = Edit $ const Delete <$> doc ^. #annotations
+
+
+replaceAllEdit :: Document -> AnnotationMap -> Edit
+replaceAllEdit Document{annotations} new = Edit $ changes <$> align annotations new where
+  changes (These _ ann) = Modify ann
+  changes (This _)   = Delete
+  changes (That ann) = Add ann
+
 
 addEdit :: AnnotationId -> Annotation -> Edit
 addEdit k ann = Edit $ M.singleton k (Add ann)

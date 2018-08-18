@@ -222,6 +222,10 @@ html, body {
   transition-duration: .3s;
 }
 
+.detection-bar {
+  width:300px;
+}
+
 .sidebar.closed {
   margin-left: -760px;
 }

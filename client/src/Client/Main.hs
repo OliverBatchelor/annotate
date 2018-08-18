@@ -222,6 +222,13 @@ sceneWidget cmds loaded = do
   return (matchShortcuts input, action, maybeDoc)
 
 
+newDetections :: AnnotationId -> [Detection] -> Map AnnotationId Detection
+newDetections nextId detections = M.fromList (zip [nextId..] detections)
+
+replaceDetections :: Document -> Map AnnotationId Detection -> DocCmd
+replaceDetections doc detections = DocEdit (replaceAllEdit doc anns) where
+  anns = view #annotation <$> detections
+
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => SceneInputs t
             -> Event t [AppCommand]
@@ -233,16 +240,22 @@ documentEditor input cmds loaded  = do
     document <- holdDyn loaded document'
     let (patch, document') = split (attachWithMaybe (flip applyCmd') (current document) docCmd)
         clearCmd = (clearAnnotations <$> current document) <@ (oneOf _ClearCmd cmds)
-        docCmd = leftmost [oneOf _DocCmd cmds, clearCmd]
 
-  -- Keep track of next id to use for new annotations
-  let initialId = maybe 0 (+1) (maxId loaded)
-      addNew = (>>= maxEdit) . preview _DocEdit <?> docCmd
-  nextId <- foldDyn (max . (+ 1)) initialId addNew
+        detectionsCmd = replaceDetections <$> current document <@> detections'
+        detections' = newDetections <$> current nextId <@> oneOf _DetectionsCmd cmds
+        docCmd = leftmost [oneOf _DocCmd cmds, clearCmd, detectionsCmd]
+
+    -- Keep track of next id to use for new annotations
+    let initialId = maybe 0 (+1) (maxId loaded)
+        addNew = (>>= maxEdit) . preview _DocEdit <?> docCmd
+    nextId <- foldDyn (max . (+ 1)) initialId addNew
+
+  command DetectionsAddedCmd detections'
 
   -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $
     leftmost [oneOf _SelectCmd cmds]
+
 
   env <- ask
 
@@ -260,6 +273,7 @@ documentEditor input cmds loaded  = do
 
       , selection = selection
       , annotations = patched
+      -- , detections = detections
 
       , nextId = nextId
       , currentClass = view #currentClass env
@@ -318,6 +332,8 @@ bodyWidget host = mdo
     "Annotate - " <> fromMaybe ("no document") (view #name <$> doc)
 
   collection <- holdCollection serverMsg
+  detections <- holdDyn mempty (oneOf _DetectionsAddedCmd cmds)
+
 
   let hello   = preview _ServerHello <?> serverMsg
       (loaded :: Event t Document)  = preview _ServerDocument <?> serverMsg
@@ -325,6 +341,7 @@ bodyWidget host = mdo
       env = AppEnv
         { basePath = "http://" <> host
         , document = document
+        , detections = detections
         , commands = cmds
         , config = config
         , preferences = preferences
@@ -343,7 +360,14 @@ bodyWidget host = mdo
     , const . snd <$> classSelected
     ]
 
-  ((shortcuts, action, document), cmds) <- flip runReaderT env $ runEventWriterT $ do
+  let makeDetections doc (k, detections) = do
+        guard (Just k == (view #name <$> doc))
+        return [DetectionsCmd detections]
+
+      detectionsCmd = attachWithMaybe makeDetections (current document)  (preview _ServerDetection <?> serverMsg)
+      cmds = leftmost [interfaceCmds, detectionsCmd]
+
+  ((shortcuts, action, document), interfaceCmds) <- flip runReaderT env $ runEventWriterT $ do
 
     runWithClose $ leftmost
       [ runDialog <$> oneOf _DialogCmd cmds
@@ -370,10 +394,11 @@ updatePrefs cmds = flip (foldr updatePref) cmds where
   updatePref (ShowClass (classId, shown)) = #hiddenClasses .
     at classId .~  if shown then Just () else Nothing
 
-  updatePref (SetThreshold t)  = #detection . #threshold .~ t
-  updatePref (SetNms nms)      = #detection . #nms .~ nms
-  updatePref (SetDetections d) = #detection . #detections .~ d
+  updatePref (SetMinThreshold t)  = #detection . #threshold .~ t
+  updatePref (SetNms nms)         = #detection . #nms .~ nms
+  updatePref (SetDetections d)    = #detection . #detections .~ d
 
+  updatePref (SetThreshold t)  = #threshold .~ t
   --updatePref _ = id
 
 
@@ -430,13 +455,13 @@ rangeView :: (Builder t m, Read a, Show a, Num a, Eq a) => (a, a) -> a -> Dynami
 rangeView range step = toView (rangeSlider range step (fst range))
 
 rangePreview :: (Builder t m, Read a, Show a, Num a, Eq a) => (a -> Text) -> (a, a) -> a -> Dynamic t a -> m (Event t a)
-rangePreview showValue range step value = row "spacing-3" $ do
+rangePreview showValue range step value = row "spacing-3 align-items-center" $ do
   inp <- rangeView range step value
   span [] $ dynText $ (showValue <$> value)
   return inp
 
 printFloat :: Float -> Text
-printFloat = T.pack . printf "%2f"
+printFloat = T.pack . printf "%.2f"
 
 toView :: (Builder t m, Eq a) => (Event t a -> m (Dynamic t a)) -> Dynamic t a -> m (Event t a)
 toView makeWidget value = do
@@ -542,16 +567,31 @@ overlay document prefs = row "expand  disable-cursor" $ do
     header = buttonRow $ do
       asks selectedClass >>= classToolButton >>= command (const (DialogCmd (ClassDialog mempty)))
 
+      column "detection-bar bg-secondary text-light rounded enable-cursor p-2" $ do
+        row "" $ do
+          text "Detections"
+          spacer
+          closeButton
+
+
+        inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #threshold <$> prefs)
+        prefCommand (SetThreshold <$> inp)
+
+        return ()
+
       spacer
-      buttonGroup $ do
-        docCommand  (const DocUndo)  =<< toolButton canUndo "Undo" "undo" "Undo last edit"
-        docCommand  (const DocRedo)  =<< toolButton canRedo "Redo" "redo" "Re-do last undo"
-        command     (const ClearCmd) =<< toolButton' "Clear" "eraser" "Clear all annotations"
 
       detect <- toolButton docOpen "Detect" "auto-fix" "Detect annotations using current trained model"
 
       let detectCmd doc prefs = ClientDetect <$> (view #name <$> doc) <*> pure (view #detection prefs)
       remoteCommand id (filterMaybe ((detectCmd <$> current document <*> current prefs) `tag` detect))
+
+      buttonGroup $ do
+        docCommand  (const DocUndo)  =<< toolButton canUndo "Undo" "undo" "Undo last edit"
+        docCommand  (const DocRedo)  =<< toolButton canRedo "Redo" "redo" "Re-do last undo"
+        command     (const ClearCmd) =<< toolButton' "Clear" "eraser" "Clear all annotations"
+
+
 
     canUndo = fromDocument False (not . null . view #undos)
     canRedo = fromDocument False (not . null . view #redos)
