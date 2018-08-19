@@ -9,6 +9,7 @@ import Client.Common
 
 import Scene.Viewport (toLocal)
 import Annotate.Common
+import Annotate.EditorDocument
 
 import qualified Data.Set as S
 import qualified Data.Map as M

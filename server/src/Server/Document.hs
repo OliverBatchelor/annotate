@@ -77,15 +77,15 @@ closeDocument env@Env {..} clientId  = preview (clientDocument clientId) <$> rea
 ordNub = S.toList . S.fromList
 
 
--- modifyDocument :: Env -> DocName -> DocCmd -> STM ()
+-- modifyDocument :: Env -> DocName -> EditCmd -> STM ()
 -- modifyDocument env@Env {..} k cmd = do
--- 
+--
 --   time <- getCurrentTime'
 --   updateLog store (CmdDoc k cmd time)
--- 
+--
 --   clients <- getEditing <$> readTVar documents
 --   for_ clients $ \clientId ->
 --     sendClient env clientId (ServerCmd k cmd)
--- 
+--
 --   where
 --     getEditing = fromMaybe [] . M.lookup k

@@ -1,7 +1,6 @@
 module Server.Client where
 
 import Server.Common
-import Annotate.Document
 
 import qualified Data.Map as M
 import qualified Data.Set as S

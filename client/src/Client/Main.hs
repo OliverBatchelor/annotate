@@ -46,7 +46,7 @@ import Client.Select
 import qualified Client.Dialog as Dialog
 
 import Annotate.Common
-import Annotate.Document
+import Annotate.EditorDocument
 
 import Language.Javascript.JSaddle
 import qualified Reflex.Dom.Main as Main
@@ -201,7 +201,7 @@ handleHistory selected = mdo
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
             => Event t [AppCommand]
             -> Event t Document
-            -> m (Event t (DMap Shortcut Identity), Dynamic t Action, Dynamic t (Maybe Document))
+            -> m (Event t (DMap Shortcut Identity), Dynamic t Action, Dynamic t (Maybe EditorDocument))
 sceneWidget cmds loaded = do
 
   dim <- holdDyn (800, 600) (view (#info . #imageSize) <$> loaded)
@@ -217,7 +217,7 @@ sceneWidget cmds loaded = do
 
         inViewport viewport $ replaceHold
             (pure (def, pure Nothing, never))
-            (documentEditor input cmds <$> loaded)
+            (documentEditor input cmds . fromDocument <$> loaded)
 
   return (matchShortcuts input, action, maybeDoc)
 
@@ -225,15 +225,15 @@ sceneWidget cmds loaded = do
 newDetections :: AnnotationId -> [Detection] -> Map AnnotationId Detection
 newDetections nextId detections = M.fromList (zip [nextId..] detections)
 
-replaceDetections :: Document -> Map AnnotationId Detection -> DocCmd
+replaceDetections :: EditorDocument -> Map AnnotationId Detection -> EditCmd
 replaceDetections doc detections = DocEdit (replaceAllEdit doc anns) where
   anns = view #annotation <$> detections
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => SceneInputs t
             -> Event t [AppCommand]
-            -> Document
-            -> m (Dynamic t Action, Dynamic t (Maybe Document), Event t (DocPart, SceneEvent))
+            -> EditorDocument
+            -> m (Dynamic t Action, Dynamic t (Maybe EditorDocument), Event t (DocPart, SceneEvent))
 documentEditor input cmds loaded  = do
 
   rec
@@ -243,7 +243,7 @@ documentEditor input cmds loaded  = do
 
         detectionsCmd = replaceDetections <$> current document <@> detections'
         detections' = newDetections <$> current nextId <@> oneOf _DetectionsCmd cmds
-        docCmd = leftmost [oneOf _DocCmd cmds, clearCmd, detectionsCmd]
+        docCmd = leftmost [oneOf _EditCmd cmds, clearCmd, detectionsCmd]
 
     -- Keep track of next id to use for new annotations
     let initialId = maybe 0 (+1) (maxId loaded)
@@ -286,7 +286,8 @@ documentEditor input cmds loaded  = do
     where annotations0 = loaded ^. #annotations
 
 
-pending :: Document -> Action -> PatchMap AnnotationId Annotation
+
+pending :: EditorDocument -> Action -> PatchMap AnnotationId Annotation
 pending doc Action{edit}
   | Just e <- edit     = maybe mempty (PatchMap . fst) (applyEdit e doc)
   | otherwise          = mempty
@@ -557,7 +558,7 @@ sidebar = mdo
 selectedClass :: Reflex t => AppEnv t -> Dynamic t (Maybe ClassConfig)
 selectedClass AppEnv{config, currentClass} = M.lookup <$> currentClass <*> fmap (view #classes) config
 
-overlay :: AppBuilder t m => Dynamic t (Maybe Document) -> Dynamic t Preferences -> m ()
+overlay :: AppBuilder t m => Dynamic t (Maybe EditorDocument) -> Dynamic t Preferences -> m ()
 overlay document prefs = row "expand  disable-cursor" $ do
    sidebar
    column "expand" $
@@ -613,7 +614,7 @@ overlay document prefs = row "expand  disable-cursor" $ do
     nonEmpty label = notNullOf (_Just . label . traverse)
 
     fromDocument a f = fromMaybe a . fmap f <$> document
-    withDocument f e = fmap f <?> (current document `tag` e)
+    withDocument f e = fmap (f . toDocument) <?> (current document `tag` e)
 
     category = set (#info . #category)
 

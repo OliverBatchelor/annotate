@@ -1,4 +1,4 @@
-module Annotate.Document where
+module Annotate.EditorDocument where
 
 import Annotate.Prelude
 
@@ -16,23 +16,63 @@ import Data.List.NonEmpty (nonEmpty)
 import Data.Align
 import Data.These
 
+import Control.Lens (makePrisms)
+
 import Debug.Trace
 
-emptyDoc ::  DocName -> DocInfo -> Document
-emptyDoc name info = Document
-  { undos = []
-  , redos = []
-  , name = name
-  , info = info
-  , annotations = M.empty
-  }
+
+type DocParts = Map AnnotationId (Set Int)
+type DocPart = (AnnotationId, Maybe Int)
+
+mergeParts :: DocParts -> DocParts -> DocParts
+mergeParts = M.unionWith mappend
 
 
-allAnnotations :: Document -> [AnnotationId]
-allAnnotations Document{annotations} = M.keys annotations
+type DocumentPatch = Map AnnotationId (Maybe Annotation)
 
-lookupAnnotations :: [AnnotationId] -> Document -> AnnotationMap
-lookupAnnotations objs Document{annotations} = M.fromList $ catMaybes $ fmap lookup' objs
+data EditAction
+  = Add Annotation
+  | Delete
+  | Modify Annotation
+  deriving (Generic, Show, Eq)
+
+newtype Edit = Edit { unEdit :: Map AnnotationId EditAction }
+  deriving (Eq, Show, Generic)
+
+
+data EditorDocument = EditorDocument
+  { undos :: [Edit]
+  , redos :: [Edit]
+  , name  :: DocName
+  , info  :: DocInfo
+  , annotations :: AnnotationMap
+  } deriving (Generic, Show, Eq)
+
+
+data EditCmd = DocEdit Edit | DocUndo | DocRedo
+  deriving (Show, Eq, Generic)
+
+fromDocument :: Document -> EditorDocument
+fromDocument Document{..} = EditorDocument
+    { undos = []
+    , redos = []
+    , name = name
+    , info = info
+    , annotations = annotations
+    }
+
+toDocument :: EditorDocument -> Document
+toDocument EditorDocument{..} = Document{..}
+
+
+makePrisms ''EditCmd
+makePrisms ''Edit
+
+allAnnotations :: EditorDocument -> [AnnotationId]
+allAnnotations EditorDocument{annotations} = M.keys annotations
+
+lookupAnnotations :: [AnnotationId] -> EditorDocument -> AnnotationMap
+lookupAnnotations objs EditorDocument{annotations} = M.fromList $ catMaybes $ fmap lookup' objs
     where lookup' k = (k, ) <$> M.lookup k annotations
 
 
@@ -45,27 +85,27 @@ maxEdit = maxKey . unEdit
 maybeMaximum :: (Ord k) => [Maybe k] -> Maybe k
 maybeMaximum = fmap maximum . nonEmpty . catMaybes
 
-maxId :: Document -> Maybe AnnotationId
-maxId Document{..} = maybeMaximum
+maxId :: EditorDocument -> Maybe AnnotationId
+maxId EditorDocument{..} = maybeMaximum
   [ maxEdits undos
   , maxEdits redos
   , maxKey annotations
   ]
 
-lookupTargets :: Document -> [AnnotationId] -> Map AnnotationId (Maybe Annotation)
-lookupTargets Document{annotations} targets = M.fromList modified where
+lookupTargets :: EditorDocument -> [AnnotationId] -> Map AnnotationId (Maybe Annotation)
+lookupTargets EditorDocument{annotations} targets = M.fromList modified where
   modified = lookup' annotations <$> targets
   lookup' m k = (k, M.lookup k m)
 
-applyCmd :: DocCmd -> Document -> Document
+applyCmd :: EditCmd -> EditorDocument -> EditorDocument
 applyCmd cmd doc = fromMaybe doc (snd <$> applyCmd' cmd doc)
 
-applyCmd' :: DocCmd -> Document -> Maybe (DocumentPatch, Document)
+applyCmd' :: EditCmd -> EditorDocument -> Maybe (DocumentPatch, EditorDocument)
 applyCmd' DocUndo doc = applyUndo doc
 applyCmd' DocRedo doc = applyRedo doc
 applyCmd' (DocEdit e) doc = applyEdit e doc
 
-applyEdit :: Edit -> Document -> Maybe (DocumentPatch, Document)
+applyEdit :: Edit -> EditorDocument -> Maybe (DocumentPatch, EditorDocument)
 applyEdit e doc = do
   (inverse, patch) <- patchEdit (doc ^. #annotations) e
   return (patch, doc
@@ -73,7 +113,7 @@ applyEdit e doc = do
     & #annotations %~ patchMap patch)
 
 
-applyUndo :: Document -> Maybe (DocumentPatch, Document)
+applyUndo :: EditorDocument -> Maybe (DocumentPatch, EditorDocument)
 applyUndo doc = do
   (e, undos) <- uncons (doc ^. #undos)
   (inverse, patch) <- patchEdit (doc ^. #annotations) e
@@ -83,7 +123,7 @@ applyUndo doc = do
     & #annotations %~ patchMap patch)
 
 
-applyRedo :: Document -> Maybe (DocumentPatch, Document)
+applyRedo :: EditorDocument -> Maybe (DocumentPatch, EditorDocument)
 applyRedo doc = do
   (e, redos) <- uncons (doc ^. #redos)
   (inverse, patch) <- patchEdit (doc ^. #annotations) e
@@ -190,31 +230,31 @@ deleteParts parts = \case
 
 
 
-modifyShapes :: (a -> Shape -> Maybe Shape) -> Map AnnotationId a -> Document -> Edit
+modifyShapes :: (a -> Shape -> Maybe Shape) -> Map AnnotationId a -> EditorDocument -> Edit
 modifyShapes f m doc = Edit $ M.intersectionWith f' m (doc ^. #annotations) where
   f' a annot  = case f a (annot ^. #shape) of
     Nothing    -> Delete
     Just shape -> Modify (annot & #shape .~ shape)
 
 
-deletePartsEdit :: DocParts -> Document -> Edit
+deletePartsEdit :: DocParts -> EditorDocument -> Edit
 deletePartsEdit = modifyShapes deleteParts
 
 
-transformPartsEdit :: Rigid -> DocParts -> Document -> Edit
+transformPartsEdit :: Rigid -> DocParts -> EditorDocument -> Edit
 transformPartsEdit rigid = modifyShapes (\parts -> Just . transformParts rigid parts)
 
 
-transformEdit :: Rigid -> Set AnnotationId -> Document -> Edit
+transformEdit :: Rigid -> Set AnnotationId -> EditorDocument -> Edit
 transformEdit rigid ids = modifyShapes (const $ Just . transformShape rigid) (setToMap ids)
 
 
-clearAllEdit :: Document -> Edit
+clearAllEdit :: EditorDocument -> Edit
 clearAllEdit doc = Edit $ const Delete <$> doc ^. #annotations
 
 
-replaceAllEdit :: Document -> AnnotationMap -> Edit
-replaceAllEdit Document{annotations} new = Edit $ changes <$> align annotations new where
+replaceAllEdit :: EditorDocument -> AnnotationMap -> Edit
+replaceAllEdit EditorDocument{annotations} new = Edit $ changes <$> align annotations new where
   changes (These _ ann) = Modify ann
   changes (This _)   = Delete
   changes (That ann) = Add ann

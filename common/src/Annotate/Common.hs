@@ -25,26 +25,6 @@ type ClassId = Int
 type DocName = Text
 type DateTime = UTCTime
 
-data DocCmd = DocEdit Edit | DocUndo | DocRedo
-  deriving (Show, Eq, Generic)
-
-data EditAction
-  = Add Annotation
-  | Delete
-  | Modify Annotation
-  deriving (Generic, Show, Eq)
-
-newtype Edit = Edit { unEdit :: Map AnnotationId EditAction }
-  deriving (Eq, Show, Generic, ToJSON, FromJSON)
-
-type DocParts = Map AnnotationId (Set Int)
-
-type DocPart = (AnnotationId, Maybe Int)
-
-mergeParts :: DocParts -> DocParts -> DocParts
-mergeParts = M.unionWith mappend
-
-
 data Shape = BoxShape     Box
            | PolygonShape Polygon
            | LineShape    WideLine
@@ -54,7 +34,6 @@ data ShapeConfig = BoxConfig | PolygonConfig | LineConfig
   deriving (Generic, Show, Eq, Ord)
 
 
-
 instance HasBounds Shape where
  getBounds (BoxShape s)     = getBounds s
  getBounds (PolygonShape s) = getBounds s
@@ -62,23 +41,25 @@ instance HasBounds Shape where
 
 
 data Detection = Detection
-  { annotation :: Annotation
-  , confidence :: Float
-  } deriving (Generic, Show, Eq)
+ { annotation :: Annotation
+ , confidence :: Float
+ } deriving (Generic, Show, Eq)
 
+-- data Detection = Detection
+--   { label      :: ClassId
+--   , bounds     :: Box
+--   , confidence :: Float
+--   } deriving (Generic, Show, Eq)
 
 data Annotation = Annotation { shape :: Shape, label :: ClassId }
     deriving (Generic, Show, Eq)
 
 
 type AnnotationMap = Map AnnotationId Annotation
-type DocumentPatch = Map AnnotationId (Maybe Annotation)
 
 
 data Document = Document
-  { undos :: [Edit]
-  , redos :: [Edit]
-  , name  :: DocName
+  { name  :: DocName
   , info  :: DocInfo
   , annotations :: AnnotationMap
   } deriving (Generic, Show, Eq)
@@ -164,8 +145,6 @@ instance FromJSON ClassConfig
 instance FromJSON DetectionParams
 instance FromJSON Preferences
 
-instance FromJSON EditAction
-instance FromJSON DocCmd
 instance FromJSON ImageCat
 instance FromJSON Shape
 instance FromJSON Annotation
@@ -185,8 +164,6 @@ instance ToJSON ClassConfig
 instance ToJSON DetectionParams
 instance ToJSON Preferences
 
-instance ToJSON EditAction
-instance ToJSON DocCmd
 instance ToJSON ImageCat
 instance ToJSON Shape
 instance ToJSON Annotation
@@ -265,6 +242,4 @@ emptyCollection = Collection mempty
 
 makePrisms ''ClientMsg
 makePrisms ''ServerMsg
-makePrisms ''DocCmd
 makePrisms ''Shape
-makePrisms ''Edit

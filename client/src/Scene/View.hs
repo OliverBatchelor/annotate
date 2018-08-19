@@ -23,7 +23,7 @@ import Scene.Viewport
 
 import Annotate.Geometry
 import Annotate.Common
-import Annotate.Document
+import Annotate.EditorDocument
 
 import Debug.Trace
 
@@ -373,11 +373,11 @@ addShapes :: AppBuilder t m => Scene t -> Event t Shape -> m ()
 addShapes scene e = addAnnotation scene (makeAnnotation e)
   where
     makeAnnotation e = create <$> current (scene ^. #currentClass) <@> e
-    create classId shape = Annotation shape classId 
+    create classId shape = Annotation shape classId
 
 
 
-subParts :: Document -> AnnotationId -> Set Int
+subParts :: EditorDocument -> AnnotationId -> Set Int
 subParts doc k = fromMaybe mempty $  do
   ann <- M.lookup k (doc ^. #annotations)
   return $ case (ann ^. #shape) of
@@ -391,7 +391,7 @@ alterPart k f = M.alter f' k where
     where result = f (fromMaybe mempty p)
 
 
-togglePart :: Document -> DocPart -> DocParts -> DocParts
+togglePart :: EditorDocument -> DocPart -> DocParts -> DocParts
 togglePart doc (k, sub) = alterPart k $ \existing ->
   case sub of
     Nothing -> if existing == allParts then S.empty else allParts
@@ -401,15 +401,15 @@ togglePart doc (k, sub) = alterPart k $ \existing ->
     allParts = subParts doc k
     toggleSet i s = if S.member i s then S.delete i s else S.insert i s
 
-addPart :: Document -> DocPart -> DocParts -> DocParts
+addPart :: EditorDocument -> DocPart -> DocParts -> DocParts
 addPart doc part = mergeParts (toParts doc part)
 
-toParts :: Document -> DocPart -> DocParts
+toParts :: EditorDocument -> DocPart -> DocParts
 toParts doc (k, p) = case p of
   Nothing -> M.singleton k (subParts doc k)
   Just i  -> M.singleton k (S.singleton i)
 
-selectChange :: Set Key -> Document -> DocParts -> Maybe DocPart -> DocParts
+selectChange :: Set Key -> EditorDocument -> DocParts -> Maybe DocPart -> DocParts
 selectChange keys doc existing target
   | S.member Key.Shift keys = fromMaybe existing (flip (addPart doc) existing <$> target)
   | otherwise               = fromMaybe mempty (toParts doc <$> target)

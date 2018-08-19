@@ -28,7 +28,6 @@ import Servant.Utils.StaticFiles
 
 import Annotate.Common
 import qualified Annotate.Common as Ann
-import qualified Annotate.Document as Doc
 
 import qualified Server.Options as Opt
 

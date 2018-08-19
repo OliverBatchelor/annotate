@@ -17,7 +17,7 @@ cabal-version:       >=1.10
 
 
 library
-  exposed-modules:     Annotate.Document, Annotate.Common, Annotate.Geometry, Annotate.Prelude, Annotate.Colour
+  exposed-modules:     Annotate.Common, Annotate.EditorDocument, Annotate.Geometry, Annotate.Prelude, Annotate.Colour
   default-extensions:  DuplicateRecordFields, TemplateHaskell, FlexibleInstances, FlexibleContexts,
                        GADTs, MultiParamTypeClasses, TypeApplications, OverloadedStrings,
                        ScopedTypeVariables, LambdaCase, NamedFieldPuns,

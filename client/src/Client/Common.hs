@@ -1,12 +1,13 @@
 module Client.Common
   ( module Client.Common
+  , module Annotate.EditorDocument
   , module Reflex.Classes
   , Key
   ) where
 
 import Annotate.Prelude hiding ((<>))
 import Annotate.Common
-import Annotate.Document
+import Annotate.EditorDocument
 import Annotate.Colour
 
 import Control.Monad.Reader
@@ -61,7 +62,7 @@ data PrefCommand
 
 data AppCommand
   = ViewCmd ViewCommand
-  | DocCmd DocCmd
+  | EditCmd EditCmd
   | SelectCmd DocParts
   | ClearCmd
   | RemoteCmd ClientMsg
@@ -109,7 +110,7 @@ instance Default Action where
 data AppEnv t = AppEnv
   { basePath :: !Text
   , commands :: !(Event t [AppCommand])
-  , document :: !(Dynamic t (Maybe Document))
+  , document :: !(Dynamic t (Maybe EditorDocument))
   , detections :: !(Dynamic t (Map AnnotationId Detection))
 
   , config :: !(Dynamic t Config)
@@ -147,8 +148,8 @@ lookupClass classId = do
 remoteCommand :: AppBuilder t m => (a -> ClientMsg) -> Event t a -> m ()
 remoteCommand f = command (RemoteCmd . f)
 
-docCommand :: AppBuilder t m => (a -> DocCmd) -> Event t a -> m ()
-docCommand f = command (DocCmd . f)
+docCommand :: AppBuilder t m => (a -> EditCmd) -> Event t a -> m ()
+docCommand f = command (EditCmd . f)
 
 viewCommand :: AppBuilder t m => Event t ViewCommand -> m ()
 viewCommand = command ViewCmd
@@ -177,7 +178,7 @@ commandM' cmd = commandM (const cmd)
 showText :: Show a => a -> Text
 showText = T.pack . show
 
-clearAnnotations :: Document -> DocCmd
+clearAnnotations :: EditorDocument -> EditCmd
 clearAnnotations = DocEdit . clearAllEdit
 
 makePrisms ''AppCommand

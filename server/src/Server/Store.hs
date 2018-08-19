@@ -7,8 +7,8 @@ import Server.Common
 import qualified Data.Map as M
 import Data.SafeCopy
 
-import Annotate.Document (emptyDoc, applyCmd)
 import Control.Concurrent.Log
+import Annotate.Editor
 
 -- data Annotation0 = Annotation0 { shape :: Shape, label :: ClassId, predictions :: [(ClassId, Float)] }
 --     deriving (Generic, Show, Eq)
@@ -19,6 +19,7 @@ import Control.Concurrent.Log
 --
 --
 -- $(deriveSafeCopy 0 'base ''Annotation0)
+
 
 
 $(deriveSafeCopy 0 'base ''V2)
@@ -32,12 +33,9 @@ $(deriveSafeCopy 0 'base ''Extents)
 $(deriveSafeCopy 1 'base ''Annotation)
 $(deriveSafeCopy 0 'base ''Shape)
 
-$(deriveSafeCopy 0 'base ''EditAction)
-$(deriveSafeCopy 0 'base ''Edit)
 
-$(deriveSafeCopy 0 'base ''DocCmd)
 $(deriveSafeCopy 0 'base ''ImageCat)
-$(deriveSafeCopy 0 'base ''Document)
+$(deriveSafeCopy 1 'base ''Document)
 $(deriveSafeCopy 0 'base ''DocInfo)
 $(deriveSafeCopy 0 'base ''Config)
 $(deriveSafeCopy 0 'base ''ClassConfig)
@@ -60,12 +58,16 @@ updateInfo doc time = over (docInfo k) $ \info ->
 updateDocument :: Document -> (Store -> Store)
 updateDocument doc = #images . at (doc ^. #name) .~ Just doc
 
+emptyDoc :: DocName -> DocInfo -> Document
+emptyDoc k info = Document k info mempty
+
+
 instance Persistable Store where
   type Update Store = Command
 
   update (CmdSubmit doc time) = updateInfo doc time . updateDocument doc
-  update (CmdImages new)        = over #images (M.union new')
-    where new' = M.mapWithKey emptyDoc (M.fromList new)
+  update (CmdImages new)        = over #images (M.union new') where
+    new' = M.mapWithKey emptyDoc (M.fromList new)
 
 
   update (CmdCategory k cat)      = docInfo k . #category .~ cat
@@ -77,8 +79,6 @@ initialStore config = Store
   { config = config
   , images = M.empty
   }
-
-
 
 
 exportCollection :: Store -> TrainCollection
