@@ -1,4 +1,4 @@
-module Annotate.EditorDocument where
+module Annotate.Document where
 
 import Annotate.Prelude
 
@@ -62,7 +62,11 @@ fromDocument Document{..} = EditorDocument
     }
 
 toDocument :: EditorDocument -> Document
-toDocument EditorDocument{..} = Document{..}
+toDocument EditorDocument{..} = Document
+  { name
+  , info
+  , annotations = annotations
+  }
 
 
 makePrisms ''EditCmd

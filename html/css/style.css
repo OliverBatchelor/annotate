@@ -162,9 +162,6 @@ html, body {
 }
 
 
-
-
-
 .brush {
   stroke: black;
   fill: blue;
@@ -179,18 +176,19 @@ html, body {
   fill-opacity: 0.5 !important;
 }
 
-
 .control {
-  stroke:black;
   fill:black;
-  fill-opacity: 0.3;
-  vector-effect: non-scaling-stroke;
-  stroke-width: 0.5;
+  fill-opacity: 0.0;
   pointer-events:all;
 }
 
+.annotation:hover .control {
+  fill-opacity: 0.3;
+}
 
-
+.selected .control {
+  fill-opacity: 0.3;
+}
 
 
 

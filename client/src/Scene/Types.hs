@@ -8,7 +8,7 @@ import Data.Default
 
 import Annotate.Geometry
 import Annotate.Common
-import Annotate.EditorDocument
+import Annotate.Document
 
 import Input.Events
 

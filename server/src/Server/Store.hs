@@ -8,17 +8,16 @@ import qualified Data.Map as M
 import Data.SafeCopy
 
 import Control.Concurrent.Log
-import Annotate.Editor
 
--- data Annotation0 = Annotation0 { shape :: Shape, label :: ClassId, predictions :: [(ClassId, Float)] }
---     deriving (Generic, Show, Eq)
---
--- instance Migrate Annotation where
---   type MigrateFrom Annotation = Annotation0
---   migrate Annotation0{..} = Annotation{..}
---
---
--- $(deriveSafeCopy 0 'base ''Annotation0)
+data Annotation1 = Annotation1 { shape :: Shape, label :: ClassId }
+    deriving (Generic, Show, Eq)
+
+instance Migrate Annotation where
+  type MigrateFrom Annotation = Annotation1
+  migrate Annotation1{..} = Annotation{shape, label, detection = Nothing}
+
+
+$(deriveSafeCopy 1 'base ''Annotation1)
 
 
 
@@ -30,9 +29,10 @@ $(deriveSafeCopy 0 'base ''WideLine)
 
 $(deriveSafeCopy 0 'base ''Extents)
 
-$(deriveSafeCopy 1 'base ''Annotation)
+$(deriveSafeCopy 2 'extension ''Annotation)
 $(deriveSafeCopy 0 'base ''Shape)
 
+$(deriveSafeCopy 0 'base ''Detection)
 
 $(deriveSafeCopy 0 'base ''ImageCat)
 $(deriveSafeCopy 1 'base ''Document)

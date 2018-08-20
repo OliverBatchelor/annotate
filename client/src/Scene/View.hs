@@ -23,7 +23,7 @@ import Scene.Viewport
 
 import Annotate.Geometry
 import Annotate.Common
-import Annotate.EditorDocument
+import Annotate.Document
 
 import Debug.Trace
 
@@ -59,24 +59,14 @@ control selected point = do
             , classList ["control", "selected" `gated` selected]
             , transform_ ~: toCentre <$> point ]
 
-  return $ leftmost
-    [ SceneEnter <$ domEvent Mouseenter e
-    , SceneLeave <$ domEvent Mouseleave e
-    , SceneDown  <$ domEvent Mousedown e
-    ]
-
+  return $ (SceneDown  <$ domEvent Mousedown e)
     where toCentre (V2 x y) = [Translate x y]
 
 controlCircle :: Builder t m => Dynamic t Bool -> Dynamic t Circle -> m (Event t SceneEvent)
 controlCircle selected point = do
   e <- circleElem [classList ["control", "selected" `gated` selected]] point
 
-  return $ leftmost
-    [ SceneEnter <$ domEvent Mouseenter e
-    , SceneLeave <$ domEvent Mouseleave e
-    , SceneDown  <$ domEvent Mousedown e
-    ]
-
+  return (SceneDown  <$ domEvent Mousedown e)
     where toCentre (V2 x y) = [Translate x y]
 
 
@@ -107,15 +97,22 @@ sceneEvents k e = (k,) <$> leftmost
     [ SceneEnter <$ domEvent Mouseenter e
     , SceneLeave <$ domEvent Mouseleave e
     , SceneDown <$ domEvent Mousedown e
-    , SceneClick <$ domEvent Click e
-    , SceneDoubleClick <$ domEvent Dblclick e
+    -- , SceneClick <$ domEvent Click e
+    -- , SceneDoubleClick <$ domEvent Dblclick e
     ]
 
 
-boxView :: Builder t m => ShapeAttrs t  -> Dynamic t Box -> m (Event t (Maybe Int, SceneEvent))
-boxView props box = g [class_ =: "annotation"] $ do
-  e      <- boxElem (shapeProperties props) box
-  events <- controls (props ^. #selected) [v1, v2, v3, v4]
+annotationProperties :: Reflex t => ShapeProperties t -> [Property t]
+annotationProperties ShapeProperties{selected} =
+    [ classList ["annotation", "selected" `gated` (isJust <$> selected)]
+    , pointer_events_ =: "visiblePainted"
+    ]
+
+boxView :: Builder t m => ShapeProperties t  -> Dynamic t Box -> m (Event t (Maybe Int, SceneEvent))
+boxView props box = do
+  (e, events) <- g' (annotationProperties props) $ do
+    boxElem (shapeAttributes props) box
+    controls (props ^. #selected) [v1, v2, v3, v4]
 
   return $ leftmost (events <> [sceneEvents Nothing e])
 
@@ -123,21 +120,26 @@ boxView props box = g [class_ =: "annotation"] $ do
     (v1, v2, v3, v4) = split4 (boxVertices <$> box)
 
 
-polygonView :: Builder t m => ShapeAttrs t  -> Dynamic t Polygon -> m (Event t (Maybe Int, SceneEvent))
-polygonView props poly = g [class_ =: "annotation"] $ do
-  e <- polygonElem (shapeProperties props) poly
-  events <- dynControls control (props ^. #selected) (view #points <$> poly)
+polygonView :: Builder t m => ShapeProperties t  -> Dynamic t Polygon -> m (Event t (Maybe Int, SceneEvent))
+polygonView props poly = do
+  (e, events) <- g' (annotationProperties props) $ do
+    polygonElem (shapeAttributes props) poly
+    dynControls control (props ^. #selected) (view #points <$> poly)
 
   return $ leftmost [events, sceneEvents Nothing e]
 
 
 
-lineView :: Builder t m => ShapeAttrs t  -> Dynamic t WideLine -> m (Event t (Maybe Int, SceneEvent))
+lineView :: Builder t m => ShapeProperties t  -> Dynamic t WideLine -> m (Event t (Maybe Int, SceneEvent))
 lineView props line = do
-  e <- lineElem (props ^. #elemId) (shapeProperties props) line
-  events <- dynControls controlCircle (props ^. #selected) (view #points <$> line)
+  (e, events) <- g' (annotationProperties props) $ do
+
+    lineElem (props ^. #elemId) (shapeAttributes props) line
+    dynControls controlCircle (props ^. #selected) (view #points <$> line)
 
   return $ leftmost [events, sceneEvents Nothing e]
+
+
 
 
 splitBox :: Functor f => f Box -> (f (V2 Float), f (V2 Float))
@@ -169,12 +171,13 @@ href_id_ = contramap urlId href_
 mask_id_ :: Attribute Text
 mask_id_ = contramap urlId mask_
 
-
+clip_id_ :: Attribute Text
+clip_id_ = contramap urlId clip_path_
 
 lineElem  :: (Builder t m) => Text -> [Property t] -> Dynamic t WideLine -> m (ElemType t m)
 lineElem elemId props line = do
     dynList' (lineShape maskId . toList) linePoints
-    boxElem (props <> [mask_id_ =: maskId]) bounds
+    boxElem (props <> [clip_id_ =: maskId]) bounds
 
     where
       linePoints = view #points <$> line
@@ -185,11 +188,14 @@ lineElem elemId props line = do
 lineShape :: Builder t m => Text -> [Dynamic t Circle] -> m ()
 lineShape maskId points = do
   defs [] $ void $ do
-    g [id_ =: shapeId] $
-      shapes [fill_ =: "white"]
+    clipPath [id_ =: maskId] $ shapes []
 
-    mask [id_ =: maskId] $
-      use_ [ href_ =: "#" <> shapeId ]
+
+    -- g [id_ =: shapeId] $
+    --   shapes [fill_ =: "white"]
+    --
+    -- clipPath [id_ =: maskId] $
+    --   use_ [ href_ =: "#" <> shapeId ]
 
   where
     shapeId = "shape_" <> maskId
@@ -223,7 +229,7 @@ classProperties Config{classes} Preferences{hiddenClasses} =
         }
 
 
-data ShapeAttrs t = ShapeAttrs
+data ShapeProperties t = ShapeProperties
   { selected :: !(Dynamic t (Maybe (Set Int)))
   , colour   :: !(Dynamic t HexColour)
   , hidden   :: !(Dynamic t Bool)
@@ -231,41 +237,55 @@ data ShapeAttrs t = ShapeAttrs
   } deriving Generic
 
 
-shapeProperties :: Reflex t => ShapeAttrs t -> [Property t]
-shapeProperties ShapeAttrs{selected, hidden, colour} =
-    [ classes_ ~: activeList [pure "shape", Dyn $ selectClass <$> selected]
+shapeAttributes :: Reflex t => ShapeProperties t -> [Property t]
+shapeAttributes ShapeProperties{selected, hidden, colour} =
+    [ classes_ =: ["shape"]
     , hidden_ ~: hidden
-    , style_ ~: style <$> colour ]
+    , style_ ~: style <$> colour
+    , pointer_events_ =: "visiblePainted"]
   where
 
-    selectClass s = if isJust s then "selected" else ""
     style colour = [("fill", showColour colour)]
 
 
 
-shapeView :: forall t m. (Builder t m) => ShapeAttrs t -> Updated t Annotation -> m (Event t (Maybe Int, SceneEvent))
+shapeView :: forall t m. (Builder t m) => ShapeProperties t -> Updated t Annotation -> m (Event t (Maybe Int, SceneEvent))
 shapeView props obj  = case view #shape <$> obj of
   Updated (BoxShape s)     e  -> boxView props      =<< holdDyn s (_BoxShape ?> e)
   Updated (PolygonShape s) e  -> polygonView props  =<< holdDyn s (_PolygonShape ?> e)
   Updated (LineShape s)    e  -> lineView props     =<< holdDyn s (_LineShape ?> e)
 
 
+holdHover :: (MonadHold t m, Reflex t) => Event t SceneEvent -> m (Dynamic t Bool)
+holdHover e = holdDyn False $ fmapMaybe f e where
+  f SceneEnter = Just True
+  f SceneLeave = Just False
+  f _          = Nothing
+
 
 annotationView :: forall t m. (Builder t m)
                => Dynamic t ClassMap
+               -> Dynamic t Float
                -> Dynamic t Bool
                -> Dynamic t (Maybe (Set Int))
                -> AnnotationId -> Updated t Annotation -> m (Event t (DocPart, SceneEvent))
-annotationView classMap instanceCols selected k obj = do
+annotationView classMap threshold instanceCols selected k obj = do
   classId <- holdUpdated (view #label <$> obj)
 
   let (colour :: Dynamic t HexColour)    = lookupCol <$> instanceCols <*> classInfo
       (classInfo :: Dynamic t (Maybe ClassAttrs)) = M.lookup <$> classId <*> classMap
-      hidden    = fromMaybe False . fmap (view #hidden) <$> classInfo
+      hidden    = liftA2 (||)  (hiddenClass <$> classInfo) ((> confidence) <$> threshold)
 
-  fmap (arrange k) <$> shapeView (ShapeAttrs  selected colour hidden shapeId) obj
+  rec
+    e     <- shapeView (ShapeProperties selected colour hidden shapeId) obj
+    -- hover <- holdHover (snd <$> e)
+
+  return (arrange k <$> e)
     where
       shapeId = "ann" <> fromString (show k)
+
+      hiddenClass = fromMaybe False . fmap (view #hidden)
+      confidence  = fromMaybe 1.0 $ (obj ^? #initial .  #detection . traverse . #confidence)
 
       lookupCol :: Bool -> Maybe ClassAttrs -> HexColour
       lookupCol instanceCols classInfo = fromMaybe 0x000000 $ if instanceCols
@@ -373,14 +393,21 @@ addShapes :: AppBuilder t m => Scene t -> Event t Shape -> m ()
 addShapes scene e = addAnnotation scene (makeAnnotation e)
   where
     makeAnnotation e = create <$> current (scene ^. #currentClass) <@> e
-    create classId shape = Annotation shape classId
-
+    create label shape = Annotation
+      { shape
+      , label
+      , detection = Nothing
+      }
 
 
 subParts :: EditorDocument -> AnnotationId -> Set Int
 subParts doc k = fromMaybe mempty $  do
   ann <- M.lookup k (doc ^. #annotations)
-  return $ case (ann ^. #shape) of
+  return $ shapeParts (ann ^. #shape)
+
+
+shapeParts :: Shape -> Set Int
+shapeParts = \case
     BoxShape _                  -> S.fromList [0..3]
     LineShape (WideLine points)   -> S.fromList [0..length points]
     PolygonShape (Polygon points) -> S.fromList [0..length points]
@@ -497,11 +524,12 @@ sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart,
 sceneView scene@Scene{..} = do
     imageView image
 
-    classMap <- holdUniqDyn (classProperties <$> config <*> preferences)
+    classMap     <- holdUniqDyn (classProperties <$> config <*> preferences)
     instanceCols <- holdUniqDyn (view #instanceColours <$> preferences)
+    threshold    <- holdUniqDyn (view #threshold <$> preferences)
 
     events <- holdMergePatched =<< incrementalMapWithUpdates annotations (\k ->
-       annotationView classMap instanceCols (isSelected k) k)
+       annotationView classMap threshold instanceCols (isSelected k) k)
 
     action <- actions scene
     return (action, minElem <?> events)

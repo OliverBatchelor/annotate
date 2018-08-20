@@ -1,13 +1,13 @@
 module Client.Common
   ( module Client.Common
-  , module Annotate.EditorDocument
+  , module Annotate.Document
   , module Reflex.Classes
   , Key
   ) where
 
 import Annotate.Prelude hiding ((<>))
 import Annotate.Common
-import Annotate.EditorDocument
+import Annotate.Document
 import Annotate.Colour
 
 import Control.Monad.Reader

@@ -46,7 +46,7 @@ import Client.Select
 import qualified Client.Dialog as Dialog
 
 import Annotate.Common
-import Annotate.EditorDocument
+import Annotate.Document
 
 import Language.Javascript.JSaddle
 import qualified Reflex.Dom.Main as Main
@@ -226,8 +226,12 @@ newDetections :: AnnotationId -> [Detection] -> Map AnnotationId Detection
 newDetections nextId detections = M.fromList (zip [nextId..] detections)
 
 replaceDetections :: EditorDocument -> Map AnnotationId Detection -> EditCmd
-replaceDetections doc detections = DocEdit (replaceAllEdit doc anns) where
-  anns = view #annotation <$> detections
+replaceDetections doc detections = DocEdit (replaceAllEdit doc (toAnnotation <$> detections)) where
+  toAnnotation detection = Annotation
+    { shape     = BoxShape (detection ^. #bounds)
+    , label     = detection ^. #label
+    , detection = Just detection
+    }
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => SceneInputs t
@@ -250,7 +254,7 @@ documentEditor input cmds loaded  = do
         addNew = (>>= maxEdit) . preview _DocEdit <?> docCmd
     nextId <- foldDyn (max . (+ 1)) initialId addNew
 
-  command DetectionsAddedCmd detections'
+  -- command DetectionsAddedCmd detections'
 
   -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $
@@ -464,6 +468,10 @@ rangePreview showValue range step value = row "spacing-3 align-items-center" $ d
 printFloat :: Float -> Text
 printFloat = T.pack . printf "%.2f"
 
+printFloat0 :: Float -> Text
+printFloat0 = T.pack . printf "%.0f"
+
+
 toView :: (Builder t m, Eq a) => (Event t a -> m (Dynamic t a)) -> Dynamic t a -> m (Event t a)
 toView makeWidget value = do
     postBuild <- getPostBuild
@@ -491,8 +499,9 @@ checkboxLabel i t value = div [class_ =: "custom-control custom-checkbox"] $ do
 
 
 settingsTab :: AppBuilder t m => m ()
-settingsTab = column "h-100" $ do
+settingsTab = column "h-100 v-spacing-2" $ do
   prefs <- view #preferences
+  doc   <- view #document
 
   column "v-spacing-2 p-2 border" $ do
     h5 [] $ text "Interface settings"
@@ -505,7 +514,7 @@ settingsTab = column "h-100" $ do
         prefCommand (SetOpacity <$> inp)
 
     labelled "Control size" $ do
-      inp <- rangePreview printFloat (5.0, 50.0) 1 (view #controlSize <$> prefs)
+      inp <- rangePreview (printFloat0) (5.0, 50.0) 1 (view #controlSize <$> prefs)
       prefCommand (SetControlSize <$> inp)
 
     return ()
@@ -517,7 +526,7 @@ settingsTab = column "h-100" $ do
       inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view (#detection . #nms) <$> prefs)
       prefCommand (SetNms <$> inp)
 
-    labelled "Detection threshold" $ do
+    labelled "Minimum threshold" $ do
       inp <- rangePreview printFloat (0.0, 0.5) 0.01 (view (#detection . #threshold) <$> prefs)
       prefCommand (SetThreshold <$> inp)
 
@@ -525,8 +534,28 @@ settingsTab = column "h-100" $ do
       inp <- rangePreview (T.pack . show) (0, 1000) 1 (view (#detection . #detections) <$> prefs)
       prefCommand (SetDetections <$> inp)
 
+  column "v-spacing-2 p-2 border" $ do
+    h5 [] $ text "Active detections"
+
+    let showCounts (V2 n total) = showText n <> "/" <> showText total
+        counts = detectionSummary <$> doc <*> (view #threshold <$> prefs)
+
+    labelled "Visible/detected" $ dynText (showCounts <$> counts)
+
+
+    labelled "Visible threshold" $ do
+      inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #threshold <$> prefs)
+      prefCommand (SetThreshold <$> inp)
+
+
   spacer
 
+
+detectionSummary :: Maybe EditorDocument -> Float -> V2 Int
+detectionSummary Nothing    _         = V2 0 0
+detectionSummary (Just doc) threshold = sum $ M.mapMaybe (fmap summary) detections where
+  summary Detection{..} = V2 (if confidence > threshold then 1 else 0) 1
+  detections = view #detection <$> doc ^. #annotations
 
 
 sidebar :: AppBuilder t m => m ()
@@ -567,18 +596,6 @@ overlay document prefs = row "expand  disable-cursor" $ do
   where
     header = buttonRow $ do
       asks selectedClass >>= classToolButton >>= command (const (DialogCmd (ClassDialog mempty)))
-
-      column "detection-bar bg-secondary text-light rounded enable-cursor p-2" $ do
-        row "" $ do
-          text "Detections"
-          spacer
-          closeButton
-
-
-        inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #threshold <$> prefs)
-        prefCommand (SetThreshold <$> inp)
-
-        return ()
 
       spacer
 

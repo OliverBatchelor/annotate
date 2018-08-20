@@ -32,8 +32,8 @@ import Data.Dependent.Sum
 import Data.GADT.Compare
 
 
-data Updated t a = Updated { initial :: a, updates :: Event t a }
-data Patched t p = Patched (PatchTarget p) (Event t p)
+data Updated t a = Updated { initial :: a, updates :: Event t a } deriving Generic
+data Patched t p = Patched (PatchTarget p) (Event t p) deriving Generic
 
 changes ::  Reflex t => Dynamic t a -> (a -> a -> b) -> Event t b
 changes d f = attachWith f (current d) (updated d)

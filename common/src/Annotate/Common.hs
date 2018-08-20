@@ -41,17 +41,12 @@ instance HasBounds Shape where
 
 
 data Detection = Detection
- { annotation :: Annotation
- , confidence :: Float
- } deriving (Generic, Show, Eq)
+  { label      :: ClassId
+  , bounds     :: Box
+  , confidence :: Float
+  } deriving (Generic, Show, Eq)
 
--- data Detection = Detection
---   { label      :: ClassId
---   , bounds     :: Box
---   , confidence :: Float
---   } deriving (Generic, Show, Eq)
-
-data Annotation = Annotation { shape :: Shape, label :: ClassId }
+data Annotation = Annotation { shape :: Shape, label :: ClassId, detection :: Maybe Detection }
     deriving (Generic, Show, Eq)
 
 
