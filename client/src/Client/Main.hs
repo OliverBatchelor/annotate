@@ -225,12 +225,15 @@ sceneWidget cmds loaded = do
 newDetections :: AnnotationId -> [Detection] -> Map AnnotationId Detection
 newDetections nextId detections = M.fromList (zip [nextId..] detections)
 
+
+
 replaceDetections :: EditorDocument -> Map AnnotationId Detection -> EditCmd
 replaceDetections doc detections = DocEdit (replaceAllEdit doc (toAnnotation <$> detections)) where
   toAnnotation detection = Annotation
     { shape     = BoxShape (detection ^. #bounds)
     , label     = detection ^. #label
     , detection = Just detection
+    , confirm   = False
     }
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
@@ -587,7 +590,7 @@ sidebar = mdo
 selectedClass :: Reflex t => AppEnv t -> Dynamic t (Maybe ClassConfig)
 selectedClass AppEnv{config, currentClass} = M.lookup <$> currentClass <*> fmap (view #classes) config
 
-overlay :: AppBuilder t m => Dynamic t (Maybe EditorDocument) -> Dynamic t Preferences -> m ()
+overlay :: forall t m. AppBuilder t m => Dynamic t (Maybe EditorDocument) -> Dynamic t Preferences -> m ()
 overlay document prefs = row "expand  disable-cursor" $ do
    sidebar
    column "expand" $
@@ -623,8 +626,8 @@ overlay document prefs = row "expand  disable-cursor" $ do
 
         remoteCommand id $ leftmost
           [ withDocument (ClientDiscard . view #name) discard
-          , withDocument (ClientSubmit . category Train) train
-          , withDocument (ClientSubmit . category Test) test
+          , withDocPrefs (\p -> ClientSubmit . submitFor Train p) train
+          , withDocPrefs (\p -> ClientSubmit . submitFor Test p) test
           ]
 
     buttonRow = row "p-2 spacing-4"
@@ -633,6 +636,13 @@ overlay document prefs = row "expand  disable-cursor" $ do
     fromDocument a f = fromMaybe a . fmap f <$> document
     withDocument f e = fmap (f . toDocument) <?> (current document `tag` e)
 
-    category = set (#info . #category)
+    withDocPrefs :: forall a. (Preferences -> Document -> a) -> Event t () -> Event t a
+    withDocPrefs f e = f <$> current prefs <@> fmapMaybe (fmap toDocument) (current document `tag` e)
+
+    submitFor :: ImageCat -> Preferences -> Document -> Document
+    submitFor cat prefs = (#info . #category .~ cat) . (#annotations %~ fmap confirmDetection)
+      where
+        confirmDetection :: Annotation -> Annotation
+        confirmDetection ann = ann & #confirm .~  (getConfidence ann >= (prefs ^. #threshold))
 
     docOpen = isJust <$> document

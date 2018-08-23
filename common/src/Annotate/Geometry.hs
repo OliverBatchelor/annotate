@@ -27,6 +27,8 @@ newtype WideLine = WideLine { points :: NonEmpty Circle} deriving (Generic, Show
 
 data Segment = Segment { point1 :: Position, point2 :: Position } deriving (Generic, Show, Eq)
 
+data Range = Range { lower :: Float, upper :: Float } deriving (Generic, Eq, Show)
+
 scaleBox :: Vec -> Box -> Box
 scaleBox scale = over boxExtents
     (\Extents{..} -> Extents centre (extents * scale))
@@ -96,6 +98,18 @@ boxExtents = iso toExtents fromExtents where
   toExtents Box{..}       = Extents (centroid [lower, upper]) ((upper - lower) ^* 0.5)
   fromExtents = getBounds
 
+intersectRanges :: Range -> Range -> Bool
+intersectRanges (Range l u) (Range l' u') = not (u < l' || l > u')
+
+intersectBoxBox :: Box -> Box -> Bool
+intersectBoxBox (Box (V2 lx ly) (V2 ux uy)) (Box (V2 lx' ly') (V2 ux' uy')) =
+    intersectRanges (Range lx ux) (Range lx' ux') &&
+    intersectRanges (Range ly uy) (Range ly' uy')
+
+intersectBoxPoint :: Box -> Position -> Bool
+intersectBoxPoint (Box (V2 lx ly) (V2 ux uy)) (V2 x y) =
+    x >= lx && y >= ly &&
+    x <= ux && y <= uy
 
 
 data Corner = TopLeft | TopRight | BottomRight | BottomLeft
@@ -109,6 +123,13 @@ boxVertices (Box (V2 lx ly) (V2 ux uy)) =
   , V2 lx uy
   )
 
+boxVertices' :: Box -> [Position]
+boxVertices' (Box (V2 lx ly) (V2 ux uy)) =
+  [ V2 lx ly
+  , V2 ux ly
+  , V2 ux uy
+  , V2 lx uy
+  ]
 
 type Position = V2 Float
 type Vector = V2 Float

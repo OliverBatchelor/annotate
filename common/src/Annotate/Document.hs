@@ -250,7 +250,7 @@ transformPartsEdit rigid = modifyShapes (\parts -> Just . transformParts rigid p
 
 
 transformEdit :: Rigid -> Set AnnotationId -> EditorDocument -> Edit
-transformEdit rigid ids = modifyShapes (const $ Just . transformShape rigid) (setToMap ids)
+transformEdit rigid ids = modifyShapes (const $ Just . transformShape rigid) (setToMap' ids)
 
 
 clearAllEdit :: EditorDocument -> Edit

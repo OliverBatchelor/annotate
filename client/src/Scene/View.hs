@@ -103,8 +103,9 @@ sceneEvents k e = (k,) <$> leftmost
 
 
 annotationProperties :: Reflex t => ShapeProperties t -> [Property t]
-annotationProperties ShapeProperties{selected} =
+annotationProperties ShapeProperties{selected, hidden} =
     [ classList ["annotation", "selected" `gated` (isJust <$> selected)]
+    , hidden_ ~: hidden
     , pointer_events_ =: "visiblePainted"
     ]
 
@@ -138,7 +139,6 @@ lineView props line = do
     dynControls controlCircle (props ^. #selected) (view #points <$> line)
 
   return $ leftmost [events, sceneEvents Nothing e]
-
 
 
 
@@ -190,15 +190,7 @@ lineShape maskId points = do
   defs [] $ void $ do
     clipPath [id_ =: maskId] $ shapes []
 
-
-    -- g [id_ =: shapeId] $
-    --   shapes [fill_ =: "white"]
-    --
-    -- clipPath [id_ =: maskId] $
-    --   use_ [ href_ =: "#" <> shapeId ]
-
   where
-    shapeId = "shape_" <> maskId
     shapes properties = do
       traverse_ (circleElem properties) points
       traverse_ (polygonElem properties)
@@ -240,7 +232,6 @@ data ShapeProperties t = ShapeProperties
 shapeAttributes :: Reflex t => ShapeProperties t -> [Property t]
 shapeAttributes ShapeProperties{selected, hidden, colour} =
     [ classes_ =: ["shape"]
-    , hidden_ ~: hidden
     , style_ ~: style <$> colour
     , pointer_events_ =: "visiblePainted"]
   where
@@ -285,7 +276,7 @@ annotationView classMap threshold instanceCols selected k obj = do
       shapeId = "ann" <> fromString (show k)
 
       hiddenClass = fromMaybe False . fmap (view #hidden)
-      confidence  = fromMaybe 1.0 $ (obj ^? #initial .  #detection . traverse . #confidence)
+      confidence  = getConfidence (obj ^. #initial)
 
       lookupCol :: Bool -> Maybe ClassAttrs -> HexColour
       lookupCol instanceCols classInfo = fromMaybe 0x000000 $ if instanceCols
@@ -324,6 +315,9 @@ addAnnotation Scene{nextId} add = editCommand (addEdit <$> current nextId <@> ad
 
 
 
+makeBox :: Position -> Position -> Box
+makeBox p1 p2 = Box (liftI2 min p1 p2) (liftI2 max p1 p2)
+
 drawBoxes :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
 drawBoxes scene SceneInputs{..} _ =
   addShapes scene . filterMaybe =<< workflowView (idle Nothing)
@@ -339,7 +333,8 @@ drawBoxes scene SceneInputs{..} _ =
       boxElem  [class_ =: "outline"] box
       return (Nothing, idle . Just . BoxShape <$> done)
 
-    makeBox p1 p2 = Box (liftI2 min p1 p2) (liftI2 max p1 p2)
+
+
 
 
 drawPolygons :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
@@ -397,6 +392,7 @@ addShapes scene e = addAnnotation scene (makeAnnotation e)
       { shape
       , label
       , detection = Nothing
+      , confirm   = True
       }
 
 
@@ -453,14 +449,33 @@ selectParts Scene{document, selection, input} =
       ]
     SceneInputs{keyboard, mouseDown, mouseDownOn} = input
 
+
+boxQuery :: EditorDocument -> Box -> DocParts
+boxQuery EditorDocument{annotations} box = M.mapMaybe (queryShape . view #shape) annotations where
+  queryShape shape | getBounds shape `intersectBoxBox` box = queryParts shape
+                   | otherwise = Nothing
+
+  queryParts (BoxShape b) =  maybeParts (intersectBoxPoint box <$> boxVertices' b)
+  queryParts (PolygonShape p) = Nothing
+  queryParts (LineShape p)    = Nothing
+
+  maybeParts bs = case catMaybes (imap f bs) of
+    []    -> Nothing
+    parts -> Just (S.fromList parts)
+
+  f i b = if b then Just i else Nothing
+
 actions :: AppBuilder t m => Scene t -> m (Dynamic t Action)
 actions scene@Scene{..} = holdWorkflow $
   commonTransition (base <$ cancel) base where
 
   base = Workflow $ do
-    let beginPan    = pan <$> (current mouse <@ mouseDown LeftButton)
+    let mouseDownAt = current mouse <@ mouseDown LeftButton
+        beginPan    = pan <$> mouseDownAt
+        beginSelectRect = rectSelect <$> gate (S.member Key.Shift <$> current keyboard) mouseDownAt
+
         beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` keyDown Key.Space
-        beginDrag   = filterMaybe $ drag <$> current mouse <*> current document <@> selection'
+        beginDragSelection   = filterMaybe $ drag <$> current mouse <*> current document <@> selection'
 
         selection'  = selectParts scene
 
@@ -474,7 +489,7 @@ actions scene@Scene{..} = holdWorkflow $
     docCommand (const DocUndo) (select shortcut ShortUndo)
     docCommand (const DocRedo) (select shortcut ShortRedo)
 
-    return (def, leftmost [beginDrag, beginDraw, beginPan])
+    return (def, leftmost [beginSelectRect, beginDragSelection, beginDraw, beginPan])
 
   -- Translate dragged annotations
   drag origin doc target
@@ -505,6 +520,20 @@ actions scene@Scene{..} = holdWorkflow $
 
 
     return ("crosshair", base <$ finish)
+
+
+  rectSelect p1 = action $ do
+    let box = makeBox p1 <$> mouse
+        done = current box <@ click LeftButton
+
+        parts  = boxQuery <$> current document <*> current box
+        parts' = mergeParts <$> current selection <*> parts
+
+    command SelectCmd (parts' `tag` done)
+
+    boxElem  [class_ =: "outline"] box
+    return ("crosshair", base <$ done)
+
 
   -- Pan the view when a blank part of the scene is dragged
   pan origin = action $ do

@@ -19,6 +19,10 @@ column classes children = div [classes_ =: ["d-flex flex-column", classes]] chil
 row :: Builder t m => Text -> m a -> m a
 row classes children = div [classes_ =: ["d-flex flex-row", classes]] children
 
+row_ :: Builder t m => Text -> m a -> m (ElemType t m)
+row_ classes children = div_ [classes_ =: ["d-flex flex-row", classes]] (void children)
+
+
 spacer :: Builder t m => m ()
 spacer = void $ div_ [class_ =: "m-auto"] blank
 

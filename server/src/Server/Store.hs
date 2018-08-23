@@ -12,12 +12,21 @@ import Control.Concurrent.Log
 data Annotation1 = Annotation1 { shape :: Shape, label :: ClassId }
     deriving (Generic, Show, Eq)
 
-instance Migrate Annotation where
-  type MigrateFrom Annotation = Annotation1
-  migrate Annotation1{..} = Annotation{shape, label, detection = Nothing}
+data Annotation2 = Annotation2
+  { shape :: Shape, label :: ClassId, detection :: Maybe Detection}
+    deriving (Generic, Show, Eq)
 
+instance Migrate Annotation2 where
+  type MigrateFrom Annotation2 = Annotation1
+  migrate Annotation1{..} = Annotation2{shape, label, detection = Nothing}
+
+
+instance Migrate Annotation where
+  type MigrateFrom Annotation = Annotation2
+  migrate Annotation2{..} = Annotation{shape, label, detection, confirm = True}
 
 $(deriveSafeCopy 1 'base ''Annotation1)
+$(deriveSafeCopy 2 'extension ''Annotation2)
 
 
 
@@ -29,7 +38,7 @@ $(deriveSafeCopy 0 'base ''WideLine)
 
 $(deriveSafeCopy 0 'base ''Extents)
 
-$(deriveSafeCopy 2 'extension ''Annotation)
+$(deriveSafeCopy 3 'extension ''Annotation)
 $(deriveSafeCopy 0 'base ''Shape)
 
 $(deriveSafeCopy 0 'base ''Detection)
@@ -105,5 +114,5 @@ exportImage Document{..} = TrainImage
   { imageFile = name
   , imageSize = info ^. #imageSize
   , category  = info ^. #category
-  , annotations = M.elems annotations
+  , annotations = filter (view #confirm) (M.elems annotations)
   }

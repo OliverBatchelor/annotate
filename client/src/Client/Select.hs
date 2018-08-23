@@ -43,6 +43,25 @@ tabContent selected items = void $ div_ [class_ =: "tab-content p-0 pt-2 grow"] 
     item (k, m) = div_ [classList ["tab-pane h-100", "active" `gated` isOpen k]] m
     isOpen = fanDyn selected
 
+selectPaged ::  (Ord k, Builder t m)
+            => Dynamic t Int
+            -> Dynamic t Int
+            -> Dynamic t [(k, a)]
+            -> (Dynamic t (Maybe (k, a)) -> Dynamic t Bool -> m (Event t b))
+            -> Dynamic t (Maybe k)
+            -> m (Event t b)
+selectPaged size offset items buildChild selected = do
+  m <- dynList buildChild' items'
+  return $ switch (leftmostMap <$> current m)
+    where
+
+    items' = range <$> offset <*> size <*> items
+    range off n = take n . (<> repeat Nothing) . fmap Just . drop off
+
+    buildChild' _ item = buildChild item isSelected where
+      isSelected = liftA2 (==) (fmap fst <$> item) selected
+
+    lookupItem i xs = preview (ix i) xs
 
 selectTable' :: (Ord k, Builder t m) =>  Dynamic t (Maybe k) -> Active t [(k, m ())] -> m (Event t k)
 selectTable' selected items = do

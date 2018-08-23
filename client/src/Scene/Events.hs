@@ -102,6 +102,7 @@ matchShortcuts :: Reflex t => SceneInputs t -> Event t (DMap Shortcut Identity)
 matchShortcuts SceneInputs{..} = merge $ DM.fromList
     [ (ShortUndo :=> keyCombo Key.KeyZ [Key.Control])
     , (ShortRedo :=> keyCombo Key.KeyZ [Key.Control, Key.Shift])
-    , (ShortDelete :=> leftmost [keyDown Key.Delete, keyDown Key.Backspace])
+    , (ShortDelete :=> leftmost [keyDown Key.Delete, keyDown Key.Backspace, keyDown Key.KeyX])
     , (ShortCancel :=> keyDown Key.Escape)
+    , (ShortSelect :=> (S.member Key.Shift <$> current keyboard) `tag` keyDown Key.KeyR)
     ]

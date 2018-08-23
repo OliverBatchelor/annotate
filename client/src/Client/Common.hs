@@ -91,6 +91,7 @@ data Shortcut a where
   ShortUndo   :: Shortcut ()
   ShortRedo   :: Shortcut ()
   ShortDelete :: Shortcut ()
+  ShortSelect :: Shortcut Bool
 
 
 

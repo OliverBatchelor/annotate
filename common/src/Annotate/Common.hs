@@ -46,8 +46,12 @@ data Detection = Detection
   , confidence :: Float
   } deriving (Generic, Show, Eq)
 
-data Annotation = Annotation { shape :: Shape, label :: ClassId, detection :: Maybe Detection }
-    deriving (Generic, Show, Eq)
+data Annotation = Annotation
+  { shape :: Shape
+  , label :: ClassId
+  , detection :: Maybe Detection
+  , confirm :: Bool
+  } deriving (Generic, Show, Eq)
 
 
 type AnnotationMap = Map AnnotationId Annotation
@@ -180,7 +184,7 @@ instance Default Config where
 
 instance Default Preferences where
   def = Preferences
-    { controlSize = 25
+    { controlSize = 10
     , brushSize = 40
     , instanceColours = False
     , opacity = 0.4
@@ -196,14 +200,18 @@ instance Default DetectionParams where
     , detections = 100
     }
 
-
-
 newClass :: ClassId -> ClassConfig
 newClass k = ClassConfig
   { name    = "unnamed-" <> fromString (show k)
   , colour  = fromMaybe 0xFFFF00 $ preview (ix k) defaultColours
   , shape   = BoxConfig
   }
+
+
+getConfidence :: Annotation -> Float
+getConfidence Annotation{confirm, detection} = if confirm
+    then 1.0
+    else fromMaybe 1.0 (view #confidence <$> detection)
 
 
 maxKey :: Ord k => Map k a -> Maybe k
@@ -228,8 +236,12 @@ minMap m | M.null m = Nothing
         | otherwise = Just $ M.findMin m
 
 
-setToMap :: Ord k => Set k -> Map k ()
-setToMap = M.fromDistinctAscList . fmap (, ()) . S.toAscList
+setToMap :: Ord k =>  a ->  Set k -> Map k a
+setToMap a = M.fromDistinctAscList . fmap (, a) . S.toAscList
+
+
+setToMap' :: Ord k => Set k -> Map k ()
+setToMap' = setToMap ()
 
 
 emptyCollection :: Collection

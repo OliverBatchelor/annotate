@@ -21,6 +21,7 @@ import qualified Data.Set as S
 import Data.Functor.Misc
 
 import Annotate.Geometry
+import Annotate.Common
 
 import Control.Lens (Getting, _Left, _Right)
 import Control.Applicative
@@ -42,6 +43,8 @@ maybeChanges ::  Reflex t => Dynamic t a -> (a -> a -> Maybe b) -> Event t b
 maybeChanges d f = attachWithMaybe f (current d) (updated d)
 
 
+leftmostMap :: (Reflex t, Ord k) => Map k (Event t a) -> Event t a
+leftmostMap = fmapMaybe minElem . mergeMap
 
 instance Reflex t => Functor (Updated t) where
   fmap f (Updated initial e) = Updated (f initial) (f <$> e)
@@ -470,8 +473,7 @@ diffSets old new = setToMap True added <> setToMap False deleted
   where added   = S.difference new old
         deleted = S.difference old new
 
-setToMap :: Ord k =>  a ->  Set k -> Map k a
-setToMap a = M.fromDistinctAscList . fmap (, a) . S.toAscList
+
 
 fanDyn :: (Reflex t, Ord k) => Dynamic t k -> (k -> Dynamic t Bool)
 fanDyn = fanWith (==) diffEq
