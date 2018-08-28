@@ -378,23 +378,17 @@ dynList' f d = do
       f items
 
 
-dynList :: (DomBuilder t m, MonadFix m, MonadHold t m, Foldable f)
-        => (Int -> Dynamic t a -> m b) -> Dynamic t (f a) -> m (Dynamic t (Map Int b))
+dynList :: (PostBuild t m, DomBuilder t m, MonadFix m, MonadHold t m, Foldable f)
+        => (Int -> Dynamic t a -> m b) -> Dynamic t (f a) -> m (Event t (Map Int b))
 dynList f d = do
   initial <- enumerateMap <$> sample d
+  resizes <- holdUniqDynBy (\old new -> M.size old /= M.size new) m
 
-  rec
-    r <- widgetHold (viewList initial)
-      (attachWithMaybe maybeView (current r) updates)
-
-  return r
+  dyn (viewList <$> resizes)
     where
-      updates = enumerateMap <$> updated d
-      updatesFor k = M.lookup k <?> updates
+      m = enumerateMap <$> d
+      updatesFor k = M.lookup k <?> updated m
 
-      maybeView old new = do
-        guard (M.size old /= M.size new)
-        return (viewList new)
 
       viewList = itraverse $ \k a ->
         f k =<< holdDyn a (updatesFor k)

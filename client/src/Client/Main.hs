@@ -66,7 +66,7 @@ headWidget :: forall t m. GhcjsBuilder t m => AppEnv t -> m Text
 headWidget env = do
 
 #ifdef DEBUG
-   let host = "annotate.dynu.net:3000"
+   let host = "localhost:3000"
 #else
    host <- getLocationHost
 #endif
@@ -348,15 +348,16 @@ bodyWidget host = mdo
 
       env = AppEnv
         { basePath = "http://" <> host
-        , document = document
-        , detections = detections
         , commands = cmds
-        , config = config
-        , preferences = preferences
-        , currentClass = currentClass
-        , userSelected = userSelected
         , shortcut = fan shortcuts
-        , collection = collection
+
+        , document
+        , detections
+        , config
+        , preferences
+        , currentClass
+        , userSelected
+        , collection
         }
 
   config <- holdDyn def $ leftmost [view _2 <$> hello, preview _ServerConfig <?> serverMsg]
@@ -374,6 +375,7 @@ bodyWidget host = mdo
 
       detectionsCmd = attachWithMaybe makeDetections (current document)  (preview _ServerDetection <?> serverMsg)
       cmds = leftmost [interfaceCmds, detectionsCmd]
+
 
   ((shortcuts, action, document), interfaceCmds) <- flip runReaderT env $ runEventWriterT $ do
 
@@ -428,16 +430,20 @@ cursorLock action child =
 
 
 holdCollection :: (Reflex t, MonadHold t m, MonadFix m) => Event t ServerMsg -> m (Dynamic t Collection)
-holdCollection serverMsg = foldDyn ($) emptyCollection $ mergeWith (.)
-    [ const  <$> collection
-    , applyUpdate <$> update
+holdCollection serverMsg = mdo
+  collection <- holdDyn emptyCollection $ leftmost
+    [ full
+    , attachWithMaybe applyUpdate (current collection) update
     ]
+  return collection
 
   where
-    collection = preview _ServerCollection <?> serverMsg
+    full = preview _ServerCollection <?> serverMsg
     update = preview _ServerUpdateInfo <?> serverMsg
 
-    applyUpdate (k, info) = over #images (M.insert k info)
+    applyUpdate collection (k, info) = case (== info) <$> M.lookup k (collection ^. #images) of
+      Just True -> Nothing
+      _         -> Just $ over #images (M.insert k info) collection
 
 
 
@@ -640,9 +646,12 @@ overlay document prefs = row "expand  disable-cursor" $ do
     withDocPrefs f e = f <$> current prefs <@> fmapMaybe (fmap toDocument) (current document `tag` e)
 
     submitFor :: ImageCat -> Preferences -> Document -> Document
-    submitFor cat prefs = (#info . #category .~ cat) . (#annotations %~ fmap confirmDetection)
+    submitFor cat prefs = (#info . #category .~ cat) . (#annotations %~ M.mapMaybe confirmDetection)
       where
-        confirmDetection :: Annotation -> Annotation
-        confirmDetection ann = ann & #confirm .~  (getConfidence ann >= (prefs ^. #threshold))
+
+        confirmDetection :: Annotation -> Maybe Annotation
+        confirmDetection ann = do
+          guard (getConfidence ann >= (prefs ^. #threshold))
+          return $ ann & #confirm .~ True
 
     docOpen = isJust <$> document

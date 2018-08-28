@@ -83,8 +83,10 @@ dynControls :: (Foldable f, Builder t m)
             => (Dynamic t Bool -> Dynamic t a -> m (Event t SceneEvent))
             -> Dynamic t (Maybe (Set Int)) -> Dynamic t (f a) -> m (Event t (Maybe Int, SceneEvent))
 dynControls makeControl selection ps = do
-  e <- current <$> dynList control' ps
-  return (minElem <?> switch (mergeMap <$> e))
+  update <- dynList control' ps
+  e <- switchHold never (mergeMap <$> update)
+
+  return (minElem <?> e)
 
   where
     control' k point = fmap (Just k,) <$>

@@ -52,7 +52,7 @@ selectPaged ::  (Ord k, Builder t m)
             -> m (Event t b)
 selectPaged size offset items buildChild selected = do
   m <- dynList buildChild' items'
-  return $ switch (leftmostMap <$> current m)
+  switchHold never (leftmostMap <$> m)
     where
 
     items' = range <$> offset <*> size <*> items

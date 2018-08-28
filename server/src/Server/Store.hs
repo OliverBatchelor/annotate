@@ -16,6 +16,12 @@ data Annotation2 = Annotation2
   { shape :: Shape, label :: ClassId, detection :: Maybe Detection}
     deriving (Generic, Show, Eq)
 
+data Document1 = Document1
+  { name  :: DocName
+  , info  :: DocInfo
+  , annotations :: AnnotationMap
+  } deriving (Generic, Show, Eq)
+
 instance Migrate Annotation2 where
   type MigrateFrom Annotation2 = Annotation1
   migrate Annotation1{..} = Annotation2{shape, label, detection = Nothing}
@@ -25,9 +31,24 @@ instance Migrate Annotation where
   type MigrateFrom Annotation = Annotation2
   migrate Annotation2{..} = Annotation{shape, label, detection, confirm = True}
 
+
+
+instance Migrate Document where
+  type MigrateFrom Document = Document1
+  migrate Document1{..} = Document
+    { name = name
+    , info = info & #numAnnotations .~ M.size annotations'
+    , annotations = annotations'
+    } where
+        annotations' = M.filter (view #confirm) annotations
+
+
 $(deriveSafeCopy 1 'base ''Annotation1)
 $(deriveSafeCopy 2 'extension ''Annotation2)
 
+
+
+$(deriveSafeCopy 1 'base ''Document1)
 
 
 $(deriveSafeCopy 0 'base ''V2)
@@ -44,7 +65,7 @@ $(deriveSafeCopy 0 'base ''Shape)
 $(deriveSafeCopy 0 'base ''Detection)
 
 $(deriveSafeCopy 0 'base ''ImageCat)
-$(deriveSafeCopy 1 'base ''Document)
+$(deriveSafeCopy 2 'extension ''Document)
 $(deriveSafeCopy 0 'base ''DocInfo)
 $(deriveSafeCopy 0 'base ''Config)
 $(deriveSafeCopy 0 'base ''ClassConfig)

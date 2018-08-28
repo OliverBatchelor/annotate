@@ -109,17 +109,17 @@ instance Default Action where
     }
 
 data AppEnv t = AppEnv
-  { basePath :: !Text
-  , commands :: !(Event t [AppCommand])
-  , document :: !(Dynamic t (Maybe EditorDocument))
-  , detections :: !(Dynamic t (Map AnnotationId Detection))
+  { basePath :: Text
+  , commands :: (Event t [AppCommand])
+  , document :: (Dynamic t (Maybe EditorDocument))
+  , detections :: (Dynamic t (Map AnnotationId Detection))
 
-  , config :: !(Dynamic t Config)
-  , preferences :: !(Dynamic t Preferences)
-  , currentClass :: !(Dynamic t ClassId)
-  , userSelected :: !(Dynamic t (Maybe DocName))
-  , shortcut     :: !(EventSelector t Shortcut)
-  , collection :: !(Dynamic t Collection)
+  , config :: (Dynamic t Config)
+  , preferences :: (Dynamic t Preferences)
+  , currentClass :: (Dynamic t ClassId)
+  , userSelected :: (Dynamic t (Maybe DocName))
+  , shortcut     :: (EventSelector t Shortcut)
+  , collection :: (Dynamic t Collection)
   } deriving Generic
 
 
