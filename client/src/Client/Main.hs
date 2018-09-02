@@ -222,19 +222,24 @@ sceneWidget cmds loaded = do
   return (matchShortcuts input, action, maybeDoc)
 
 
-newDetections :: AnnotationId -> [Detection] -> Map AnnotationId Detection
-newDetections nextId detections = M.fromList (zip [nextId..] detections)
+replaceDetections :: EditorDocument -> [Detection] -> EditCmd
+replaceDetections doc detections = DocEdit (replaceAllEdit doc annotations') where
+  nextId = doc ^. #nextId
+  annotations' = toAnnotation <$> M.fromList (zip [nextId..] detections)
 
-
-
-replaceDetections :: EditorDocument -> Map AnnotationId Detection -> EditCmd
-replaceDetections doc detections = DocEdit (replaceAllEdit doc (toAnnotation <$> detections)) where
   toAnnotation detection = Annotation
     { shape     = BoxShape (detection ^. #bounds)
     , label     = detection ^. #label
     , detection = Just detection
     , confirm   = False
     }
+
+annotationsPatch :: DocumentPatch -> Maybe (PatchMap AnnotationId Annotation)
+annotationsPatch = fmap PatchMap . preview _PatchAnns
+
+maybePatch :: Maybe DocumentPatch -> PatchMap AnnotationId Annotation
+maybePatch maybePatch = fromMaybe mempty (maybePatch >>= annotationsPatch)
+
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => SceneInputs t
@@ -244,20 +249,11 @@ documentEditor :: forall t m. (GhcjsAppBuilder t m)
 documentEditor input cmds loaded  = do
 
   rec
-    document <- holdDyn loaded document'
-    let (patch, document') = split (attachWithMaybe (flip applyCmd') (current document) docCmd)
-        clearCmd = (clearAnnotations <$> current document) <@ (oneOf _ClearCmd cmds)
+    document <- holdDyn loaded edited
 
-        detectionsCmd = replaceDetections <$> current document <@> detections'
-        detections' = newDetections <$> current nextId <@> oneOf _DetectionsCmd cmds
-        docCmd = leftmost [oneOf _EditCmd cmds, clearCmd, detectionsCmd]
-
-    -- Keep track of next id to use for new annotations
-    let initialId = maybe 0 (+1) (maxId loaded)
-        addNew = (>>= maxEdit) . preview _DocEdit <?> docCmd
-    nextId <- foldDyn (max . (+ 1)) initialId addNew
-
-  -- command DetectionsAddedCmd detections'
+    let (patch, edited) = split (attachWithMaybe (flip applyCmd') (current document) editCmd)
+        clearCmd  = (clearAnnotations <$> current document) <@ (oneOf _ClearCmd cmds)
+        editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd]
 
   -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $
@@ -267,8 +263,9 @@ documentEditor input cmds loaded  = do
   env <- ask
 
   rec
-    annotations  <- holdIncremental annotations0 (PatchMap <$> patch)
-    let patched = patchIncremental annotations (pending <$> document <*> action)
+    annotations  <- holdIncremental annotations0 (annotationsPatch <?> patch)
+    let patched = patchIncremental annotations (maybePatch <$> pending)
+        pending = pendingEdit <$> document <*> action
 
     -- logEvent (updated (pending <$> document <*> action))
 
@@ -277,12 +274,11 @@ documentEditor input cmds loaded  = do
       -- , viewport = viewport
       , input    = input
       , document = document
+      , currentEdit = maybePatchDocument <$> pending <*> document
 
       , selection = selection
       , annotations = patched
-      -- , detections = detections
 
-      , nextId = nextId
       , currentClass = view #currentClass env
       , config = view #config env
       , shortcut = view #shortcut env
@@ -294,10 +290,10 @@ documentEditor input cmds loaded  = do
 
 
 
-pending :: EditorDocument -> Action -> PatchMap AnnotationId Annotation
-pending doc Action{edit}
-  | Just e <- edit     = maybe mempty (PatchMap . fst) (applyEdit e doc)
-  | otherwise          = mempty
+pendingEdit :: EditorDocument -> Action -> Maybe DocumentPatch
+pendingEdit doc action = do
+  edit <- action ^. #edit
+  fst <$> applyEdit edit doc
 
 
 oneOf :: Reflex t => Getting (First a) s a -> Event t [s] -> Event t a
@@ -340,8 +336,6 @@ bodyWidget host = mdo
     "Annotate - " <> fromMaybe ("no document") (view #name <$> doc)
 
   collection <- holdCollection serverMsg
-  detections <- holdDyn mempty (oneOf _DetectionsAddedCmd cmds)
-
 
   let hello   = preview _ServerHello <?> serverMsg
       (loaded :: Event t Document)  = preview _ServerDocument <?> serverMsg
@@ -352,7 +346,6 @@ bodyWidget host = mdo
         , shortcut = fan shortcuts
 
         , document
-        , detections
         , config
         , preferences
         , currentClass
@@ -369,9 +362,10 @@ bodyWidget host = mdo
     , const . snd <$> classSelected
     ]
 
-  let makeDetections doc (k, detections) = do
-        guard (Just k == (view #name <$> doc))
-        return [DetectionsCmd detections]
+  let makeDetections maybeDoc (k, detections) = do
+        doc <- maybeDoc
+        guard (k == doc ^. #name)
+        return [EditCmd (replaceDetections doc detections)]
 
       detectionsCmd = attachWithMaybe makeDetections (current document)  (preview _ServerDetection <?> serverMsg)
       cmds = leftmost [interfaceCmds, detectionsCmd]

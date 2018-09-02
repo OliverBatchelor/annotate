@@ -66,9 +66,6 @@ data AppCommand
   | SelectCmd DocParts
   | ClearCmd
   | RemoteCmd ClientMsg
-  | DetectionsCmd [Detection]
-
-  | DetectionsAddedCmd (Map AnnotationId Detection)
 
   | DialogCmd Dialog
   | ClassCmd (Set AnnotationId) ClassId
@@ -92,11 +89,14 @@ data Shortcut a where
   ShortRedo   :: Shortcut ()
   ShortDelete :: Shortcut ()
   ShortSelect :: Shortcut Bool
+  ShortArea   :: Shortcut ()
+  ShortSelectAll :: Shortcut ()
 
+type Cursor = Text
 
 
 data Action = Action
-  { cursor      :: Text
+  { cursor      :: Cursor
   , lock        :: Bool
   , edit        :: Maybe Edit
   } deriving (Generic, Eq, Show)
@@ -112,7 +112,6 @@ data AppEnv t = AppEnv
   { basePath :: Text
   , commands :: (Event t [AppCommand])
   , document :: (Dynamic t (Maybe EditorDocument))
-  , detections :: (Dynamic t (Map AnnotationId Detection))
 
   , config :: (Dynamic t Config)
   , preferences :: (Dynamic t Preferences)

@@ -9,12 +9,12 @@ import Data.SafeCopy
 
 import Control.Concurrent.Log
 
-data Annotation1 = Annotation1 { shape :: Shape, label :: ClassId }
-    deriving (Generic, Show, Eq)
 
-data Annotation2 = Annotation2
-  { shape :: Shape, label :: ClassId, detection :: Maybe Detection}
-    deriving (Generic, Show, Eq)
+data Document2 = Document2
+  { name  :: DocName
+  , info  :: DocInfo
+  , annotations :: AnnotationMap
+  } deriving (Generic, Show, Eq)
 
 data Document1 = Document1
   { name  :: DocName
@@ -22,33 +22,47 @@ data Document1 = Document1
   , annotations :: AnnotationMap
   } deriving (Generic, Show, Eq)
 
-instance Migrate Annotation2 where
-  type MigrateFrom Annotation2 = Annotation1
-  migrate Annotation1{..} = Annotation2{shape, label, detection = Nothing}
-
-
-instance Migrate Annotation where
-  type MigrateFrom Annotation = Annotation2
-  migrate Annotation2{..} = Annotation{shape, label, detection, confirm = True}
-
-
-
 instance Migrate Document where
-  type MigrateFrom Document = Document1
-  migrate Document1{..} = Document
+  type MigrateFrom Document = Document2
+  migrate Document2{..} = Document {..}
+    where validArea = Nothing
+
+
+instance Migrate Document2 where
+  type MigrateFrom Document2 = Document1
+  migrate Document1{..} = Document2
     { name = name
     , info = info & #numAnnotations .~ M.size annotations'
     , annotations = annotations'
     } where
         annotations' = M.filter (view #confirm) annotations
 
+$(deriveSafeCopy 1 'base ''Document1)
+$(deriveSafeCopy 2 'base ''Document2)
+
+
+
+
+data Annotation1 = Annotation1 { shape :: Shape, label :: ClassId }
+    deriving (Generic, Show, Eq)
+
+data Annotation2 = Annotation2
+  { shape :: Shape, label :: ClassId, detection :: Maybe Detection}
+    deriving (Generic, Show, Eq)
+
+instance Migrate Annotation2 where
+  type MigrateFrom Annotation2 = Annotation1
+  migrate Annotation1{..} = Annotation2{shape, label, detection = Nothing}
+
+instance Migrate Annotation where
+  type MigrateFrom Annotation = Annotation2
+  migrate Annotation2{..} = Annotation{shape, label, detection, confirm = True}
 
 $(deriveSafeCopy 1 'base ''Annotation1)
 $(deriveSafeCopy 2 'extension ''Annotation2)
 
 
 
-$(deriveSafeCopy 1 'base ''Document1)
 
 
 $(deriveSafeCopy 0 'base ''V2)
@@ -65,7 +79,7 @@ $(deriveSafeCopy 0 'base ''Shape)
 $(deriveSafeCopy 0 'base ''Detection)
 
 $(deriveSafeCopy 0 'base ''ImageCat)
-$(deriveSafeCopy 2 'extension ''Document)
+$(deriveSafeCopy 3 'extension ''Document)
 $(deriveSafeCopy 0 'base ''DocInfo)
 $(deriveSafeCopy 0 'base ''Config)
 $(deriveSafeCopy 0 'base ''ClassConfig)
@@ -89,7 +103,7 @@ updateDocument :: Document -> (Store -> Store)
 updateDocument doc = #images . at (doc ^. #name) .~ Just doc
 
 emptyDoc :: DocName -> DocInfo -> Document
-emptyDoc k info = Document k info mempty
+emptyDoc k info = Document k info mempty Nothing
 
 
 instance Persistable Store where
@@ -128,6 +142,7 @@ importImage :: TrainImage -> (DocName, Document)
 importImage TrainImage{..} = (imageFile, document) where
   document = emptyDoc imageFile info
     & #annotations .~ M.fromList (zip [0..]  annotations)
+    & #validArea   .~ validArea
   info = DocInfo {modified = Nothing, imageSize = imageSize, category = category, numAnnotations = 0}
 
 exportImage :: Document -> TrainImage
@@ -136,4 +151,5 @@ exportImage Document{..} = TrainImage
   , imageSize = info ^. #imageSize
   , category  = info ^. #category
   , annotations = filter (view #confirm) (M.elems annotations)
+  , validArea = validArea
   }

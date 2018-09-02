@@ -1,5 +1,6 @@
 module Image (imageInfo, findNewImages, findImages) where
 
+import Prelude (lines)
 import Annotate.Prelude
 import Annotate.Common
 
@@ -30,13 +31,12 @@ defaultInfo dim = DocInfo
 imageInfo :: FilePath -> DocName -> IO (Maybe DocInfo)
 imageInfo root filename = do
   (exit, out, _) <- readProcessWithExitCode "identify" [path] ""
-  return $ case exit of
-    ExitSuccess -> toInfo <$> parseMaybe parseIdentify out
-    _           -> Nothing
+  return $ toInfo <$> parseMaybe parseIdentify (firstLine out)
 
     where
       toInfo (_, _, dim) = defaultInfo dim
       path = root </> Text.unpack filename
+      firstLine = concat . take 1 . lines
 
 
 validExtension :: [String] -> FilePath -> Bool
@@ -47,6 +47,7 @@ validExtension exts filename = any (\e -> fmap toLower e == ext) exts where
 findImages :: Config -> FilePath -> IO [DocName]
 findImages config root = do
   contents <- fmap fromString <$> listDirectory root
+
   return $ fromString <$> filter (validExtension exts) contents
     where exts = Text.unpack <$> config ^. #extensions
 
@@ -54,7 +55,7 @@ findNewImages :: Config -> FilePath -> Set DocName -> IO [(DocName, DocInfo)]
 findNewImages config root existing = do
   images <- findImages config root
 
-  catMaybes <$> for (filter (`S.notMember` existing) images) 
+  catMaybes <$> for (filter (`S.notMember` existing) images)
     (\image -> fmap (image, ) <$> imageInfo root image)
 
 

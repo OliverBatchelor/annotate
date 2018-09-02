@@ -64,11 +64,11 @@ data Scene t = Scene
   , input    :: !(SceneInputs t)
 
   , document :: !(Dynamic t EditorDocument)
+  , currentEdit :: !(Dynamic t EditorDocument)
 
   , selection :: !(Dynamic t DocParts)
   , annotations  :: !(Incremental t (PatchMap AnnotationId Annotation))
 
-  , nextId       :: !(Dynamic t AnnotationId)
   , currentClass :: !(Dynamic t ClassId)
   , config       :: !(Dynamic t Config)
   , preferences  :: !(Dynamic t Preferences)

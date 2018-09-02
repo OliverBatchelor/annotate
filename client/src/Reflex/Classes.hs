@@ -55,8 +55,15 @@ holdUpdated (Updated a0 a') = holdDyn a0 a'
 runWithReplace' :: Adjustable t m => Event t (m b) -> m (Event t b)
 runWithReplace' e = snd <$> runWithReplace blank e
 
+instance Reflex t => Default (Event t a) where
+  def = never
+
+
 replaceHold :: (Adjustable t m, SwitchHold t a, MonadHold t m) => m a -> Event t (m a) -> m a
 replaceHold initial e = uncurry switchHold =<< runWithReplace initial e
+
+replaceHold' :: (Adjustable t m, SwitchHold t a, MonadHold t m, Default a) =>  Event t (m a) -> m a
+replaceHold' = replaceHold (return def)
 
 runWithClose :: (Adjustable t m, MonadHold t m, MonadFix m) => Event t (m (Event t a)) -> m (Event t a)
 runWithClose e = do

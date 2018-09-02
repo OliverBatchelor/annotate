@@ -90,7 +90,8 @@ data TrainImage = TrainImage
   { imageFile   :: DocName,
     annotations :: [Annotation],
     imageSize   :: (Int, Int),
-    category    :: ImageCat
+    category    :: ImageCat,
+    validArea   :: Maybe Box
   } deriving (Show, Eq, Generic)
 
 

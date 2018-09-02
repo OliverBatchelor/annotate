@@ -61,6 +61,7 @@ data Document = Document
   { name  :: DocName
   , info  :: DocInfo
   , annotations :: AnnotationMap
+  , validArea   :: Maybe Box
   } deriving (Generic, Show, Eq)
 
 

@@ -101,6 +101,11 @@ boxExtents = iso toExtents fromExtents where
 intersectRanges :: Range -> Range -> Bool
 intersectRanges (Range l u) (Range l' u') = not (u < l' || l > u')
 
+rangeIntersection :: Range -> Range -> Maybe Range
+rangeIntersection (Range l u) (Range l' u') = if upper >= lower
+    then Just (Range lower upper) else Nothing
+        where (lower, upper) = (max l l', min u u')
+
 intersectBoxBox :: Box -> Box -> Bool
 intersectBoxBox (Box (V2 lx ly) (V2 ux uy)) (Box (V2 lx' ly') (V2 ux' uy')) =
     intersectRanges (Range lx ux) (Range lx' ux') &&
@@ -110,6 +115,16 @@ intersectBoxPoint :: Box -> Position -> Bool
 intersectBoxPoint (Box (V2 lx ly) (V2 ux uy)) (V2 x y) =
     x >= lx && y >= ly &&
     x <= ux && y <= uy
+
+
+boxIntersection :: Box -> Box -> Maybe Box
+boxIntersection (Box (V2 lx ly) (V2 ux uy)) (Box (V2 lx' ly') (V2 ux' uy')) = do
+  x <- rangeIntersection (Range lx ux) (Range lx' ux')
+  y <- rangeIntersection (Range ly uy) (Range ly' uy')
+  return $ fromRanges x y
+
+fromRanges :: Range -> Range -> Box
+fromRanges (Range lx ux) (Range ly uy) = Box (V2 lx ly) (V2 ux uy)
 
 
 data Corner = TopLeft | TopRight | BottomRight | BottomLeft

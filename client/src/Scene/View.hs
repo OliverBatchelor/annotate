@@ -167,6 +167,14 @@ polygonElem props poly  = polygon_ $ props <> [points_ ~: toList . view #points 
 urlId :: Text -> Text
 urlId i = "url(#" <> i <> ")"
 
+url :: Text -> Text
+url t = "url(" <> t <> ")"
+
+cursorImage :: Text -> Text
+cursorImage t = "url(" <> t <> ") 12 12, auto"
+
+
+
 href_id_ :: Attribute Text
 href_id_ = contramap urlId href_
 
@@ -298,7 +306,6 @@ holdChanges initial e = flip attach e <$> hold initial e
 
 
 type SceneAction t m = Workflow t m (Dynamic t Action)
-type Cursor = Text
 
 
 action :: AppBuilder t m => m (Dynamic t Cursor, Event t (SceneAction t m)) -> SceneAction t m
@@ -313,7 +320,8 @@ editAction m = Workflow $ do
 
 
 addAnnotation :: AppBuilder t m => Scene t -> Event t Annotation -> m ()
-addAnnotation Scene{nextId} add = editCommand (addEdit <$> current nextId <@> add)
+addAnnotation scene add = editCommand (addEdit <$> current nextId <@> add)
+  where nextId = view #nextId <$> scene ^. #document
 
 
 
@@ -467,20 +475,47 @@ boxQuery EditorDocument{annotations} box = M.mapMaybe (queryShape . view #shape)
 
   f i b = if b then Just i else Nothing
 
+
+
+
+maskOut :: AppBuilder t m => Dim -> Dynamic t (Maybe Box) -> m ()
+maskOut dim box = void $ do
+  path_ [ d_ ~: shadowPath, class_ =: "shadow" ]
+  -- path_ [ d_ ~: boxPath,    class_ =: "dotted" ]
+
+    where
+      imageBox = Box (V2 0 0) (fromDim dim)
+      overlap    = (>>= boxIntersection imageBox) <$> box
+
+      shadowPath = fromMaybe [] . fmap (maskPath imageBox) <$> overlap
+      boxPath    = fromMaybe [] . fmap (polygon . boxVertices') <$> overlap
+
+
+
+m :: V2 Float -> PathCommand
+m (V2 x y) = M x y
+
+l :: V2 Float -> PathCommand
+l (V2 x y) = L x y
+
+polygon :: [V2 Float] -> [PathCommand]
+polygon (v:vs) = (m v : fmap l vs) <> [Z]
+
+maskPath :: Box -> Box -> [PathCommand]
+maskPath outer inner = polygon (boxVertices' outer) <> polygon (reverse (boxVertices' inner))
+
+
+
 actions :: AppBuilder t m => Scene t -> m (Dynamic t Action)
 actions scene@Scene{..} = holdWorkflow $
   commonTransition (base <$ cancel) base where
 
-  base = Workflow $ do
-    let mouseDownAt = current mouse <@ mouseDown LeftButton
-        beginPan    = pan <$> mouseDownAt
-        beginSelectRect = rectSelect <$> gate (S.member Key.Shift <$> current keyboard) mouseDownAt
+  base = action $ do
+    let beginPan    = pan <$> mouseDownAt
+        beginSelectRect = rectSelect <$> gate (current holdingShift) mouseDownAt
 
         beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` keyDown Key.Space
         beginDragSelection   = filterMaybe $ drag <$> current mouse <*> current document <@> selection'
-
-        selection'  = selectParts scene
-
 
     viewCommand zoomCmd
     command SelectCmd selection'
@@ -491,7 +526,7 @@ actions scene@Scene{..} = holdWorkflow $
     docCommand (const DocUndo) (select shortcut ShortUndo)
     docCommand (const DocRedo) (select shortcut ShortRedo)
 
-    return (def, leftmost [beginSelectRect, beginDragSelection, beginDraw, beginPan])
+    return (defaultCursor, leftmost [beginSelectRect, beginDragSelection, beginDraw, beginPan, selectArea <$ select shortcut ShortArea])
 
   -- Translate dragged annotations
   drag origin doc target
@@ -524,6 +559,22 @@ actions scene@Scene{..} = holdWorkflow $
     return ("crosshair", base <$ finish)
 
 
+  selectArea = editAction $ do
+
+    selectedArea <- replaceHold (return (pure Nothing)) $ ffor mouseDownAt $ \p1 -> do
+      let box = makeBox p1 <$> mouse
+          dim = snd image
+          imageBox = Box (V2 0 0) (fromDim dim)
+          overlap  = boxIntersection imageBox <$> box
+      return overlap
+
+    let doneEdit     = current selectedEdit `tag` mouseUp LeftButton
+        selectedEdit = setAreaEdit <$> selectedArea
+
+    editCommand doneEdit
+    return (pure "crosshair", selectedEdit, base <$ doneEdit)
+
+
   rectSelect p1 = action $ do
     let box = makeBox p1 <$> mouse
         done = current box <@ click LeftButton
@@ -534,7 +585,7 @@ actions scene@Scene{..} = holdWorkflow $
     command SelectCmd (parts' `tag` done)
 
     boxElem  [class_ =: "outline"] box
-    return ("crosshair", base <$ done)
+    return (defaultCursor, base <$ done)
 
 
   -- Pan the view when a blank part of the scene is dragged
@@ -549,6 +600,11 @@ actions scene@Scene{..} = holdWorkflow $
   cancel = leftmost [void focus, void $ keyDown Key.Escape]
 
   SceneInputs{..} = input
+  selection'  = selectParts scene
+  mouseDownAt = current mouse <@ mouseDown LeftButton
+
+  holdingShift   = S.member Key.Shift <$> keyboard
+  defaultCursor = (\b -> if b then "copy" else "default") <$> holdingShift
 
 
 sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart, SceneEvent))
@@ -562,7 +618,11 @@ sceneView scene@Scene{..} = do
     events <- holdMergePatched =<< incrementalMapWithUpdates annotations (\k ->
        annotationView classMap threshold instanceCols (isSelected k) k)
 
+    maskOut (snd image) (view #validArea <$> currentEdit)
+
     action <- actions scene
+
+
     return (action, minElem <?> events)
       where
           isSelected = fanDynMap selection
