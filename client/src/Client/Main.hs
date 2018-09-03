@@ -11,6 +11,7 @@ import qualified Data.Set as S
 
 import Text.Printf
 import Data.Text.Encoding
+import qualified Network.URI.Encode as URI
 
 import Data.Default
 import Data.FileEmbed
@@ -182,9 +183,11 @@ handleHistory selected = mdo
    where
      fromFrag "#"   = Nothing
      fromFrag ""    = Nothing
-     fromFrag frag  = Just (T.drop 1 frag)
+     fromFrag frag  = Just (decodeFrag frag)
 
-     uriDocument = T.pack . drop 1 . view #uriFragment . _historyItem_uri
+     decodeFrag = URI.decodeText . T.drop 1
+
+     uriDocument = decodeFrag . T.pack . view #uriFragment . _historyItem_uri
 
      updateHistory item Nothing k = Just $ HistoryCommand_ReplaceState $ update item k
      updateHistory item (Just previous) k
@@ -194,7 +197,7 @@ handleHistory selected = mdo
      update (HistoryItem state uri) k = HistoryStateUpdate
         { _historyStateUpdate_state = state
         , _historyStateUpdate_title = ""
-        , _historyStateUpdate_uri   = Just $ uri & #uriFragment .~ T.unpack ("#" <> k)
+        , _historyStateUpdate_uri   = Just $ uri & #uriFragment .~ T.unpack ("#" <> URI.encodeText k)
         }
 
 

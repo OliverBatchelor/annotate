@@ -78,6 +78,7 @@ library
                      , friendly-time
                      , file-embed
                      , stitch
+                     , uri-encode
 
 
   if !impl(ghcjs)

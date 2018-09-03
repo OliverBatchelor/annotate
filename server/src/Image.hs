@@ -31,10 +31,10 @@ defaultInfo dim = DocInfo
 imageInfo :: FilePath -> DocName -> IO (Maybe DocInfo)
 imageInfo root filename = do
   (exit, out, _) <- readProcessWithExitCode "identify" [path] ""
-  return $ toInfo <$> parseMaybe parseIdentify (firstLine out)
+  return $ toInfo <$> parseMaybe (parseIdentify path) (firstLine out)
 
     where
-      toInfo (_, _, dim) = defaultInfo dim
+      toInfo (_, dim) = defaultInfo dim
       path = root </> Text.unpack filename
       firstLine = concat . take 1 . lines
 
@@ -62,19 +62,17 @@ findNewImages config root existing = do
 type Parser = Parsec Void String
 
 -- example: /home/oliver/trees/_DSC2028.JPG JPEG 1600x1064 1600x1064+0+0 8-bit sRGB 958KB 0.000u 0:00.000
-parseIdentify :: Parser (FilePath, String, Dim)
-parseIdentify = do
-  filename <- parseFilename
+parseIdentify :: FilePath -> Parser (String, Dim)
+parseIdentify path = do
+  filename <- string path
   space
   code <- fileCode
   space
   dim <- parseDim
   void $ many anyChar
-  return (filename, code, dim)
+  return (code, dim)
 
 
-parseFilename :: Parser String
-parseFilename = takeWhile1P Nothing (not . isSpace) <?> "word"
 
 fileCode :: Parser String
 fileCode = some letterChar <?> "file code"
