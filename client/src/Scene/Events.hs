@@ -106,5 +106,6 @@ matchShortcuts SceneInputs{..} = merge $ DM.fromList
     , (ShortCancel :=> keyDown Key.Escape)
     , (ShortSelect :=> (S.member Key.Shift <$> current keyboard) `tag` keyDown Key.KeyR)
     , (ShortSelectAll :=> keyCombo Key.KeyA [Key.Control])
-    , (ShortArea :=> keyCombo Key.KeyQ [Key.Control])
+    , (ShortArea :=> keyCombo Key.KeyA [Key.Alt])
+    , (ShortClass :=> keyCombo Key.KeyC [Key.Alt])
     ]

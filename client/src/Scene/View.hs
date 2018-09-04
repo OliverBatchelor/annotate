@@ -406,18 +406,6 @@ addShapes scene e = addAnnotation scene (makeAnnotation e)
       }
 
 
-subParts :: EditorDocument -> AnnotationId -> Set Int
-subParts doc k = fromMaybe mempty $  do
-  ann <- M.lookup k (doc ^. #annotations)
-  return $ shapeParts (ann ^. #shape)
-
-
-shapeParts :: Shape -> Set Int
-shapeParts = \case
-    BoxShape _                  -> S.fromList [0..3]
-    LineShape (WideLine points)   -> S.fromList [0..length points]
-    PolygonShape (Polygon points) -> S.fromList [0..length points]
-
 alterPart ::  AnnotationId -> (Set Int -> Set Int) -> DocParts -> DocParts
 alterPart k f = M.alter f' k where
   f' p = if null result then Nothing else Just result
@@ -449,10 +437,9 @@ selectChange keys doc existing target
 
 
 selectParts :: Reflex t => Scene t -> Event t DocParts
-selectParts Scene{document, selection, input} =
-  selectChange <$> current keyboard <*> current document <*> current selection <@> partsClicked
+selectParts Scene{document, selection, input, shortcut} =
+  selectChange <$> current keyboard <*> current document <*> current selection <@> partsClicked where
 
-  where
     partsClicked = leftmost
       [ Just <$> mouseDownOn
       , Nothing <$ mouseDown LeftButton
@@ -515,10 +502,10 @@ actions scene@Scene{..} = holdWorkflow $
         beginSelectRect = rectSelect <$> gate (current holdingShift) mouseDownAt
 
         beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` keyDown Key.Space
-        beginDragSelection   = filterMaybe $ drag <$> current mouse <*> current document <@> selection'
+        beginDragSelection   = filterMaybe $ drag <$> current mouse <*> current document <@> selectionClick
 
     viewCommand zoomCmd
-    command SelectCmd selection'
+    command SelectCmd $ leftmost [selectAll, selectionClick]
 
     editCommand $ deletePartsEdit <$> current selection <*> current document
        <@ select shortcut ShortDelete
@@ -600,7 +587,11 @@ actions scene@Scene{..} = holdWorkflow $
   cancel = leftmost [void focus, void $ keyDown Key.Escape]
 
   SceneInputs{..} = input
-  selection'  = selectParts scene
+
+  selectAll        = documentParts <$> current document `tag` select shortcut ShortSelectAll
+  selectionClick   = selectParts scene
+
+
   mouseDownAt = current mouse <@ mouseDown LeftButton
 
   holdingShift   = S.member Key.Shift <$> keyboard

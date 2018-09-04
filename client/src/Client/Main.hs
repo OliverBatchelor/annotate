@@ -31,7 +31,7 @@ import qualified Reflex.Classes as R
 
 import Data.Functor.Misc (Const2(..))
 
-import Builder.Html
+import Builder.Html hiding (select)
 import qualified Builder.Html as Html
 import qualified Builder.Svg as Svg
 
@@ -204,7 +204,7 @@ handleHistory selected = mdo
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
             => Event t [AppCommand]
             -> Event t Document
-            -> m (Event t (DMap Shortcut Identity), Dynamic t Action, Dynamic t (Maybe EditorDocument))
+            -> m (Event t (DMap Shortcut Identity), Dynamic t Action, Dynamic t (Maybe EditorDocument), Dynamic t DocParts)
 sceneWidget cmds loaded = do
 
   dim <- holdDyn (800, 600) (view (#info . #imageSize) <$> loaded)
@@ -212,17 +212,16 @@ sceneWidget cmds loaded = do
 
   rec
     input <- holdInputs (current viewport) sceneEvents =<< windowInputs element
-    let (action, maybeDoc, sceneEvents) = r
+    let (action, maybeDoc, sceneEvents, selection) = r
 
 
     (element, r) <- Svg.svg' [class_ =: "expand enable-cursor", version_ =: "2.0"] $ do
         sceneDefines viewport =<< view #preferences
 
-        inViewport viewport $ replaceHold
-            (pure (def, pure Nothing, never))
+        inViewport viewport $ replaceHold'
             (documentEditor input cmds . fromDocument <$> loaded)
 
-  return (matchShortcuts input, action, maybeDoc)
+  return (matchShortcuts input, action, maybeDoc, selection)
 
 
 replaceDetections :: EditorDocument -> [Detection] -> EditCmd
@@ -243,25 +242,44 @@ annotationsPatch = fmap PatchMap . preview _PatchAnns
 maybePatch :: Maybe DocumentPatch -> PatchMap AnnotationId Annotation
 maybePatch maybePatch = fromMaybe mempty (maybePatch >>= annotationsPatch)
 
+historyEntry :: GhcjsAppBuilder t m => Event t EditCmd -> m (Event t (UTCTime, HistoryEntry))
+historyEntry e = performEvent $ ffor e $ \cmd -> do
+  time <- liftIO getCurrentTime
+  return (time, entry cmd) where
+    entry = \case
+      DocUndo   -> HistUndo
+      DocRedo   -> HistRedo
+      DocEdit e -> HistEdit e
+
+
+setClassCommand :: EditorDocument -> (Set AnnotationId, ClassId) -> Maybe EditCmd
+setClassCommand doc (selection, classId) = do
+  guard (S.size selection > 0)
+  return $ DocEdit (setClassEdit classId selection doc)
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => SceneInputs t
             -> Event t [AppCommand]
             -> EditorDocument
-            -> m (Dynamic t Action, Dynamic t (Maybe EditorDocument), Event t (DocPart, SceneEvent))
+            -> m (Dynamic t Action, Dynamic t (Maybe EditorDocument), Event t (DocPart, SceneEvent), Dynamic t DocParts)
 documentEditor input cmds loaded  = do
 
   rec
     document <- holdDyn loaded edited
 
     let (patch, edited) = split (attachWithMaybe (flip applyCmd') (current document) editCmd)
-        clearCmd  = (clearAnnotations <$> current document) <@ (oneOf _ClearCmd cmds)
-        editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd]
+        clearCmd      = (clearAnnotations <$> current document) <@ (oneOf _ClearCmd cmds)
+        setClassCmd   = attachWithMaybe setClassCommand (current document) (oneOf _ClassCmd cmds)
+
+        editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd]
 
   -- Set selection to the last added annotations (including undo/redo etc.)
-  selection <- holdDyn mempty $
-    leftmost [oneOf _SelectCmd cmds]
+  selection <- holdDyn mempty $ oneOf _SelectCmd cmds
 
+  time <- liftIO getCurrentTime
+
+  entry <- historyEntry editCmd
+  history <- foldDyn (:) [(time, HistOpen)] entry
 
   env <- ask
 
@@ -288,8 +306,9 @@ documentEditor input cmds loaded  = do
       , preferences = view #preferences env
       }
 
-  return (action, (Just <$> document), sceneEvents)
+  return (action, (withHistory <$> document <*> history), sceneEvents, selection)
     where annotations0 = loaded ^. #annotations
+          withHistory doc entries = Just (doc & over #history (entries <>))
 
 
 
@@ -342,12 +361,13 @@ bodyWidget host = mdo
 
   let hello   = preview _ServerHello <?> serverMsg
       (loaded :: Event t Document)  = preview _ServerDocument <?> serverMsg
+      shortcut = fan shortcuts
 
       env = AppEnv
         { basePath = "http://" <> host
         , commands = cmds
-        , shortcut = fan shortcuts
-
+        , shortcut
+        , selection
         , document
         , config
         , preferences
@@ -374,17 +394,18 @@ bodyWidget host = mdo
       cmds = leftmost [interfaceCmds, detectionsCmd]
 
 
-  ((shortcuts, action, document), interfaceCmds) <- flip runReaderT env $ runEventWriterT $ do
+  ((shortcuts, action, document, selection), interfaceCmds) <- flip runReaderT env $ runEventWriterT $ do
 
     runWithClose $ leftmost
       [ runDialog <$> oneOf _DialogCmd cmds
       , errorDialog <$> serverErrors
+
       ]
 
     cursorLock action $ do
       div [class_ =: "scene expand"] $
         const <$> sceneWidget cmds loaded
-              <*> overlay document preferences
+              <*> overlay shortcut document preferences
   return env
 
 runDialog :: AppBuilder t m => Dialog -> m (Event t ())
@@ -593,15 +614,18 @@ sidebar = mdo
 selectedClass :: Reflex t => AppEnv t -> Dynamic t (Maybe ClassConfig)
 selectedClass AppEnv{config, currentClass} = M.lookup <$> currentClass <*> fmap (view #classes) config
 
-overlay :: forall t m. AppBuilder t m => Dynamic t (Maybe EditorDocument) -> Dynamic t Preferences -> m ()
-overlay document prefs = row "expand  disable-cursor" $ do
+overlay :: forall t m. AppBuilder t m => EventSelector t Shortcut -> Dynamic t (Maybe EditorDocument) -> Dynamic t Preferences -> m ()
+overlay shortcut document prefs = row "expand  disable-cursor" $ do
    sidebar
    column "expand" $
     sequence_ [header, spacer, footer]
 
   where
     header = buttonRow $ do
-      asks selectedClass >>= classToolButton >>= command (const (DialogCmd (ClassDialog mempty)))
+      clickSelect <- asks selectedClass >>= classToolButton
+      selection   <- view #selection
+      command (DialogCmd . ClassDialog) $
+        current selection `tag` leftmost [clickSelect, select shortcut ShortClass]
 
       spacer
 

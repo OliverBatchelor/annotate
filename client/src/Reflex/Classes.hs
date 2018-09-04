@@ -23,7 +23,7 @@ import Data.Functor.Misc
 import Annotate.Geometry
 import Annotate.Common
 
-import Control.Lens (Getting, _Left, _Right)
+import Control.Lens (Getting, _Left, _Right, _5, _6, _7, _8)
 import Control.Applicative
 
 import Data.Sequence ( ViewL(..), Seq(..), viewl, (|>) )
@@ -57,6 +57,12 @@ runWithReplace' e = snd <$> runWithReplace blank e
 
 instance Reflex t => Default (Event t a) where
   def = never
+
+
+
+instance (Reflex t, Default a) => Default (Behavior t a) where
+  def = pure def
+
 
 
 replaceHold :: (Adjustable t m, SwitchHold t a, MonadHold t m) => m a -> Event t (m a) -> m a
@@ -164,15 +170,31 @@ instance Reflex t => SwitchHold t () where
     switchHold _ _ = return ()
 
 instance (Reflex t, SwitchHold t a, SwitchHold t b) => SwitchHold t (a, b) where
-    switchHold (a, b) e = liftA2 (,)
-      (switchHold a (fst <$> e))
-      (switchHold b (snd <$> e))
+    switchHold (a, b) ev = liftA2 (,)
+      (switchHold a (fst <$> ev))
+      (switchHold b (snd <$> ev))
 
 instance (Reflex t, SwitchHold t a, SwitchHold t b, SwitchHold t c) => SwitchHold t (a, b, c) where
-    switchHold (a, b, c) e = liftA3 (,,)
-      (switchHold a (view _1 <$> e))
-      (switchHold b (view _2 <$> e))
-      (switchHold c (view _3 <$> e))
+    switchHold (a, b, c) ev = liftA3 (,,)
+      (switchHold a (view _1 <$> ev))
+      (switchHold b (view _2 <$> ev))
+      (switchHold c (view _3 <$> ev))
+
+
+instance (Reflex t, SwitchHold t a, SwitchHold t b, SwitchHold t c, SwitchHold t d) => SwitchHold t (a, b, c, d) where
+    switchHold (a, b, c, d) ev = (,,,) <$>
+      (switchHold a (view _1 <$> ev)) <*>
+      (switchHold b (view _2 <$> ev)) <*>
+      (switchHold c (view _3 <$> ev)) <*>
+      (switchHold d (view _4 <$> ev))
+
+instance (Reflex t, SwitchHold t a, SwitchHold t b, SwitchHold t c, SwitchHold t d, SwitchHold t e) => SwitchHold t (a, b, c, d, e) where
+    switchHold (a, b, c, d, e) ev = (,,,,) <$>
+      (switchHold a (view _1 <$> ev)) <*>
+      (switchHold b (view _2 <$> ev)) <*>
+      (switchHold c (view _3 <$> ev)) <*>
+      (switchHold d (view _4 <$> ev)) <*>
+      (switchHold e (view _5 <$> ev))
 
 instance Reflex t => SwitchHold t (Dynamic t a) where
   switchHold d ed = do

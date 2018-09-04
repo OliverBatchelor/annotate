@@ -57,11 +57,49 @@ data Annotation = Annotation
 type AnnotationMap = Map AnnotationId Annotation
 
 
+data EditAction
+  = Add Annotation
+  | Delete
+  | Modify Annotation
+  deriving (Generic, Show, Eq)
+
+
+  -- data AddAction
+  --   = AddObject Annotation
+  --   | AddPolygon (Map Int Position)
+  --   | AddLine (Map Int Circle)
+  --   deriving (Generic, Show, Eq)
+  --
+  --
+  -- data Edit
+  --   = Add (Map AnnotationId AddAction)
+  --   | Delete DocParts
+  --   | SetClass (Set AnnotationId) ClassId
+  --   | Transform DocParts Float Vector
+  --   | SetArea (Maybe Box)
+  --   deriving (Eq, Show, Generic)
+
+
+-- TODO: Edit _should_ be basic operations as above, e.g. add/delete/move
+data Edit = Edit (Map AnnotationId EditAction)
+          | SetArea (Maybe Box)
+  deriving (Eq, Show, Generic)
+
+
+data HistoryEntry = HistOpen | HistSubmit | HistEdit Edit | HistUndo | HistRedo
+  deriving (Show, Eq, Generic)
+
+data EditCmd = DocEdit Edit | DocUndo | DocRedo
+  deriving (Show, Eq, Generic)
+
+
 data Document = Document
   { name  :: DocName
   , info  :: DocInfo
   , annotations :: AnnotationMap
   , validArea   :: Maybe Box
+  , history :: [(UTCTime, HistoryEntry)]
+
   } deriving (Generic, Show, Eq)
 
 
@@ -150,6 +188,13 @@ instance FromJSON Shape
 instance FromJSON Annotation
 instance FromJSON Detection
 
+instance FromJSON EditAction
+instance FromJSON HistoryEntry
+instance FromJSON Edit
+instance FromJSON EditCmd
+
+
+
 instance FromJSON Document
 instance FromJSON Config
 instance FromJSON DocInfo
@@ -168,6 +213,12 @@ instance ToJSON ImageCat
 instance ToJSON Shape
 instance ToJSON Annotation
 instance ToJSON Detection
+
+instance ToJSON EditAction
+instance ToJSON HistoryEntry
+instance ToJSON Edit
+instance ToJSON EditCmd
+
 instance ToJSON Document
 instance ToJSON Config
 instance ToJSON DocInfo

@@ -91,6 +91,7 @@ data Shortcut a where
   ShortSelect :: Shortcut Bool
   ShortArea   :: Shortcut ()
   ShortSelectAll :: Shortcut ()
+  ShortClass  :: Shortcut ()
 
 type Cursor = Text
 
@@ -112,12 +113,13 @@ data AppEnv t = AppEnv
   { basePath :: Text
   , commands :: (Event t [AppCommand])
   , document :: (Dynamic t (Maybe EditorDocument))
-
   , config :: (Dynamic t Config)
   , preferences :: (Dynamic t Preferences)
   , currentClass :: (Dynamic t ClassId)
   , userSelected :: (Dynamic t (Maybe DocName))
   , shortcut     :: (EventSelector t Shortcut)
+  , selection    ::  (Dynamic t DocParts)
+
   , collection :: (Dynamic t Collection)
   } deriving Generic
 

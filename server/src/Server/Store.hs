@@ -9,6 +9,12 @@ import Data.SafeCopy
 
 import Control.Concurrent.Log
 
+data Document3 = Document3
+  { name  :: DocName
+  , info  :: DocInfo
+  , annotations :: AnnotationMap
+  , validArea   :: Maybe Box
+  } deriving (Generic, Show, Eq)
 
 data Document2 = Document2
   { name  :: DocName
@@ -23,10 +29,14 @@ data Document1 = Document1
   } deriving (Generic, Show, Eq)
 
 instance Migrate Document where
-  type MigrateFrom Document = Document2
-  migrate Document2{..} = Document {..}
-    where validArea = Nothing
+  type MigrateFrom Document = Document3
+  migrate Document3{..} = Document {..}
+    where history = []
 
+instance Migrate Document3 where
+  type MigrateFrom Document3 = Document2
+  migrate Document2{..} = Document3 {..}
+    where validArea = Nothing
 
 instance Migrate Document2 where
   type MigrateFrom Document2 = Document1
@@ -39,6 +49,7 @@ instance Migrate Document2 where
 
 $(deriveSafeCopy 1 'base ''Document1)
 $(deriveSafeCopy 2 'base ''Document2)
+$(deriveSafeCopy 3 'base ''Document3)
 
 
 
@@ -61,10 +72,6 @@ instance Migrate Annotation where
 $(deriveSafeCopy 1 'base ''Annotation1)
 $(deriveSafeCopy 2 'extension ''Annotation2)
 
-
-
-
-
 $(deriveSafeCopy 0 'base ''V2)
 $(deriveSafeCopy 0 'base ''Box)
 $(deriveSafeCopy 0 'base ''Circle)
@@ -79,11 +86,16 @@ $(deriveSafeCopy 0 'base ''Shape)
 $(deriveSafeCopy 0 'base ''Detection)
 
 $(deriveSafeCopy 0 'base ''ImageCat)
-$(deriveSafeCopy 3 'extension ''Document)
+$(deriveSafeCopy 4 'extension ''Document)
 $(deriveSafeCopy 0 'base ''DocInfo)
 $(deriveSafeCopy 0 'base ''Config)
 $(deriveSafeCopy 0 'base ''ClassConfig)
 $(deriveSafeCopy 0 'base ''ShapeConfig)
+
+$(deriveSafeCopy 0 'base ''HistoryEntry)
+$(deriveSafeCopy 0 'base ''Edit)
+$(deriveSafeCopy 0 'base ''EditAction)
+
 
 $(deriveSafeCopy 0 'base ''Store)
 
@@ -103,7 +115,7 @@ updateDocument :: Document -> (Store -> Store)
 updateDocument doc = #images . at (doc ^. #name) .~ Just doc
 
 emptyDoc :: DocName -> DocInfo -> Document
-emptyDoc k info = Document k info mempty Nothing
+emptyDoc k info = Document k info mempty Nothing []
 
 
 instance Persistable Store where

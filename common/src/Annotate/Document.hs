@@ -33,17 +33,7 @@ data DocumentPatch = PatchAnns (Map AnnotationId (Maybe Annotation))
                    | PatchArea (Maybe Box)
      deriving (Show, Eq, Generic)
 
-data EditAction
-  = Add Annotation
-  | Delete
-  | Modify Annotation
-  deriving (Generic, Show, Eq)
 
-
--- TODO: Edit _should_ be basic operations, e.g. add/delete/move
-data Edit = Edit (Map AnnotationId EditAction)
-          | SetArea (Maybe Box)
-  deriving (Eq, Show, Generic)
 
 
 data EditorDocument = EditorDocument
@@ -54,11 +44,10 @@ data EditorDocument = EditorDocument
   , annotations :: AnnotationMap
   , validArea :: Maybe Box
   , nextId :: AnnotationId
+  , history :: [(UTCTime, HistoryEntry)]
   } deriving (Generic, Show, Eq)
 
 
-data EditCmd = DocEdit Edit | DocUndo | DocRedo
-  deriving (Show, Eq, Generic)
 
 fromDocument :: Document -> EditorDocument
 fromDocument Document{..} = EditorDocument
@@ -69,6 +58,7 @@ fromDocument Document{..} = EditorDocument
     , validArea
     , annotations
     , nextId = fromMaybe 0 (maxKey annotations)
+    , history
     }
 
 toDocument :: EditorDocument -> Document
@@ -77,6 +67,7 @@ toDocument EditorDocument{..} = Document
   , info
   , validArea
   , annotations
+  , history
   }
 
 
@@ -109,6 +100,21 @@ maxId EditorDocument{..} = maybeMaximum
   , maxEdits redos
   , maxKey annotations
   ]
+
+subParts :: EditorDocument -> AnnotationId -> Set Int
+subParts doc k = fromMaybe mempty $  do
+  ann <- M.lookup k (doc ^. #annotations)
+  return $ shapeParts (ann ^. #shape)
+
+documentParts :: EditorDocument -> DocParts
+documentParts = fmap (shapeParts . view #shape) . view #annotations
+
+shapeParts :: Shape -> Set Int
+shapeParts = \case
+    BoxShape _                  -> S.fromList [0..3]
+    LineShape (WideLine points)   -> S.fromList [0..length points]
+    PolygonShape (Polygon points) -> S.fromList [0..length points]
+
 
 lookupTargets :: EditorDocument -> [AnnotationId] -> Map AnnotationId (Maybe Annotation)
 lookupTargets EditorDocument{annotations} targets = M.fromList modified where
@@ -262,6 +268,10 @@ modifyShapes f m doc = Edit $ M.intersectionWith f' m (doc ^. #annotations) wher
     Nothing    -> Delete
     Just shape -> Modify (annot & #shape .~ shape)
 
+
+setClassEdit :: ClassId -> Set AnnotationId -> EditorDocument -> Edit
+setClassEdit classId parts doc = Edit $ M.intersectionWith f (setToMap' parts) (doc ^. #annotations) where
+  f _ annot = Modify (annot & #label .~ classId)
 
 deletePartsEdit :: DocParts -> EditorDocument -> Edit
 deletePartsEdit = modifyShapes deleteParts
