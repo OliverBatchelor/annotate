@@ -155,8 +155,6 @@ instance Reflex t => SwitchPrompt t (Event t) where
 instance Reflex t => SwitchPrompt t (Dynamic t) where
   switchPrompt = switchPromptlyDyn
 
-
-
 class Reflex t => SwitchHold t a where
   switchHold :: MonadHold t m => a -> Event t a -> m a
 
@@ -195,6 +193,9 @@ instance (Reflex t, SwitchHold t a, SwitchHold t b, SwitchHold t c, SwitchHold t
       (switchHold c (view _3 <$> ev)) <*>
       (switchHold d (view _4 <$> ev)) <*>
       (switchHold e (view _5 <$> ev))
+
+
+
 
 instance Reflex t => SwitchHold t (Dynamic t a) where
   switchHold d ed = do
@@ -271,10 +272,11 @@ instance (Reflex t, Num a) => Num (Dynamic t a) where
   signum  = fmap signum
   fromInteger = pure . fromInteger
 
-
+defaults :: (Monoid a) => a -> Bool -> a
+defaults a b = if b then a else mempty
 
 gated :: (Functor f, Monoid a) => a -> f Bool -> f a
-gated a d = ffor d $ \cond -> if cond then a else mempty
+gated a d = defaults a <$> d
 
 swapping :: (Functor f) => (a, a) -> f Bool -> f a
 swapping (a, b) d = ffor d $ \cond -> if cond then a else b

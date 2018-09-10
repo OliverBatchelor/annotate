@@ -111,6 +111,15 @@ annotationProperties ShapeProperties{selected, hidden} =
     , pointer_events_ =: "visiblePainted"
     ]
 
+
+circleView :: Builder t m => ShapeProperties t  -> Dynamic t Circle -> m (Event t (Maybe Int, SceneEvent))
+circleView props circle = fmap (sceneEvents Nothing) $
+  g_ (annotationProperties props) $ void $ 
+    circleElem (shapeAttributes props) circle
+
+
+
+
 boxView :: Builder t m => ShapeProperties t  -> Dynamic t Box -> m (Event t (Maybe Int, SceneEvent))
 boxView props box = do
   (e, events) <- g' (annotationProperties props) $ do
@@ -241,7 +250,7 @@ data ShapeProperties t = ShapeProperties
 
 shapeAttributes :: Reflex t => ShapeProperties t -> [Property t]
 shapeAttributes ShapeProperties{selected, hidden, colour} =
-    [ classes_ =: ["shape"]
+    [ classList ["shape", defaults "selected" . isJust <$> selected]
     , style_ ~: style <$> colour
     , pointer_events_ =: "visiblePainted"]
   where
@@ -252,6 +261,7 @@ shapeAttributes ShapeProperties{selected, hidden, colour} =
 
 shapeView :: forall t m. (Builder t m) => ShapeProperties t -> Updated t Annotation -> m (Event t (Maybe Int, SceneEvent))
 shapeView props obj  = case view #shape <$> obj of
+  Updated (CircleShape s)  e  -> circleView props   =<< holdDyn s (_CircleShape ?> e)
   Updated (BoxShape s)     e  -> boxView props      =<< holdDyn s (_BoxShape ?> e)
   Updated (PolygonShape s) e  -> polygonView props  =<< holdDyn s (_PolygonShape ?> e)
   Updated (LineShape s)    e  -> lineView props     =<< holdDyn s (_LineShape ?> e)
@@ -312,11 +322,11 @@ action :: AppBuilder t m => m (Dynamic t Cursor, Event t (SceneAction t m)) -> S
 action m = Workflow $ over _1 (fmap f) <$> m
    where f cursor = Action cursor True Nothing
 
-editAction :: AppBuilder t m => m (Dynamic t Cursor, Dynamic t Edit, Event t (SceneAction t m)) -> SceneAction t m
+editAction :: AppBuilder t m => m (Dynamic t Cursor, Dynamic t (Maybe Edit), Event t (SceneAction t m)) -> SceneAction t m
 editAction m = Workflow $ do
     (cursor, edit, transitions) <- m
     return (f <$> cursor <*> edit, transitions)
-      where f cursor edit = Action cursor True (Just edit)
+      where f cursor edit = Action cursor True edit
 
 
 addAnnotation :: AppBuilder t m => Scene t -> Event t Annotation -> m ()
@@ -365,6 +375,18 @@ drawPolygons scene SceneInputs{..} finish =
         [ idle (Just shape) <$ finish
         , drawing <$> next
         ])
+
+
+drawCircles :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
+drawCircles scene SceneInputs{..} finish = do
+  prefCommand (ZoomBrush <$> wheel)
+  circleElem [class_ =: "outline"] cursor
+
+  addShapes scene (CircleShape <$> current cursor `tag` click LeftButton)
+
+  where
+    brushSize = view #brushSize <$> (scene ^. #preferences)
+    cursor = Circle <$> mouse <*> brushSize
 
 
 drawLines :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
@@ -452,6 +474,7 @@ boxQuery EditorDocument{annotations} box = M.mapMaybe (queryShape . view #shape)
   queryShape shape | getBounds shape `intersectBoxBox` box = queryParts shape
                    | otherwise = Nothing
 
+  queryParts (CircleShape c) =  defaults (Just (S.singleton 0)) (intersectBoxCircle box c)
   queryParts (BoxShape b) =  maybeParts (intersectBoxPoint box <$> boxVertices' b)
   queryParts (PolygonShape p) = Nothing
   queryParts (LineShape p)    = Nothing
@@ -507,7 +530,7 @@ actions scene@Scene{..} = holdWorkflow $
     viewCommand zoomCmd
     command SelectCmd $ leftmost [selectAll, selectionClick]
 
-    editCommand $ deletePartsEdit <$> current selection <*> current document
+    editCommand $ filterMaybe $ deletePartsEdit <$> current selection <*> current document
        <@ select shortcut ShortDelete
 
     docCommand (const DocUndo) (select shortcut ShortUndo)
@@ -524,13 +547,15 @@ actions scene@Scene{..} = holdWorkflow $
 
     scale <- foldDyn (\z -> max 0.1 . (z *)) 1.0 (wheelZoom <$> wheel)
 
-    --transformPartsEdit :: Rigid -> DocParts -> Document -> Edit
+    let maybeEdit s t = do
+          guard $ abs (s - 1.0) > eps || norm t > eps
+          return $ transformPartsEdit (s, t) target doc
+        edit = maybeEdit <$> scale <*> offset
 
-    let edit = transformPartsEdit <$> transform <*> pure target <*> pure doc
-        transform = (liftA2 (,) scale offset)
+        pointer e = if isJust e then "pointer" else "default"
 
-    editCommand (current edit <@ endDrag)
-    return ("pointer", edit, base <$ endDrag)
+    editCommand $ filterMaybe (current edit <@ endDrag)
+    return (pointer <$> edit, edit, base <$ endDrag)
 
   -- Draw boxes
   drawMode k config = action $ do
@@ -539,6 +564,7 @@ actions scene@Scene{..} = holdWorkflow $
     for_ (M.lookup k (config ^. #classes)) $ \classConfig ->
       case classConfig ^. #shape of
         BoxConfig     -> drawBoxes scene input finish
+        CircleConfig     -> drawCircles scene input finish
         PolygonConfig -> drawPolygons scene input finish
         LineConfig    -> drawLines scene input finish
 
@@ -547,19 +573,19 @@ actions scene@Scene{..} = holdWorkflow $
 
 
   selectArea = editAction $ do
+    let  imageBox = Box (V2 0 0) (fromDim (snd image))
+         maybeIntersection b = do
+            guard (boxArea b > eps)
+            boxIntersection imageBox b
 
-    selectedArea <- replaceHold (return (pure Nothing)) $ ffor mouseDownAt $ \p1 -> do
-      let box = makeBox p1 <$> mouse
-          dim = snd image
-          imageBox = Box (V2 0 0) (fromDim dim)
-          overlap  = boxIntersection imageBox <$> box
-      return overlap
+    selectedArea <- switchHold def $ ffor mouseDownAt $ \p1 ->
+      (maybeIntersection . makeBox p1 <$> mouse)
 
-    let doneEdit     = current selectedEdit `tag` mouseUp LeftButton
-        selectedEdit = setAreaEdit <$> selectedArea
+    let doneEdit      = current selectedEdit `tag` mouseUp LeftButton
+        selectedEdit = (Just . setAreaEdit) <$> selectedArea
 
-    editCommand doneEdit
-    return (pure "crosshair", selectedEdit, base <$ doneEdit)
+    editCommand (filterMaybe doneEdit)
+    return ("crosshair", selectedEdit, base <$ doneEdit)
 
 
   rectSelect p1 = action $ do
@@ -596,6 +622,7 @@ actions scene@Scene{..} = holdWorkflow $
 
   holdingShift   = S.member Key.Shift <$> keyboard
   defaultCursor = (\b -> if b then "copy" else "default") <$> holdingShift
+  eps = 1e-2
 
 
 sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart, SceneEvent))

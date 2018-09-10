@@ -57,7 +57,7 @@ fromDocument Document{..} = EditorDocument
     , info
     , validArea
     , annotations
-    , nextId = fromMaybe 0 (maxKey annotations)
+    , nextId = 1 + fromMaybe 0 (maxKey annotations)
     , history
     }
 
@@ -112,6 +112,7 @@ documentParts = fmap (shapeParts . view #shape) . view #annotations
 shapeParts :: Shape -> Set Int
 shapeParts = \case
     BoxShape _                  -> S.fromList [0..3]
+    CircleShape _               -> S.singleton 0
     LineShape (WideLine points)   -> S.fromList [0..length points]
     PolygonShape (Polygon points) -> S.fromList [0..length points]
 
@@ -144,6 +145,7 @@ applyEdit :: Edit -> EditorDocument -> Maybe (DocumentPatch, EditorDocument)
 applyEdit e doc = do
   (inverse, patch) <- patchEdit doc e
   return (patch, patchDocument patch doc
+    & #redos .~ mempty
     & #undos %~ (inverse :))
 
 
@@ -241,6 +243,7 @@ transformBox (s, t) = over boxExtents
 
 transformShape :: Rigid -> Shape -> Shape
 transformShape rigid = \case
+  CircleShape c      -> CircleShape       $ transformCircle rigid c
   BoxShape b      -> BoxShape       $ transformBox rigid b
   PolygonShape poly -> PolygonShape $ poly & over #points (transformVertices rigid)
   LineShape line -> LineShape       $ line & over #points (fmap (transformCircle rigid))
@@ -248,6 +251,7 @@ transformShape rigid = \case
 
 transformParts :: Rigid -> Set Int -> Shape -> Shape
 transformParts rigid parts = \case
+  CircleShape c      -> CircleShape $ transformCircle rigid c
   BoxShape b        -> BoxShape     $ transformBoxParts rigid parts b
   PolygonShape poly -> PolygonShape $ transformPolygonParts rigid parts poly
   LineShape line    -> LineShape    $ transformLineParts rigid parts line
@@ -256,7 +260,8 @@ transformParts rigid parts = \case
 
 deleteParts :: Set Int -> Shape -> Maybe Shape
 deleteParts parts = \case
-  BoxShape b        -> Nothing
+  CircleShape _     -> Nothing
+  BoxShape _        -> Nothing
   PolygonShape (Polygon points)  -> PolygonShape . Polygon <$> nonEmpty (without parts points)
   LineShape    (WideLine points) -> LineShape . WideLine   <$> nonEmpty (without parts points)
 
@@ -273,8 +278,10 @@ setClassEdit :: ClassId -> Set AnnotationId -> EditorDocument -> Edit
 setClassEdit classId parts doc = Edit $ M.intersectionWith f (setToMap' parts) (doc ^. #annotations) where
   f _ annot = Modify (annot & #label .~ classId)
 
-deletePartsEdit :: DocParts -> EditorDocument -> Edit
-deletePartsEdit = modifyShapes deleteParts
+deletePartsEdit :: DocParts -> EditorDocument -> Maybe Edit
+deletePartsEdit parts doc = do
+  guard (not (null parts))
+  return $ modifyShapes deleteParts parts doc
 
 
 setAreaEdit :: Maybe Box -> Edit

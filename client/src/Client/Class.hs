@@ -29,12 +29,14 @@ labelled t inner = row "align-items-stretch " $ do
 
 
 shapeIcon :: Reflex t => ShapeConfig -> IconConfig t
+shapeIcon CircleConfig     = "vector-circle"
 shapeIcon BoxConfig     = "vector-rectangle"
 shapeIcon PolygonConfig = "vector-polygon"
 shapeIcon LineConfig    = "vector-line"
 
 shapeDesc :: ShapeConfig -> Text
 shapeDesc BoxConfig = "Box"
+shapeDesc CircleConfig = "Circle"
 shapeDesc PolygonConfig = "Polygon"
 shapeDesc LineConfig = "Line"
 
@@ -42,6 +44,7 @@ shapeDesc LineConfig = "Line"
 shapeTypes :: M.Map Text ShapeConfig
 shapeTypes = M.fromList
   [ ("Box", BoxConfig)
+  , ("Circle", CircleConfig)
   , ("Polygon", PolygonConfig)
   , ("Line", LineConfig)
   ]

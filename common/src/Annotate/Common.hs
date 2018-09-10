@@ -26,15 +26,17 @@ type DocName = Text
 type DateTime = UTCTime
 
 data Shape = BoxShape     Box
+           | CircleShape  Circle
            | PolygonShape Polygon
            | LineShape    WideLine
      deriving (Generic, Show, Eq)
 
-data ShapeConfig = BoxConfig | PolygonConfig | LineConfig
+data ShapeConfig = CircleConfig | BoxConfig | PolygonConfig | LineConfig
   deriving (Generic, Show, Eq, Ord)
 
 
 instance HasBounds Shape where
+ getBounds (CircleShape s)  = getBounds s
  getBounds (BoxShape s)     = getBounds s
  getBounds (PolygonShape s) = getBounds s
  getBounds (LineShape s)    = getBounds s
@@ -45,6 +47,10 @@ data Detection = Detection
   , bounds     :: Box
   , confidence :: Float
   } deriving (Generic, Show, Eq)
+
+
+
+
 
 data Annotation = Annotation
   { shape :: Shape

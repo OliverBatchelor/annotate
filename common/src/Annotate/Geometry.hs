@@ -87,6 +87,10 @@ clamp (l, u) x = max l (min u x)
 boxSize :: Box -> Vector
 boxSize (Box l u) = u - l
 
+boxArea :: Box -> Float
+boxArea b = x * y where
+  (V2 x y) = boxSize b
+
 boxCentre :: Box -> Position
 boxCentre Box{..} = centroid [lower, upper]
 
@@ -105,6 +109,13 @@ rangeIntersection :: Range -> Range -> Maybe Range
 rangeIntersection (Range l u) (Range l' u') = if upper >= lower
     then Just (Range lower upper) else Nothing
         where (lower, upper) = (max l l', min u u')
+
+
+clampBox :: Box -> Position -> Position
+clampBox (Box (V2 lx ly) (V2 ux uy)) (V2 px py) = V2 (clamp (lx, ux) px) (clamp (ly, uy) py)
+
+intersectBoxCircle :: Box -> Circle -> Bool
+intersectBoxCircle b (Circle p r) = quadrance (p - clampBox b p) <= r * r
 
 intersectBoxBox :: Box -> Box -> Bool
 intersectBoxBox (Box (V2 lx ly) (V2 ux uy)) (Box (V2 lx' ly') (V2 ux' uy')) =
