@@ -114,8 +114,8 @@ annotationProperties ShapeProperties{selected, hidden} =
 
 circleView :: Builder t m => ShapeProperties t  -> Dynamic t Circle -> m (Event t (Maybe Int, SceneEvent))
 circleView props circle = fmap (sceneEvents Nothing) $
-  g_ (annotationProperties props) $ void $ 
-    circleElem (shapeAttributes props) circle
+  g_ (annotationProperties props) $ void $
+    circleElem (shapeAttributes "circle" props) circle
 
 
 
@@ -123,7 +123,7 @@ circleView props circle = fmap (sceneEvents Nothing) $
 boxView :: Builder t m => ShapeProperties t  -> Dynamic t Box -> m (Event t (Maybe Int, SceneEvent))
 boxView props box = do
   (e, events) <- g' (annotationProperties props) $ do
-    boxElem (shapeAttributes props) box
+    boxElem (shapeAttributes "box" props) box
     controls (props ^. #selected) [v1, v2, v3, v4]
 
   return $ leftmost (events <> [sceneEvents Nothing e])
@@ -135,7 +135,7 @@ boxView props box = do
 polygonView :: Builder t m => ShapeProperties t  -> Dynamic t Polygon -> m (Event t (Maybe Int, SceneEvent))
 polygonView props poly = do
   (e, events) <- g' (annotationProperties props) $ do
-    polygonElem (shapeAttributes props) poly
+    polygonElem (shapeAttributes "polygon" props) poly
     dynControls control (props ^. #selected) (view #points <$> poly)
 
   return $ leftmost [events, sceneEvents Nothing e]
@@ -146,7 +146,7 @@ lineView :: Builder t m => ShapeProperties t  -> Dynamic t WideLine -> m (Event 
 lineView props line = do
   (e, events) <- g' (annotationProperties props) $ do
 
-    lineElem (props ^. #elemId) (shapeAttributes props) line
+    lineElem (props ^. #elemId) (shapeAttributes "line" props) line
     dynControls controlCircle (props ^. #selected) (view #points <$> line)
 
   return $ leftmost [events, sceneEvents Nothing e]
@@ -248,9 +248,9 @@ data ShapeProperties t = ShapeProperties
   } deriving Generic
 
 
-shapeAttributes :: Reflex t => ShapeProperties t -> [Property t]
-shapeAttributes ShapeProperties{selected, hidden, colour} =
-    [ classList ["shape", defaults "selected" . isJust <$> selected]
+shapeAttributes :: Reflex t => Text -> ShapeProperties t -> [Property t]
+shapeAttributes shapeType ShapeProperties{selected, hidden, colour} =
+    [ classList [pure shapeType, "shape", defaults "selected" . isJust <$> selected]
     , style_ ~: style <$> colour
     , pointer_events_ =: "visiblePainted"]
   where

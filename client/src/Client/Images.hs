@@ -18,6 +18,7 @@ import qualified Builder.Html as Html
 import qualified Data.Map as M
 
 import Data.Time.Format.Human
+import qualified Text.Fuzzy as Fuzzy
 
 showHeader :: Builder t m => m ()
 showHeader = tr [] $ do
@@ -123,7 +124,7 @@ imagesTab = column "h-100 p-1 v-spacing-2" $ do
     opt <- selectOption showText readFilter [ class_ =: "custom-select grow-1" ] allFilters FilterAll
     return (search, opt)
 
-  sortKey <- holdDyn (True, SortCat) never
+  sortKey <- holdDyn Nothing never
   let sorted   = sortImages <$> sortKey <*> filterOpt <*> images
       searched = searchImages <$> searchText <*> sorted
 
@@ -154,8 +155,15 @@ imagesTab = column "h-100 p-1 v-spacing-2" $ do
       hasPrev i = (i > 0)
       hasNext i images = (i + size < length images)
 
-      sortImages k opt = sortBy (compareKey k) . filter (filterImage opt)
-      searchImages _ = id
+      sortImages k opt = sorting k . filter (filterImage opt)
+
+      sorting Nothing  = id
+      sorting (Just k) = sortBy (compareKey k)
+
+      searchImages ""   = id
+      searchImages str  = \images -> Fuzzy.original <$>
+        Fuzzy.filter str images "" "" fst False
+
       --searchImages t  = simpleFilter t
 
       showPage i images = showText (pageNum i) <> " of " <> showText (pageNum (length images))

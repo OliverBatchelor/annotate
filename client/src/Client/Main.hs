@@ -241,7 +241,7 @@ detectedShape :: ClassConfig -> Detection -> Maybe Shape
 detectedShape classConf detection = (case (classConf ^. #shape) of
   BoxConfig    -> Just $ BoxShape bounds
   CircleConfig -> Just $ CircleShape $ Circle (boxCentre bounds) ((h + w) * 0.25)
-
+  
   _ -> Nothing)
     where
       bounds   = detection ^. #bounds

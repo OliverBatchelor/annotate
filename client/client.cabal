@@ -79,6 +79,7 @@ library
                      , file-embed
                      , stitch
                      , uri-encode
+                     , fuzzy
 
 
   if !impl(ghcjs)
