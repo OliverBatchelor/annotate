@@ -224,17 +224,29 @@ sceneWidget cmds loaded = do
   return (matchShortcuts input, action, maybeDoc, selection)
 
 
-replaceDetections :: EditorDocument -> [Detection] -> EditCmd
-replaceDetections doc detections = DocEdit (replaceAllEdit doc annotations') where
+replaceDetections :: Config -> EditorDocument -> [Detection] -> EditCmd
+replaceDetections conf doc detections = DocEdit (replaceAllEdit doc annotations') where
   nextId = doc ^. #nextId
-  annotations' = toAnnotation <$> M.fromList (zip [nextId..] detections)
+  annotations' = M.fromList (zip [nextId..] $ fmapMaybe toAnnotation detections)
 
-  toAnnotation detection = Annotation
-    { shape     = BoxShape (detection ^. #bounds)
-    , label     = detection ^. #label
-    , detection = Just detection
-    , confirm   = False
-    }
+  toAnnotation detection = do
+    let label = detection ^. #label
+    classConfig <- M.lookup label (conf ^. #classes)
+    shape <- detectedShape classConfig detection
+
+    return $ Annotation
+      {shape, label, detection = Just detection, confirm   = False}
+
+detectedShape :: ClassConfig -> Detection -> Maybe Shape
+detectedShape classConf detection = (case (classConf ^. #shape) of
+  BoxConfig    -> Just $ BoxShape bounds
+  CircleConfig -> Just $ CircleShape $ Circle (boxCentre bounds) ((h + w) * 0.25)
+
+  _ -> Nothing)
+    where
+      bounds   = detection ^. #bounds
+      (V2 w h) = boxSize bounds
+
 
 annotationsPatch :: DocumentPatch -> Maybe (PatchMap AnnotationId Annotation)
 annotationsPatch = fmap PatchMap . preview _PatchAnns
@@ -385,12 +397,12 @@ bodyWidget host = mdo
     , const . snd <$> classSelected
     ]
 
-  let makeDetections maybeDoc (k, detections) = do
+  let makeDetections (conf, maybeDoc) (k, detections) = do
         doc <- maybeDoc
         guard (k == doc ^. #name)
-        return [EditCmd (replaceDetections doc detections)]
+        return [EditCmd (replaceDetections conf doc detections)]
 
-      detectionsCmd = attachWithMaybe makeDetections (current document)  (preview _ServerDetection <?> serverMsg)
+      detectionsCmd = attachWithMaybe makeDetections (liftA2 (,) (current config) (current document))  (preview _ServerDetection <?> serverMsg)
       cmds = leftmost [interfaceCmds, detectionsCmd]
 
 

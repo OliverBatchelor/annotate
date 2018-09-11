@@ -96,9 +96,7 @@ $(deriveSafeCopy 0 'base ''HistoryEntry)
 $(deriveSafeCopy 0 'base ''Edit)
 $(deriveSafeCopy 0 'base ''EditAction)
 
-
 $(deriveSafeCopy 0 'base ''Store)
-
 $(deriveSafeCopy 0 'base ''Command)
 
 
@@ -155,7 +153,7 @@ importImage TrainImage{..} = (imageFile, document) where
   document = emptyDoc imageFile info
     & #annotations .~ M.fromList (zip [0..]  annotations)
     & #validArea   .~ validArea
-  info = DocInfo {modified = Nothing, imageSize = imageSize, category = category, numAnnotations = 0}
+  info = DocInfo {modified = Nothing, imageSize = imageSize, category = category, numAnnotations = length annotations}
 
 exportImage :: Document -> TrainImage
 exportImage Document{..} = TrainImage
