@@ -126,6 +126,7 @@ instance Persistable Store where
 
   update (CmdCategory k cat)      = docInfo k . #category .~ cat
   update (CmdClass k conf)  = over (#config . #classes) (M.alter (const conf) k)
+  update (CmdSetRoot path)  = #config . #root .~ path
 
 
 initialStore :: Config -> Store

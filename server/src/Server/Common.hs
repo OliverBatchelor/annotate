@@ -37,6 +37,8 @@ data Command where
   CmdModified :: DocName -> UTCTime -> Command
   CmdImages :: [(DocName, DocInfo)] -> Command
   CmdClass :: ClassId -> Maybe ClassConfig -> Command
+  CmdSetRoot  :: Text -> Command
+
     deriving (Show, Eq, Generic)
 
 

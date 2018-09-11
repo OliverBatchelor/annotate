@@ -90,6 +90,8 @@ main = do
     Just initial -> freshLog initial database
     Nothing      -> openLog database >>= either (throw . LogError) return
 
+  traverse_ (atomically . updateLog store . CmdSetRoot . fromString) setRoot
+
   root <- readRoot store
 
   clients   <- atomically (newTVar M.empty)
