@@ -48,6 +48,10 @@ data Dialog = ClassDialog DocParts
 data PrefCommand
   = ZoomBrush Float
   | SetOpacity Float
+  | SetGamma Float
+  | SetBrightness Float
+  | SetContrast Float
+  
   | SetControlSize Float
   | SetInstanceColors Bool
   | ShowClass (ClassId, Bool)

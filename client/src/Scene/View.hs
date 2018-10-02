@@ -41,6 +41,17 @@ inViewport vp child = g [transform_ ~: (transforms <$> vp)] child
 sceneDefines :: Builder t m => Dynamic t Viewport -> Dynamic t Preferences -> m ()
 sceneDefines vp prefs = void $ defs [] $ do
     boxElem [ id_ =: controlId ] (makeBox <$> prefs <*> vp)
+
+    brightness <- holdUniqDyn (view #brightness <$> prefs)
+    contrast   <- holdUniqDyn (view #contrast <$> prefs)
+    gamma      <- holdUniqDyn ((1.0 /) . view #gamma <$> prefs)
+
+    Svg.filter [id_ =: adjustmentId ] $
+      feComponentTransfer [] $ void $ do
+        feFuncR_ [type_ =: "gamma", amplitude_ ~: contrast, exponent_ ~: gamma, offset_ ~: brightness]
+        feFuncG_ [type_ =: "gamma", amplitude_ ~: contrast, exponent_ ~: gamma, offset_ ~: brightness]
+        feFuncB_ [type_ =: "gamma", amplitude_ ~: contrast, exponent_ ~: gamma, offset_ ~: brightness]
+
     -- Svg.filter [id_ =: "select-filter"] $
     --   feMorphology [operator_ =: "dilate" radius_ =: 2]
 
@@ -50,8 +61,10 @@ sceneDefines vp prefs = void $ defs [] $ do
       where s = (prefs ^. #controlSize) / (vp ^. #zoom)
 
 
-controlId :: Text
+controlId, adjustmentId :: Text
 controlId = "control"
+adjustmentId = "adjustment"
+
 
 control :: Builder t m => Dynamic t Bool -> Dynamic t Position -> m (Event t SceneEvent)
 control selected point = do
@@ -305,10 +318,16 @@ annotationView classMap threshold instanceCols selected k obj = do
 
       arrange k (part, e) = ((k, part), e)
 
-imageView :: (AppBuilder t m) =>  Image -> m (ElemType t m)
-imageView  (file, dim) = do
+imageView :: (AppBuilder t m) => Image -> m (ElemType t m)
+imageView (file, dim) = do
     path <- localPath file
-    Svg.image_ [draggable_ =: False, class_ =: "disable-cursor", wh_ =: fromDim dim, href_ =: path]
+
+    Svg.image_
+      [draggable_ =: False, class_ =: "disable-cursor"
+      , wh_ =: fromDim dim, href_ =: path
+      , filter_ =: urlId adjustmentId
+      ]
+
 
 
 holdChanges :: (Reflex t, MonadHold t m) => a -> Event t a -> m (Event t (a, a))

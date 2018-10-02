@@ -241,7 +241,7 @@ detectedShape :: ClassConfig -> Detection -> Maybe Shape
 detectedShape classConf detection = (case (classConf ^. #shape) of
   BoxConfig    -> Just $ BoxShape bounds
   CircleConfig -> Just $ CircleShape $ Circle (boxCentre bounds) ((h + w) * 0.25)
-  
+
   _ -> Nothing)
     where
       bounds   = detection ^. #bounds
@@ -429,6 +429,10 @@ updatePrefs cmds = flip (foldr updatePref) cmds where
   updatePref :: PrefCommand -> Preferences -> Preferences
   updatePref (ZoomBrush delta) = #brushSize %~ clamp (2, 400) . (* wheelZoom delta)
   updatePref (SetOpacity opacity) = #opacity .~ opacity
+  updatePref (SetGamma gamma) = #gamma .~ gamma
+  updatePref (SetBrightness brightness) = #brightness .~ brightness
+  updatePref (SetContrast contrast) = #contrast .~ contrast
+
   updatePref (SetInstanceColors b) = #instanceColours .~ b
   updatePref (SetControlSize size) = #controlSize .~ size
   updatePref (ShowClass (classId, shown)) = #hiddenClasses .
@@ -552,11 +556,27 @@ settingsTab = column "h-100 v-spacing-2" $ do
         inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #opacity <$> prefs)
         prefCommand (SetOpacity <$> inp)
 
+
+
     labelled "Control size" $ do
       inp <- rangePreview (printFloat0) (5.0, 50.0) 1 (view #controlSize <$> prefs)
       prefCommand (SetControlSize <$> inp)
 
     return ()
+
+  column "v-spacing-2 p-2 border" $ do
+    h5 [] $ text "Image adjustment"
+    labelled "Gamma" $ do
+        inp <- rangePreview printFloat (0.25, 4.0) 0.01 (view #gamma <$> prefs)
+        prefCommand (SetGamma <$> inp)
+
+    labelled "Brightness" $ do
+        inp <- rangePreview printFloat (-1.0, 1.0) 0.01 (view #brightness <$> prefs)
+        prefCommand (SetBrightness <$> inp)
+
+    labelled "Contrast" $ do
+        inp <- rangePreview printFloat (0.0, 10.0) 0.01 (view #contrast <$> prefs)
+        prefCommand (SetContrast <$> inp)
 
   column "v-spacing-2 p-2 border" $ do
     h5 [] $ text "Detection settings"

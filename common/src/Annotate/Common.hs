@@ -50,8 +50,6 @@ data Detection = Detection
 
 
 
-
-
 data Annotation = Annotation
   { shape :: Shape
   , label :: ClassId
@@ -139,6 +137,10 @@ data Preferences = Preferences
   , instanceColours   :: Bool
   , opacity           :: Float
   , hiddenClasses     :: Set Int
+
+  , gamma             :: Float
+  , brightness        :: Float
+  , contrast          :: Float
 
   , detection    :: DetectionParams
   , threshold    :: Float
@@ -247,6 +249,10 @@ instance Default Preferences where
     , instanceColours = False
     , opacity = 0.4
     , hiddenClasses = mempty
+    , gamma = 1.0
+    , brightness = 0.0
+    , contrast = 1.0
+
     , detection = def
     , threshold = 0.5
     }
