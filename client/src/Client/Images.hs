@@ -49,7 +49,7 @@ showImage d selected = do
       name = fmap fst <$> d
 
 
-data SortKey = SortCat | SortNum | SortName | SortModified
+data SortKey = SortCat | SortNum | SortName | SortModified | SortMixed
   deriving (Eq, Generic)
 
 data FilterOption = FilterAll | FilterCat ImageCat | FilterEdited
@@ -60,14 +60,15 @@ instance Show FilterOption where
   show (FilterCat cat)  = show cat
   show FilterEdited     = "Edited"
 
-readFilter :: Text -> FilterOption
-readFilter = \case
-  "New" -> FilterCat New
-  "Train" -> FilterCat Train
-  "Test"  -> FilterCat Test
-  "Discard"  -> FilterCat Discard
-  "Edited"       -> FilterEdited
-  _ -> FilterAll
+allFilters :: [(Text, FilterOption)]
+allFilters =
+  [ ("All",     FilterAll)
+  , ("New",     FilterCat New)
+  , ("Train",   FilterCat Train)
+  , ("Test",    FilterCat Test)
+  , ("Discard", FilterCat Discard)
+  , ("Edited",  FilterEdited)
+  ]
 
 filterImage :: FilterOption -> (DocName, DocInfo) -> Bool
 filterImage opt (_, DocInfo{category}) = case opt of
@@ -75,8 +76,6 @@ filterImage opt (_, DocInfo{category}) = case opt of
   FilterEdited  -> category == Train || category == Test
   FilterCat cat -> category == cat
 
-allFilters :: [FilterOption]
-allFilters = [FilterAll, FilterEdited, FilterCat Train, FilterCat Test, FilterCat New, FilterCat Discard]
 
 reverseComparing :: Ord b => (a -> b) -> a -> a -> Ordering
 reverseComparing f x y = reverseOrdering $ compare (f x) (f y)
@@ -86,46 +85,57 @@ reverseOrdering LT = GT
 reverseOrdering GT = LT
 reverseOrdering EQ = EQ
 
-compareKey ::  (Bool, SortKey) -> (DocName, DocInfo) -> (DocName, DocInfo) -> Ordering
-compareKey (rev, key) = case key of
-  SortCat         -> compares rev (view (_2 . #category))
-  SortNum         -> compares rev (view (_2 . #numAnnotations))
-  SortModified    -> compares rev (view (_2 . #modified))
-  SortName        -> compares rev (view _1)
+compareWith ::  (Bool, SortKey) -> (DocName, DocInfo) -> (DocName, DocInfo) -> Ordering
+compareWith (rev, key) = (case key of
+  SortCat         -> compares (view #category &&& view #naturalKey)
+  SortNum         -> compares (view #numAnnotations &&& view #naturalKey)
+  SortModified    -> compares (view #modified &&& view #naturalKey)
+  SortName        -> compares (view #naturalKey)
+  SortMixed       -> compares (view #hashedName))
+  where
+    compares :: forall a. Ord a => (DocInfo -> a) -> (DocName, DocInfo) -> (DocName, DocInfo) -> Ordering
+    compares f = if rev then reverseComparing (f . snd) else comparing (f . snd)
 
 
-compares :: Ord b => Bool -> (a -> b) -> a -> a -> Ordering
-compares rev = if rev then reverseComparing else comparing
-
-
-
-
-selectOption :: Builder t m => (a -> Text) -> (Text -> a) -> [Property t] -> [a] -> a -> m (Dynamic t a)
-selectOption toText fromText props options initial = fmap fromText . _selectElement_value <$> selectElem_
-    props  (def & selectElementConfig_initialValue .~ toText initial)  (traverse_ makeOption options)
-
-    where
-      makeOption a = option [value_ =: toText a] $ text (toText a)
-
+allSorts :: [(Text, SortKey)]
+allSorts =
+  [ ("Name",     SortName)
+  , ("Mixed",     SortMixed)
+  , ("Modified",   SortModified)
+  , ("Annotations",    SortNum)
+  , ("Category", SortCat)
+  ]
 
 enabled_ :: Attribute Bool
 enabled_ = contramap not disabled_
+
+toggleButton :: forall t m. AppBuilder t m => (Text, Text) -> m (Dynamic t Bool)
+toggleButton icons = mdo
+  e <- button_ [class_ =: "btn btn-light"] $
+      icon (def & #name .~ Dyn (swapping icons isOpen))
+  isOpen <- toggle False (domEvent Click e)
+  return isOpen
 
 
 imagesTab :: forall t m. AppBuilder t m => m ()
 imagesTab = column "h-100 p-1 v-spacing-2" $ do
 
   images  <- fmap (M.toList . view #images) <$> view #collection
-  selected <- view #userSelected
+  selected <- view #docSelected
 
   (searchText, filterOpt) <- row "spacing-2" $ do
     search <- div [class_ =: "input-group grow-3"] $ _inputElement_value <$>
         inputElem [ class_ =: "form-control", type_ =: "search", placeholder_ =: "Search..." ]  def
-    opt <- selectOption showText readFilter [ class_ =: "custom-select grow-1" ] allFilters FilterAll
+    opt <- selectOption [ class_ =: "custom-select grow-1" ] allFilters FilterAll never
     return (search, opt)
 
-  sortKey <- holdDyn Nothing never
-  let sorted   = sortImages <$> sortKey <*> filterOpt <*> images
+  sortOpts <- labelled "Order by" $ row "p-2" $ do
+      key <- selectOption [ class_ =: "custom-select grow-1" ] allSorts SortName never
+      rev <- toggleButton ("sort-descending", "sort-ascending")
+      return $ liftA2 (,) rev key
+
+
+  let sorted   = sortImages <$> sortOpts <*> filterOpt <*> images
       searched = searchImages <$> searchText <*> sorted
 
   rec
@@ -157,8 +167,7 @@ imagesTab = column "h-100 p-1 v-spacing-2" $ do
 
       sortImages k opt = sorting k . filter (filterImage opt)
 
-      sorting Nothing  = id
-      sorting (Just k) = sortBy (compareKey k)
+      sorting k = sortBy (compareWith k)
 
       searchImages ""   = id
       searchImages str  = \images -> Fuzzy.original <$>

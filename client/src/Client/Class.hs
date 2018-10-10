@@ -22,11 +22,6 @@ showClass ClassConfig{shape, colour, name} =
       icon $ shapeIcon shape
 
 
-labelled :: Builder t m => Text -> m a -> m a
-labelled t inner = row "align-items-stretch " $ do
-  Html.label [class_ =: "grow-1 align-self-center"] $ text t
-  div [class_ =: "grow-2"] inner
-
 
 shapeIcon :: Reflex t => ShapeConfig -> IconConfig t
 shapeIcon CircleConfig     = "vector-circle"
@@ -114,7 +109,7 @@ classesTab = column "h-100 p-0 v-spacing-2" $ mdo
 
   (updated :: Event t ClassConfig) <- switchHold never =<< dyn (editClass <$> selectedClass)
 
-  remoteCommand id $ leftmost
+  command id $ leftmost
     [ newClassCmd    <$> added
     , removeClassCmd <$> removed
     , attachWith updateClassCmd (current selected) updated
@@ -125,9 +120,9 @@ classesTab = column "h-100 p-0 v-spacing-2" $ mdo
     where
       nextClass classes = fromMaybe 0 ((+1)  <$> maxKey classes)
 
-      newClassCmd k           = ClientClass k (Just $ newClass k)
-      removeClassCmd k        = ClientClass k Nothing
-      updateClassCmd k update = ClientClass k (Just update)
+      newClassCmd k           = ConfigCmd (ConfigClass k (Just $ newClass k))
+      removeClassCmd k        = ConfigCmd (ConfigClass k Nothing)
+      updateClassCmd k update = ConfigCmd (ConfigClass k (Just update))
 
 
 

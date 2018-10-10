@@ -11,6 +11,8 @@ import qualified Data.Set as S
 
 import Text.Printf
 import Data.Text.Encoding
+
+import qualified Data.List as L
 import qualified Network.URI.Encode as URI
 
 import Data.Default
@@ -56,6 +58,7 @@ import qualified Web.KeyCode as Key
 
 import Stitch
 import Stitch.Combinators
+
 
 
 main :: JSM ()
@@ -127,9 +130,10 @@ errorDialog err = Dialog.ok title (Dialog.iconText ("text-danger", "alert-circle
 
 errorMessage :: ErrCode -> (Text, Text)
 errorMessage (ErrDecode msg) = ("Decode error", msg)
-errorMessage (ErrNotFound doc) = ("File not found", "File \"" <> doc <> "\" not found on server.")
+errorMessage (ErrNotFound _ doc) = ("File not found", "File \"" <> doc <> "\" not found on server.")
 errorMessage ErrNotRunning = ("Trainer error", "Trainer process not started.")
 errorMessage (ErrTrainer msg) = ("Trainer error", msg)
+errorMessage (ErrEnd _) = ("Finished", "No more new images available.")
 
 
 printLog :: (MonadIO m, Show a) => a -> m ()
@@ -167,38 +171,6 @@ network host send = do
     close (True,  _, _)       = Nothing
     close (False, _, reason)  = Just reason
 
-
-handleHistory :: GhcjsBuilder t m => Event t DocName -> m (Dynamic t (Maybe DocName))
-handleHistory selected = mdo
-
-  initial <- fromFrag <$> getLocationFragment
-  file <- holdUniqDyn =<< holdDyn initial (Just <$> leftmost [selected, changes])
-
-  let update     = filterMaybe $ updateHistory <$> current history <*> current file <@> selected
-      changes    = uriDocument <$> updated history
-
-  history <- manageHistory update
-  return file
-
-   where
-     fromFrag "#"   = Nothing
-     fromFrag ""    = Nothing
-     fromFrag frag  = Just (decodeFrag frag)
-
-     decodeFrag = URI.decodeText . T.drop 1
-
-     uriDocument = decodeFrag . T.pack . view #uriFragment . _historyItem_uri
-
-     updateHistory item Nothing k = Just $ HistoryCommand_ReplaceState $ update item k
-     updateHistory item (Just previous) k
-        | previous /= k = Just $ HistoryCommand_PushState $ update item k
-        | otherwise       = Nothing
-
-     update (HistoryItem state uri) k = HistoryStateUpdate
-        { _historyStateUpdate_state = state
-        , _historyStateUpdate_title = ""
-        , _historyStateUpdate_uri   = Just $ uri & #uriFragment .~ T.unpack ("#" <> URI.encodeText k)
-        }
 
 
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
@@ -333,58 +305,142 @@ pendingEdit doc action = do
 oneOf :: Reflex t => Getting (First a) s a -> Event t [s] -> Event t a
 oneOf getter = fmapMaybe (preview (traverse . getter))
 
-bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m (AppEnv t)
-bodyWidget host = mdo
-  (opened, closed, serverMsg, serverErrors) <- network host clientMsg
 
-  let disconnected = Workflow $ do
-        Dialog.connecting
-        return (("disconnected", never), connected <$ opened)
 
-      connected = Workflow $ do
-        return (("connected", never), ready <$> hello)
+docFragment :: Text -> Maybe DocName
+docFragment = maybeDocName . URI.decodeText . T.drop 1 where
+  maybeDocName ""  = Nothing
+  maybeDocName t   = Just t
 
-      ready _ = Workflow $ do
+handleLocation :: GhcjsBuilder t m => Event t DocName -> m (Dynamic t (Maybe DocName))
+handleLocation userUpdate = mdo
 
-        postBuild <- getPostBuild
-        let initialLoad = maybe (ClientNext Nothing) ClientOpen
-            reqs        = mergeList
-              [ ClientCollection   <$ postBuild
-              , (initialLoad <$> current userSelected) `tag` postBuild
-              ]
+  history <- manageHistory update
+  let update     = filterMaybe $ updateHistory <$> current history <@> userUpdate
 
-        return (("ready", toList <$> reqs), never)
+  return (uriDocument <$> history)
 
-  (state, clientMsgs) <- split <$> (workflow $
-    commonTransition (disconnected <$ closed) disconnected)
 
-  let clientMsg = ffilter (not . null) $ mconcat
-        [ switchPrompt clientMsgs
-        , fmap (pure . ClientOpen) <?> updated userSelected
-        , fmapMaybe (preview _RemoteCmd) <$> cmds
+   where
+     uriDocument = docFragment . T.pack . view #uriFragment . _historyItem_uri
+
+     updateHistory item k
+        | previous == Nothing = Just $ HistoryCommand_ReplaceState $ updateFrag item k
+        | previous /= Just k  = Just $ HistoryCommand_PushState $ updateFrag item k
+        | otherwise           = Nothing
+          where previous = uriDocument item
+
+     updateFrag (HistoryItem state uri) k = HistoryStateUpdate
+        { _historyStateUpdate_state = state
+        , _historyStateUpdate_title = ""
+        , _historyStateUpdate_uri   = Just $ uri & #uriFragment .~ T.unpack ("#" <> URI.encodeText k)
+        }
+
+
+
+manageDocument :: forall t m. GhcjsBuilder t m
+               => Dynamic t Preferences -> Event t () -> Event t ServerMsg
+               -> (Event t ImageOrdering, Event t DocName)
+               -> m (Dynamic t (Maybe DocName), Event t Document, Event t ClientMsg)
+manageDocument preferences hello serverMsg (userNext, userTo) = mdo
+
+  selected <- handleLocation $ leftmost [userTo, view #name <$> validLoad]
+  navId    <- count request
+
+  loaded <- hold Nothing (Just . view #name <$> validLoad)
+
+  let validLoad = filterMaybe (latest <$> current navId <@> loadedMsg)
+
+      request = leftmost
+        [ NavNext <$> userNext
+        , NavTo <$> attachWithMaybe needsLoad loaded (updated selected)
+        , initialNav <$> current selected <@> current preferences `tag` hello
         ]
 
-  userSelected <- handleHistory (oneOf _LoadCmd cmds)
+      clientMsg = ClientNav <$> current navId <@> request
 
-  setTitle $ ffor document $ \doc ->
-    "Annotate - " <> fromMaybe ("no document") (view #name <$> doc)
+  -- logEvent ((fmap (view #name) <$> current loaded) `attach` updated selected)
+
+  return (selected, validLoad, clientMsg)
+    where
+      initialNav selected Preferences{ordering} = fromMaybe (NavNext ordering) (NavTo <$> selected)
+      loadedMsg  = preview _ServerDocument <?> serverMsg
+
+      needsLoad k k' = if k /= k' then k' else Nothing
+
+      latest latest (navId, doc)  = do
+        guard (navId == latest - 1)
+        return doc
+
+
+navigationCmd :: Reflex t => Dynamic t Preferences -> Event t [AppCommand]
+                          -> ((Event t ImageOrdering, Event t DocName), Event t (Maybe ImageCat))
+navigationCmd prefs cmds = (navigation, save) where
+    (submit, open) = (oneOf _SubmitCmd cmds, oneOf _OpenCmd cmds)
+    save = leftmost [ Just <$> submit, Nothing <$ open ]
+    navigation = (navigateNext prefs submit, open)
+
+    navigateNext prefs e = view #ordering <$> (current prefs `tag` e)
+
+
+save :: Preferences -> Maybe ImageCat -> EditorDocument -> Document
+save prefs maybeCat = toDocument . setCat . (#annotations %~ M.mapMaybe confirmDetection)
+  where
+    setCat = maybe id (\cat -> #info . #category .~ cat) maybeCat
+
+    confirmDetection :: Annotation -> Maybe Annotation
+    confirmDetection ann = do
+      guard (getConfidence ann >= (prefs ^. #threshold))
+      return $ ann & #confirm .~ True
+
+saveDocument :: Reflex t => Dynamic t Preferences -> Dynamic t (Maybe EditorDocument)
+                        -> Event t (Maybe ImageCat) -> Event t ClientMsg
+saveDocument preferences document submit = fmap ClientSubmit <?> maybeSave where
+    maybeSave = f <$> current document <*> current preferences <@> submit
+    f doc prefs cat = save prefs cat <$> doc
+
+
+connectingDialog :: Builder t m => (Event t (), Event t ()) -> m ()
+connectingDialog (opened, closed) = void $ workflow disconnected where
+  disconnected = workflow' $ Dialog.connecting >> return (connected <$ opened)
+  connected    = workflow' $ return (disconnected <$ closed)
+
+clientDetect :: Reflex t => Dynamic t (Maybe DocName) -> Dynamic t Preferences -> Event t [AppCommand] -> Event t ClientMsg
+clientDetect docSelected preferences cmds = attachWithMaybe makeDetect (current preferences)
+    (current docSelected `tag` oneOf _DetectCmd cmds)
+  where   makeDetect prefs k = ClientDetect <$> k <*> pure (view #detection prefs)
+
+
+bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m (AppEnv t)
+bodyWidget host = mdo
+
+  (opened, closed, serverMsg, serverErrors) <- network host clientMsg
+  let clientMsg = toList <$> mergeList
+        [ clientNav
+        , clientConfig
+        , clientDetect docSelected preferences cmds
+        , ClientCollection <$ hello
+        , saveDocument document saves
+        ]
+
+      (navigations, saves) = navigationCmd preferences cmds
+      clientConfig = ClientConfig <$> oneOf _ConfigCmd cmds
+
+
+  (docSelected, loaded, clientNav) <- manageDocument preferences (void hello) serverMsg navigations
 
   collection <- holdCollection serverMsg
 
-  let hello   = preview _ServerHello <?> serverMsg
-      (loaded :: Event t Document)  = preview _ServerDocument <?> serverMsg
-      shortcut = fan shortcuts
-
+  let shortcut = fan shortcuts
       env = AppEnv
         { basePath = "http://" <> host
-        , commands = cmds
         , shortcut
         , selection
         , document
         , config
         , preferences
         , currentClass
-        , userSelected
+        , docSelected
         , collection
         }
 
@@ -392,6 +448,8 @@ bodyWidget host = mdo
   preferences <- foldDyn updatePrefs def (fmapMaybe (preview _PrefCmd) <$> cmds)
 
   let classSelected = oneOf _ClassCmd cmds
+      hello         = preview _ServerHello <?> serverMsg
+
   currentClass <- foldDyn ($) 0 $ mergeWith (.)
     [ validClass <$> updated config
     , const . snd <$> classSelected
@@ -406,6 +464,10 @@ bodyWidget host = mdo
       cmds = leftmost [interfaceCmds, detectionsCmd]
 
 
+    -- setTitle $ ffor document $ \doc ->
+    --   "Annotate - " <> fromMaybe ("no document") doc
+
+  connectingDialog (opened, void closed)
   ((shortcuts, action, document, selection), interfaceCmds) <- flip runReaderT env $ runEventWriterT $ do
 
     runWithClose $ leftmost
@@ -443,6 +505,7 @@ updatePrefs cmds = flip (foldr updatePref) cmds where
   updatePref (SetDetections d)    = #detection . #detections .~ d
 
   updatePref (SetThreshold t)  = #threshold .~ t
+  updatePref (SetImageOrder order)  = #ordering .~ order
   --updatePref _ = id
 
 
@@ -502,6 +565,11 @@ rangeSlider (l, u) step initial setter = do
 rangeView :: (Builder t m, Read a, Show a, Num a, Eq a) => (a, a) -> a -> Dynamic t a -> m (Event t a)
 rangeView range step = toView (rangeSlider range step (fst range))
 
+-- selectOption :: Builder t m => [Property t] -> [(Text, a)] -> a -> Event t a -> m (Dynamic t a)
+selectView :: (Builder t m, Eq a) => [(Text, a)] -> Dynamic t a -> m (Event t a)
+selectView options = toView (selectOption [class_ =: "custom-select"] options option)
+  where option = snd (L.head options)
+
 rangePreview :: (Builder t m, Read a, Show a, Num a, Eq a) => (a -> Text) -> (a, a) -> a -> Dynamic t a -> m (Event t a)
 rangePreview showValue range step value = row "spacing-3 align-items-center" $ do
   inp <- rangeView range step value
@@ -527,8 +595,8 @@ toView makeWidget value = do
 
     return (updated value')
 
-    where
-      filterEq x y = if x == y then Nothing else Just y
+filterEq :: (Eq a) => a -> a -> Maybe a
+filterEq x y = if x == y then Nothing else Just y
 
 
 checkboxLabel :: Builder t m => Text -> Text -> Dynamic t Bool -> m (Event t Bool)
@@ -540,14 +608,17 @@ checkboxLabel i t value = div [class_ =: "custom-control custom-checkbox"] $ do
 
     return inp
 
+settingsPane :: AppBuilder t m => Text -> m a -> m a
+settingsPane title children = column "v-spacing-2 p-2 border" $ do
+    h5 [] $ text "Interface settings"
+    children
 
 settingsTab :: AppBuilder t m => m ()
 settingsTab = column "h-100 v-spacing-2" $ do
   prefs <- view #preferences
   doc   <- view #document
 
-  column "v-spacing-2 p-2 border" $ do
-    h5 [] $ text "Interface settings"
+  settingsPane "Interface settings" $ do
 
     instanceCols <- checkboxLabel "instance-cols" "Instance colours" (view #instanceColours <$> prefs)
     prefCommand (SetInstanceColors <$> instanceCols)
@@ -556,13 +627,18 @@ settingsTab = column "h-100 v-spacing-2" $ do
         inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #opacity <$> prefs)
         prefCommand (SetOpacity <$> inp)
 
-
-
     labelled "Control size" $ do
       inp <- rangePreview (printFloat0) (5.0, 50.0) 1 (view #controlSize <$> prefs)
       prefCommand (SetControlSize <$> inp)
 
     return ()
+
+  settingsPane "Trainer settings" $ do
+
+    labelled "Image order" $ do
+        inp <- selectView [("Mixed", OrderMixed), ("Sequential", OrderSequential)] (view #ordering <$> prefs)
+        prefCommand (SetImageOrder <$> inp)
+
 
   column "v-spacing-2 p-2 border" $ do
     h5 [] $ text "Image adjustment"
@@ -648,8 +724,8 @@ selectedClass AppEnv{config, currentClass} = M.lookup <$> currentClass <*> fmap 
 
 overlay :: forall t m. AppBuilder t m => EventSelector t Shortcut -> Dynamic t (Maybe EditorDocument) -> Dynamic t Preferences -> m ()
 overlay shortcut document prefs = row "expand  disable-cursor" $ do
-   sidebar
-   column "expand" $
+  sidebar
+  column "expand" $
     sequence_ [header, spacer, footer]
 
   where
@@ -662,16 +738,12 @@ overlay shortcut document prefs = row "expand  disable-cursor" $ do
       spacer
 
       detect <- toolButton docOpen "Detect" "auto-fix" "Detect annotations using current trained model"
-
-      let detectCmd doc prefs = ClientDetect <$> (view #name <$> doc) <*> pure (view #detection prefs)
-      remoteCommand id (filterMaybe ((detectCmd <$> current document <*> current prefs) `tag` detect))
+      command (const DetectCmd) detect
 
       buttonGroup $ do
         docCommand  (const DocUndo)  =<< toolButton canUndo "Undo" "undo" "Undo last edit"
         docCommand  (const DocRedo)  =<< toolButton canRedo "Redo" "redo" "Re-do last undo"
         command     (const ClearCmd) =<< toolButton' "Clear" "eraser" "Clear all annotations"
-
-
 
     canUndo = fromDocument False (not . null . view #undos)
     canRedo = fromDocument False (not . null . view #redos)
@@ -679,32 +751,14 @@ overlay shortcut document prefs = row "expand  disable-cursor" $ do
     footer = buttonRow $ do
       spacer
       buttonGroup $ do
-        discard <- toolButton docOpen "Discard" "delete-empty" "Discard image from the collection"
-        test  <- toolButton docOpen "Test" "teach" "Submit image for testing"
-        train  <- toolButton docOpen "Train" "book-open-page-variant" "Submit image for training"
+        discard   <- toolButton docOpen "Discard" "delete-empty" "Discard image from the collection"
+        test      <- toolButton docOpen "Test" "teach" "Submit image for testing"
+        train     <- toolButton docOpen "Train" "book-open-page-variant" "Submit image for training"
 
-        remoteCommand id $ leftmost
-          [ withDocument (ClientDiscard . view #name) discard
-          , withDocPrefs (\p -> ClientSubmit . submitFor Train p) train
-          , withDocPrefs (\p -> ClientSubmit . submitFor Test p) test
-          ]
+        command SubmitCmd $
+          leftmost [ Discard <$ discard, Test <$ test, Train <$ train ]
 
     buttonRow = row "p-2 spacing-4"
     nonEmpty label = notNullOf (_Just . label . traverse)
-
     fromDocument a f = fromMaybe a . fmap f <$> document
-    withDocument f e = fmap (f . toDocument) <?> (current document `tag` e)
-
-    withDocPrefs :: forall a. (Preferences -> Document -> a) -> Event t () -> Event t a
-    withDocPrefs f e = f <$> current prefs <@> fmapMaybe (fmap toDocument) (current document `tag` e)
-
-    submitFor :: ImageCat -> Preferences -> Document -> Document
-    submitFor cat prefs = (#info . #category .~ cat) . (#annotations %~ M.mapMaybe confirmDetection)
-      where
-
-        confirmDetection :: Annotation -> Maybe Annotation
-        confirmDetection ann = do
-          guard (getConfidence ann >= (prefs ^. #threshold))
-          return $ ann & #confirm .~ True
-
     docOpen = isJust <$> document

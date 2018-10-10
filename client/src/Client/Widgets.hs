@@ -9,6 +9,7 @@ import Builder.Html hiding (title)
 
 import qualified Data.Text as T
 import Data.Default
+import Data.Tuple (swap)
 
 import Text.Printf
 
@@ -107,3 +108,23 @@ timeout (down, up) time = do
        return $ gate isDown delayed
 
   switchHold never $  pushAlways (const gateDelay) down
+
+
+selectOption :: (Eq a, Builder t m) => [Property t] -> [(Text, a)] -> a -> Event t a -> m (Dynamic t a)
+selectOption props options initial setter = fmap fromText . _selectElement_value <$>
+    selectElem_  props config (traverse_ makeOption options)
+
+    where
+      fromText t = fromMaybe initial (lookup t options)
+      toText a   = fromMaybe (error "selectOption: missing value") $
+        lookup a (swap <$> options)
+
+      makeOption (t, _) = option [value_ =: t] $ text t
+      config  = def & selectElementConfig_initialValue .~ toText initial
+                    & selectElementConfig_setValue .~ (toText <$> setter)
+
+
+labelled :: Builder t m => Text -> m a -> m a
+labelled t inner = row "align-items-stretch " $ do
+  label [class_ =: "grow-1 align-self-center"] $ text t
+  div [class_ =: "grow-2"] inner

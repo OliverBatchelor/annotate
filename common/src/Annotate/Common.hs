@@ -16,7 +16,10 @@ import Data.Generics.Product
 import Annotate.Geometry
 
 import Control.Lens (makePrisms)
+import Data.Hashable
 
+import qualified Data.Text as Text
+import qualified Data.Aeson as Aeson
 
 type AnnotationId = Int
 type ClientId = Int
@@ -96,6 +99,10 @@ data HistoryEntry = HistOpen | HistSubmit | HistEdit Edit | HistUndo | HistRedo
 data EditCmd = DocEdit Edit | DocUndo | DocRedo
   deriving (Show, Eq, Generic)
 
+newtype NaturalKey = NaturalKey [Either Int Text]
+  deriving (Ord, Eq, Generic, Show)
+
+
 
 data Document = Document
   { name  :: DocName
@@ -108,9 +115,13 @@ data Document = Document
 
 
 data ImageCat = New | Train | Test | Discard deriving (Eq, Ord, Enum, Generic, Show)
+newtype Hash32 = Hash32 { unHash :: Word32 }
+  deriving (Eq, Ord, Enum, Generic, Show)
 
 data DocInfo = DocInfo
-  { modified    :: Maybe DateTime
+  { hashedName :: Hash32
+  , naturalKey :: NaturalKey
+  , modified    :: Maybe DateTime
   , numAnnotations :: Int
   , category    :: ImageCat
   , imageSize   :: (Int, Int)
@@ -130,6 +141,11 @@ data Config = Config
   , classes     :: Map ClassId ClassConfig
   } deriving (Generic, Show, Eq)
 
+
+data ImageOrdering = OrderSequential | OrderMixed
+  deriving (Show, Eq, Ord, Enum, Generic)
+
+
 data Preferences = Preferences
   { controlSize       :: Float
   , brushSize         :: Float
@@ -144,6 +160,8 @@ data Preferences = Preferences
 
   , detection    :: DetectionParams
   , threshold    :: Float
+
+  , ordering    :: ImageOrdering
   } deriving (Generic, Show, Eq)
 
 data DetectionParams = DetectionParams
@@ -158,37 +176,62 @@ data Collection = Collection
   } deriving (Generic, Show, Eq)
 
 
-data ErrCode = ErrDecode Text | ErrNotFound DocName | ErrNotRunning | ErrTrainer Text
-   deriving (Generic, Show, Eq)
+data ErrCode
+  = ErrDecode Text
+  | ErrNotFound NavId DocName
+  | ErrNotRunning
+  | ErrTrainer Text
+  | ErrEnd NavId
+    deriving (Generic, Show, Eq)
 
+type NavId = Int
 
 data ServerMsg
   = ServerHello ClientId Config
   | ServerConfig Config
   | ServerCollection Collection
   | ServerUpdateInfo DocName DocInfo
-  | ServerDocument Document
+  | ServerDocument NavId Document
   | ServerOpen (Maybe DocName) ClientId DateTime
   | ServerError ErrCode
   | ServerDetection DocName [Detection]
   | ServerEnd
       deriving (Generic, Show, Eq)
 
+
+data Navigation
+  = NavNext ImageOrdering
+  | NavTo DocName
+    deriving (Generic, Show, Eq)
+
+data ConfigUpdate
+  = ConfigClass ClassId (Maybe ClassConfig)
+    deriving (Generic, Show, Eq)
+
 data ClientMsg
-  = ClientOpen DocName
-  | ClientNext (Maybe DocName)
+  = ClientNav NavId Navigation
   | ClientSubmit Document
-  | ClientDiscard DocName
   | ClientDetect DocName DetectionParams
-  | ClientClass ClassId (Maybe ClassConfig)
+  | ClientConfig ConfigUpdate
   | ClientCollection
 
       deriving (Generic, Show, Eq)
+
+
+instance FromJSON Hash32 where
+  parseJSON (Aeson.String v) = return $ Hash32 $ read (Text.unpack v)
+  parseJSON _          = fail "expected string value"
+
+instance ToJSON Hash32 where
+  toJSON (Hash32 v) = Aeson.String (Text.pack (show v))
+
 
 instance FromJSON ShapeConfig
 instance FromJSON ClassConfig
 
 instance FromJSON DetectionParams
+instance FromJSON ImageOrdering
+
 instance FromJSON Preferences
 
 instance FromJSON ImageCat
@@ -201,8 +244,9 @@ instance FromJSON HistoryEntry
 instance FromJSON Edit
 instance FromJSON EditCmd
 
-
-
+instance FromJSON Navigation
+instance FromJSON ConfigUpdate
+instance FromJSON NaturalKey
 instance FromJSON Document
 instance FromJSON Config
 instance FromJSON DocInfo
@@ -215,6 +259,7 @@ instance ToJSON ShapeConfig
 instance ToJSON ClassConfig
 
 instance ToJSON DetectionParams
+instance ToJSON ImageOrdering
 instance ToJSON Preferences
 
 instance ToJSON ImageCat
@@ -227,6 +272,9 @@ instance ToJSON HistoryEntry
 instance ToJSON Edit
 instance ToJSON EditCmd
 
+instance ToJSON Navigation
+instance ToJSON ConfigUpdate
+instance ToJSON NaturalKey
 instance ToJSON Document
 instance ToJSON Config
 instance ToJSON DocInfo
@@ -255,6 +303,7 @@ instance Default Preferences where
 
     , detection = def
     , threshold = 0.5
+    , ordering = OrderMixed
     }
 
 instance Default DetectionParams where
@@ -307,9 +356,34 @@ setToMap a = M.fromDistinctAscList . fmap (, a) . S.toAscList
 setToMap' :: Ord k => Set k -> Map k ()
 setToMap' = setToMap ()
 
+data HashedKey k = HashedKey { unKey :: k, hashedKey :: Word32 }
+  deriving Show
+
+hashKey :: (Hashable k) => k -> HashedKey k
+hashKey k = HashedKey k (fromIntegral $ hash k)
+
+instance (Hashable a, Eq a) => Eq (HashedKey a) where
+  (==) k k' = hashedKey k == hashedKey k' && unKey k == unKey k'
+
+instance (Hashable a, Ord a) => Ord (HashedKey a) where
+  compare k k' = case compare (hashedKey k) (hashedKey k') of
+    GT -> GT
+    LT -> LT
+    EQ -> compare (unKey k) (unKey k')
+
+hashKeys :: (Ord k, Hashable k) => Map k a -> Map (HashedKey k) a
+hashKeys = M.mapKeys hashKey
+
+unNatural :: NaturalKey -> Text
+unNatural (NaturalKey xs) = Text.concat (show' <$> xs) where
+  show' (Left i)  = Text.pack (show i)
+  show' (Right t) = t
+
 
 emptyCollection :: Collection
 emptyCollection = Collection mempty
+
+makePrisms ''Navigation
 
 makePrisms ''ClientMsg
 makePrisms ''ServerMsg

@@ -52,15 +52,15 @@ clientDisconnected env clientId = atomically $ do
   writeLog env $ "disconnected: " <> show clientId
 
 
-clientOpen :: Env -> ClientId -> DocName -> STM ()
-clientOpen env clientId k = do
+clientOpen :: Env -> ClientId -> NavId -> DocName -> STM ()
+clientOpen env clientId navId k = do
   mDoc <- lookupDoc k <$> readLog (env ^. #store)
   case mDoc of
     Nothing  -> sendClient env clientId $
-      ServerError (ErrNotFound k)
+      ServerError (ErrNotFound navId k)
     Just doc -> do
       openDocument env clientId k
-      sendClient env clientId (ServerDocument doc)
+      sendClient env clientId (ServerDocument navId doc)
 
 
 clientLoop :: Env -> WS.Connection -> ClientId -> IO ()
@@ -81,27 +81,22 @@ processMsg :: Env -> ClientId -> ClientMsg -> STM ()
 processMsg env@Env{store} clientId msg = do
   time <- getCurrentTime'
   case msg of
-    ClientOpen k    -> clientOpen env clientId k
-    -- ClientCmd k cmd -> modifyDocument env k cmd
+    ClientNav navId nav -> case nav of
+      (NavTo k)          -> clientOpen env clientId navId k
+      (NavNext ordering) -> clientOpenNext env clientId navId ordering
 
-    ClientSubmit doc -> do
+    ClientSubmit doc -> void $ do
       updateLog store (CmdSubmit doc time)
       sendTrainer env (TrainerUpdate (doc ^. #name) (Just (exportImage doc)))
 
-      nextImage env clientId (Just (doc ^. #name))
 
-    ClientDiscard k -> do
-      updateLog store (CmdCategory k Discard)
-      nextImage env clientId (Just k)
-
-    ClientNext current -> nextImage env clientId current
 
     ClientDetect k params -> do
       running <- sendTrainer env (TrainerDetect clientId k params)
       unless running $
         sendClient env clientId (ServerError ErrNotRunning)
 
-    ClientClass k mClass -> do
+    ClientConfig (ConfigClass k mClass) -> do
       updateLog store (CmdClass k mClass)
       broadcastConfig env
 
@@ -112,12 +107,14 @@ processMsg env@Env{store} clientId msg = do
 
 
 
-nextImage :: Env -> ClientId -> Maybe DocName -> STM ()
-nextImage env clientId current = do
-  maybeDoc <- findNext env current
-  case maybeDoc of
-    Just k -> clientOpen env clientId k
-    Nothing      -> sendClient env clientId ServerEnd
+clientOpenNext :: Env -> ClientId -> NavId -> ImageOrdering -> STM ()
+clientOpenNext env clientId navId ordering =
+  withClient_ (env ^. #clients) clientId $ \Client {document} -> do
+    maybeDoc <- findNext env ordering document
+    case maybeDoc of
+      Just k    -> clientOpen env clientId navId k
+      Nothing   -> sendClient env clientId $
+        ServerError (ErrEnd navId)
 
 
 

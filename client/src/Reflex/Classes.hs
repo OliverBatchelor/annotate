@@ -86,6 +86,10 @@ dyn' :: (MonadHold t m, DomBuilder t m, PostBuild t m, SwitchHold t a) => a -> D
 dyn' a d = dyn d >>= switchHold a
 
 
+holdDynUniq :: (MonadFix m, MonadHold t m, Eq a, Reflex t)
+            => a -> Event t a -> m (Dynamic t a)
+holdDynUniq a e = holdDyn a e >>= holdUniqDyn
+
 holdQueue :: (MonadHold t m, MonadFix m, Reflex t) => Event t [a] -> Dynamic t Bool -> m (Event t a)
 holdQueue input occupied = mdo
   queue  <- fmap current $ holdDyn mempty $

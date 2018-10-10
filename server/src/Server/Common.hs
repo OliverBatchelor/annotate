@@ -17,13 +17,19 @@ import Control.Concurrent.STM
 import Control.Concurrent.Log
 
 import qualified Data.Map as M
+import qualified Data.Text as Text
 
 import Data.ByteString.Lazy (ByteString)
+import qualified Data.ByteString.Lazy as L
 import qualified Network.WebSockets             as WS
 
 import Data.Aeson (eitherDecode)
 import Data.Generics.Product.Subtype (upcast)
 
+
+import Text.Megaparsec hiding (some, many)
+import Text.Megaparsec.Char
+import Text.Megaparsec.Char.Lexer (decimal)
 
 
 data Store = Store
@@ -128,7 +134,9 @@ sendThread conn = do
       action <- atomically $ readTChan chan
       case action of
         Nothing   -> return ()
-        Just msg -> liftIO $ WS.sendTextData conn (encode msg) >> run chan
+        Just msg -> liftIO $ do
+          -- L.appendFile "server.log" (encode msg)
+          WS.sendTextData conn (encode msg) >> run chan
 
 
 tryDecode :: (MonadIO m, FromJSON a) => ByteString -> m a
@@ -161,6 +169,11 @@ withClient clients clientId  f = do
   mClient <- M.lookup clientId <$> readTVar clients
   traverse f mClient
 
+withClient_ :: Clients -> ClientId -> (Client -> STM a) -> STM ()
+withClient_ clients clientId  f = do
+  mClient <- M.lookup clientId <$> readTVar clients
+  traverse_ f mClient
+
 
 sendClient :: Env -> ClientId -> ServerMsg -> STM ()
 sendClient env clientId msg = void $ do
@@ -188,3 +201,27 @@ getCollection Store{..} = Collection $ view #info <$> images
 
 getCurrentTime' :: STM UTCTime
 getCurrentTime' = unsafeIOToSTM getCurrentTime
+
+
+makeNaturalKey :: DocName -> NaturalKey
+makeNaturalKey filename = fromMaybe
+  (error "failed to parse sort key!") (parseMaybe parseNaturalKey (Text.unpack filename))
+
+parseNaturalKey :: Parser NaturalKey
+parseNaturalKey = (NaturalKey <$> many part) <* eof where
+  nonNumber = Text.pack <$> takeWhile1P (Just "non digit") (not . isDigit)
+  part = (Left <$> decimal) <|> (Right <$> nonNumber)
+
+
+type Parser = Parsec Void String
+
+
+defaultInfo :: Dim -> DocName -> DocInfo
+defaultInfo dim filename = DocInfo
+  { naturalKey = makeNaturalKey filename
+  , hashedName = Hash32 (fromIntegral (hash filename))
+  , modified = Nothing
+  , category = New
+  , imageSize = dim
+  , numAnnotations = 0
+  }

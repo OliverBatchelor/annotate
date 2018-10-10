@@ -21,19 +21,33 @@ nextCircular :: Ord a => Set a -> a -> Maybe a
 nextCircular s x = S.lookupGT x s' <|> minSet s'
   where s' = S.delete x s
 
-findNext' :: Store -> Map DocName [ClientId] -> Maybe DocName -> Maybe DocName
-findNext' Store{..} docs = \case
-    Nothing      -> minSet editable
-    Just current -> nextCircular editable current
+nextSet :: Ord k => [k] -> Maybe k -> Maybe k
+nextSet items = (\case
+    Nothing      -> minSet s
+    Just current -> nextCircular s current)
+      where s = S.fromList items
 
-    where
-      editable = M.keysSet (M.filter isFresh images)
-      isFresh = (== New) . view (#info . #category)
 
-findNext :: Env -> Maybe DocName -> STM (Maybe DocName)
-findNext Env{..} maybeCurrent =
-  findNext' <$> readLog store <*> readTVar documents <*> pure maybeCurrent
+findNext' :: ImageOrdering -> Map DocName Document ->  Map DocName [ClientId] -> Maybe DocName -> Maybe DocName
+findNext' ordering images openDocs current = case ordering of
+    OrderSequential -> unNatural <$> nextSet sorted (makeNaturalKey <$> current)
+    OrderMixed      -> unKey <$> nextSet mixed (hashKey <$> current)
 
+  where
+    editable = filter isFresh (M.elems images)
+    sorted = view (#info . #naturalKey) <$> editable
+    mixed = getHash <$> editable
+
+    getHash Document{info, name} = HashedKey name (unHash $ view #hashedName info) 
+
+    isFresh Document{info, name} =
+        info ^. #category == New &&
+        not (M.member name openDocs)
+
+
+findNext :: Env -> ImageOrdering -> Maybe DocName -> STM (Maybe DocName)
+findNext Env{..} ordering maybeCurrent =
+  findNext' ordering <$> (view #images <$> readLog store) <*> readTVar documents <*> pure maybeCurrent
 
 
 openDocument :: Env -> ClientId -> DocName -> STM ()

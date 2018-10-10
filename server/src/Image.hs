@@ -18,23 +18,16 @@ import qualified Data.Text as Text
 import System.FilePath
 import System.Directory
 
-
-defaultInfo :: Dim -> DocInfo
-defaultInfo dim = DocInfo
-  { modified = Nothing
-  , category = New
-  , imageSize = dim
-  , numAnnotations = 0
-  }
-
+import Server.Common (defaultInfo)
 
 imageInfo :: FilePath -> DocName -> IO (Maybe DocInfo)
 imageInfo root filename = do
   (exit, out, _) <- readProcessWithExitCode "identify" [path] ""
-  return $ toInfo <$> parseMaybe (parseIdentify path) (firstLine out)
-
+  return $ do
+    (_, dim) <- parseMaybe (parseIdentify path) (firstLine out)
+    return $ defaultInfo dim filename
     where
-      toInfo (_, dim) = defaultInfo dim
+
       path = root </> Text.unpack filename
       firstLine = concat . take 1 . lines
 

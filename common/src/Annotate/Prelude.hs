@@ -7,6 +7,9 @@ import Control.Applicative as X
 import Control.Monad as X
 import Control.Monad.Trans as X
 import Control.Category as X
+import Control.Arrow as X ((***), (&&&))
+
+import Debug.Trace as X
 
 import Control.Monad.Identity as X (Identity, runIdentity)
 import Control.Monad.Reader.Class as X (MonadReader (..), asks)
@@ -61,10 +64,11 @@ import Data.Dependent.Sum as X (DSum(..))
 
 import Data.Typeable as X
 
+import Data.Hashable as X (Hashable(..))
 
 import GHC.Generics as X (Generic(..))
 import Prelude as X (
-  Read (..), read, Show(..), Eq(..), Ord(..), Enum(..), Floating(..), Integral(..), Num(..),
+  Read (..), read, Show(..), Eq(..), Ord(..), Ordering(..), Enum(..), Floating(..), Integral(..), Num(..),
   Real(..), RealFloat(..), Fractional(..), Floating(..), Bounded(..), realToFrac,
   Integer, Char, Float, Int, Double, String, FilePath, IO,
   curry, uncurry, flip, const, fst, snd, fromIntegral,

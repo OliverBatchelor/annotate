@@ -114,6 +114,8 @@ main = do
 
     BS.writeFile file (encodePretty (exportCollection state))
 
+  -- (atomically $ readLog store) >>= BS.writeFile "test.json" . encodePretty
+
   let port' = fromMaybe 3000 port
   atomically $ writeLog env ("Anotate server listening on port " <> show port')
 

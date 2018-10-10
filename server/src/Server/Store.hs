@@ -9,6 +9,51 @@ import Data.SafeCopy
 
 import Control.Concurrent.Log
 
+data DocInfo0 = DocInfo0
+  { modified    :: Maybe DateTime
+  , numAnnotations :: Int
+  , category    :: ImageCat
+  , imageSize   :: (Int, Int)
+  } deriving (Generic, Show, Eq)
+
+data DocInfo1 = DocInfo1
+  { hashedName :: Int
+  , naturalKey :: NaturalKey
+  , modified    :: Maybe DateTime
+  , numAnnotations :: Int
+  , category    :: ImageCat
+  , imageSize   :: (Int, Int)
+  } deriving (Generic, Show, Eq)
+
+
+data DocInfo2 = DocInfo2
+  { hashedName :: Word32
+  , naturalKey :: NaturalKey
+  , modified    :: Maybe DateTime
+  , numAnnotations :: Int
+  , category    :: ImageCat
+  , imageSize   :: (Int, Int)
+  } deriving (Generic, Show, Eq)
+
+
+data Document5 = Document5
+  { name  :: DocName
+  , info  :: DocInfo
+  , annotations :: AnnotationMap
+  , validArea   :: Maybe Box
+  , history :: [(UTCTime, HistoryEntry)]
+  } deriving (Generic, Show, Eq)
+
+
+data Document4 = Document4
+  { name  :: DocName
+  , info  :: DocInfo
+  , annotations :: AnnotationMap
+  , validArea   :: Maybe Box
+  , history :: [(UTCTime, HistoryEntry)]
+  } deriving (Generic, Show, Eq)
+
+
 data Document3 = Document3
   { name  :: DocName
   , info  :: DocInfo
@@ -29,8 +74,37 @@ data Document1 = Document1
   } deriving (Generic, Show, Eq)
 
 instance Migrate Document where
-  type MigrateFrom Document = Document3
-  migrate Document3{..} = Document {..}
+  type MigrateFrom Document = Document5
+  migrate Document5{..} = Document {name, history, annotations, validArea, info = migrateInfo info} where
+    migrateInfo info = info {naturalKey, hashedName} :: DocInfo
+    naturalKey = makeNaturalKey name
+    hashedName = Hash32 (fromIntegral (hash name))
+
+instance Migrate Document5 where
+  type MigrateFrom Document5 = Document4
+  migrate Document4{..} = Document5{..}
+
+instance Migrate DocInfo2 where
+  type MigrateFrom DocInfo2 = DocInfo1
+  migrate DocInfo1{..} = DocInfo2
+    { naturalKey, modified, numAnnotations
+    , category, imageSize, hashedName = fromIntegral hashedName}
+
+instance Migrate DocInfo where
+  type MigrateFrom DocInfo = DocInfo2
+  migrate DocInfo2{..} = DocInfo
+    { naturalKey, modified, numAnnotations
+    , category, imageSize, hashedName = Hash32 (fromIntegral hashedName)}
+
+instance Migrate DocInfo1 where
+  type MigrateFrom DocInfo1 = DocInfo0
+  migrate DocInfo0{..} = DocInfo1 {..}
+    where naturalKey = NaturalKey []
+          hashedName = 0
+
+instance Migrate Document4 where
+  type MigrateFrom Document4 = Document3
+  migrate Document3{..} = Document4 {..}
     where history = []
 
 instance Migrate Document3 where
@@ -48,8 +122,15 @@ instance Migrate Document2 where
         annotations' = M.filter (view #confirm) annotations
 
 $(deriveSafeCopy 1 'base ''Document1)
-$(deriveSafeCopy 2 'base ''Document2)
-$(deriveSafeCopy 3 'base ''Document3)
+$(deriveSafeCopy 2 'extension ''Document2)
+$(deriveSafeCopy 3 'extension ''Document3)
+$(deriveSafeCopy 4 'extension ''Document4)
+$(deriveSafeCopy 5 'extension ''Document5)
+
+
+$(deriveSafeCopy 0 'base ''DocInfo0)
+$(deriveSafeCopy 1 'extension ''DocInfo1)
+$(deriveSafeCopy 2 'extension ''DocInfo2)
 
 
 
@@ -72,6 +153,9 @@ instance Migrate Annotation where
 $(deriveSafeCopy 1 'base ''Annotation1)
 $(deriveSafeCopy 2 'extension ''Annotation2)
 
+$(deriveSafeCopy 0 'base ''Hash32)
+
+
 $(deriveSafeCopy 0 'base ''V2)
 $(deriveSafeCopy 0 'base ''Box)
 $(deriveSafeCopy 0 'base ''Circle)
@@ -86,8 +170,10 @@ $(deriveSafeCopy 0 'base ''Shape)
 $(deriveSafeCopy 0 'base ''Detection)
 
 $(deriveSafeCopy 0 'base ''ImageCat)
-$(deriveSafeCopy 4 'extension ''Document)
-$(deriveSafeCopy 0 'base ''DocInfo)
+$(deriveSafeCopy 6 'extension ''Document)
+
+$(deriveSafeCopy 0 'base ''NaturalKey)
+$(deriveSafeCopy 3 'extension ''DocInfo)
 $(deriveSafeCopy 0 'base ''Config)
 $(deriveSafeCopy 0 'base ''ClassConfig)
 $(deriveSafeCopy 0 'base ''ShapeConfig)
@@ -129,6 +215,9 @@ instance Persistable Store where
   update (CmdSetRoot path)  = #config . #root .~ path
 
 
+instance FromJSON Store
+instance ToJSON Store
+
 initialStore :: Config -> Store
 initialStore config = Store
   { config = config
@@ -154,7 +243,8 @@ importImage TrainImage{..} = (imageFile, document) where
   document = emptyDoc imageFile info
     & #annotations .~ M.fromList (zip [0..]  annotations)
     & #validArea   .~ validArea
-  info = DocInfo {modified = Nothing, imageSize = imageSize, category = category, numAnnotations = length annotations}
+  info :: DocInfo = (defaultInfo imageSize imageFile)
+    {modified = Nothing, category = category, numAnnotations = length annotations}
 
 exportImage :: Document -> TrainImage
 exportImage Document{..} = TrainImage

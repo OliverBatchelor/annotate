@@ -31,6 +31,7 @@ type Builder t m = (Adjustable t m, MonadHold t m, DomBuilder t m, MonadFix m, P
                    , MonadJSM (Performable m), PerformEvent t m, TriggerEvent t m, MonadJSM m
                    , HasJSContext m, MonadJSM (Performable m), DomBuilderSpace m ~ GhcjsDomSpace,  PerformEvent t m)
 
+type AppEvent t = Event t [AppCommand]
 type AppBuilder t m = (Builder t m, EventWriter t [AppCommand] m, MonadReader (AppEnv t) m)
 
 type GhcjsBuilder t m = Builder t m
@@ -51,7 +52,7 @@ data PrefCommand
   | SetGamma Float
   | SetBrightness Float
   | SetContrast Float
-  
+
   | SetControlSize Float
   | SetInstanceColors Bool
   | ShowClass (ClassId, Bool)
@@ -61,6 +62,7 @@ data PrefCommand
   | SetDetections Int
 
   | SetThreshold Float
+  | SetImageOrder ImageOrdering
 
   deriving (Generic, Show)
 
@@ -69,7 +71,13 @@ data AppCommand
   | EditCmd EditCmd
   | SelectCmd DocParts
   | ClearCmd
-  | RemoteCmd ClientMsg
+
+  | SubmitCmd ImageCat
+  | OpenCmd DocName
+
+  | DetectCmd
+
+  | ConfigCmd ConfigUpdate
 
   | DialogCmd Dialog
   | ClassCmd (Set AnnotationId) ClassId
@@ -115,12 +123,11 @@ instance Default Action where
 
 data AppEnv t = AppEnv
   { basePath :: Text
-  , commands :: (Event t [AppCommand])
   , document :: (Dynamic t (Maybe EditorDocument))
   , config :: (Dynamic t Config)
   , preferences :: (Dynamic t Preferences)
   , currentClass :: (Dynamic t ClassId)
-  , userSelected :: (Dynamic t (Maybe DocName))
+  , docSelected  :: (Dynamic t (Maybe DocName))
   , shortcut     :: (EventSelector t Shortcut)
   , selection    ::  (Dynamic t DocParts)
 
@@ -151,9 +158,6 @@ lookupClass classId = do
   return $ M.lookup <$> classId <*> classes
 
 
-remoteCommand :: AppBuilder t m => (a -> ClientMsg) -> Event t a -> m ()
-remoteCommand f = command (RemoteCmd . f)
-
 docCommand :: AppBuilder t m => (a -> EditCmd) -> Event t a -> m ()
 docCommand f = command (EditCmd . f)
 
@@ -166,6 +170,9 @@ prefCommand = command PrefCmd
 
 editCommand :: AppBuilder t m => Event t Edit -> m ()
 editCommand  = docCommand DocEdit
+
+commands :: AppBuilder t m => (a -> AppCommand) -> Event t [a] -> m ()
+commands f  = tellEvent . fmap (fmap f)
 
 
 command :: AppBuilder t m => (a -> AppCommand) -> Event t a -> m ()
