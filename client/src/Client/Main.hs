@@ -257,6 +257,7 @@ documentEditor input cmds loaded  = do
 
         editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd]
 
+  logEvent editCmd
   -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $ oneOf _SelectCmd cmds
 
@@ -420,12 +421,11 @@ bodyWidget host = mdo
         , clientConfig
         , clientDetect docSelected preferences cmds
         , ClientCollection <$ hello
-        , saveDocument document saves
+        , saveDocument preferences document saves
         ]
 
       (navigations, saves) = navigationCmd preferences cmds
       clientConfig = ClientConfig <$> oneOf _ConfigCmd cmds
-
 
   (docSelected, loaded, clientNav) <- manageDocument preferences (void hello) serverMsg navigations
 
@@ -463,9 +463,8 @@ bodyWidget host = mdo
       detectionsCmd = attachWithMaybe makeDetections (liftA2 (,) (current config) (current document))  (preview _ServerDetection <?> serverMsg)
       cmds = leftmost [interfaceCmds, detectionsCmd]
 
-
-    -- setTitle $ ffor document $ \doc ->
-    --   "Annotate - " <> fromMaybe ("no document") doc
+  setTitle $ ffor docSelected $ \doc ->
+    "Annotate - " <> fromMaybe ("no document") doc
 
   connectingDialog (opened, void closed)
   ((shortcuts, action, document, selection), interfaceCmds) <- flip runReaderT env $ runEventWriterT $ do
@@ -473,7 +472,6 @@ bodyWidget host = mdo
     runWithClose $ leftmost
       [ runDialog <$> oneOf _DialogCmd cmds
       , errorDialog <$> serverErrors
-
       ]
 
     cursorLock action $ do
@@ -484,6 +482,8 @@ bodyWidget host = mdo
 
 runDialog :: AppBuilder t m => Dialog -> m (Event t ())
 runDialog (ClassDialog selection) = selectClassDialog (M.keysSet selection)
+runDialog (ErrorDialog code) = errorDialog code
+
 
 
 updatePrefs :: [PrefCommand] -> Preferences -> Preferences

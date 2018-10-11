@@ -158,7 +158,7 @@ imagesTab = column "h-100 p-1 v-spacing-2" $ do
         [ size <$ domEvent Click inc
         , -size <$ domEvent Click dec]
 
-  command LoadCmd userSelect
+  command OpenCmd userSelect
 
   return ()
     where

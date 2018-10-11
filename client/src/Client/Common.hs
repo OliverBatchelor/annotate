@@ -43,6 +43,7 @@ data ViewCommand
   deriving (Generic, Show)
 
 data Dialog = ClassDialog DocParts
+            | ErrorDialog ErrCode
   deriving (Generic, Show)
 
 
@@ -76,13 +77,12 @@ data AppCommand
   | OpenCmd DocName
 
   | DetectCmd
-
   | ConfigCmd ConfigUpdate
 
   | DialogCmd Dialog
   | ClassCmd (Set AnnotationId) ClassId
-  | LoadCmd DocName
   | PrefCmd PrefCommand
+
 
   deriving (Generic, Show)
 

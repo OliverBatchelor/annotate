@@ -377,23 +377,21 @@ drawBoxes scene SceneInputs{..} _ =
 
 
 drawPolygons :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
-drawPolygons scene SceneInputs{..} finish =
-  addShapes scene . filterMaybe =<< workflowView (idle Nothing)
+drawPolygons scene SceneInputs{..} finish = void $ workflow idle
 
   where
-    idle r = Workflow $ do
-      return (r, drawing . pure <$> (current mouse `tag` click LeftButton))
+    idle = workflow' $
+      return (drawing . pure <$> (current mouse `tag` click LeftButton))
 
-    drawing points = Workflow $ do
+    drawing points = workflow' $ do
       let points'  = (`NE.cons` points) <$> mouse
           shape     = PolygonShape (Polygon points)
           next     = current points' `tag` click LeftButton
 
       polygonElem  [class_ =: "outline"] (Polygon <$> points')
-      return (Nothing, leftmost
-        [ idle (Just shape) <$ finish
-        , drawing <$> next
-        ])
+      addShapes scene (shape <$ finish)
+
+      return (drawing <$> next)
 
 
 drawCircles :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
@@ -408,31 +406,28 @@ drawCircles scene SceneInputs{..} finish = do
     cursor = Circle <$> mouse <*> brushSize
 
 
-drawLines :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
-drawLines scene SceneInputs{..} finish = do
+drawLines :: forall t m. AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
+drawLines scene SceneInputs{..} finish = void $ do
   prefCommand (ZoomBrush <$> wheel)
-  circleElem [class_ =: "outline"] cursor
-
-
-  addShapes scene . filterMaybe =<< workflowView (idle Nothing)
+  workflow idle
 
   where
     brushSize = view #brushSize <$> (scene ^. #preferences)
     cursor = Circle <$> mouse <*> brushSize
 
-    idle r = Workflow $ do
-      return (r, drawing . pure <$> (current cursor `tag` click LeftButton))
+    idle  = workflow' $ do
+      circleElem [class_ =: "outline"] cursor
+      return (drawing . pure <$> (current cursor `tag` click LeftButton))
 
-    drawing points = Workflow $ do
+    drawing points = workflow' $ do
       let points'  = (`NE.cons` points) <$> cursor
           shape    = LineShape (WideLine points)
           next     = current points' `tag` click LeftButton
 
       lineElem "draw" [class_ =: "outline"] (WideLine <$> points')
-      return (Nothing, leftmost
-        [ idle (Just shape) <$ finish
-        , drawing <$> next
-        ])
+      addShapes scene (shape <$ finish)
+
+      return (drawing <$> next)
 
 
 addShapes :: AppBuilder t m => Scene t -> Event t Shape -> m ()
@@ -587,8 +582,10 @@ actions scene@Scene{..} = holdWorkflow $
         PolygonConfig -> drawPolygons scene input finish
         LineConfig    -> drawLines scene input finish
 
+    -- finish' <- performEvent (return <$> finish)
 
-    return ("crosshair", base <$ finish)
+    -- command (DialogCmd . ErrorDialog) (ErrDecode "foo" <$ finish)
+    return ("crosshair", base <$ finish )
 
 
   selectArea = editAction $ do
