@@ -59,7 +59,6 @@ instance Reflex t => Default (Event t a) where
   def = never
 
 
-
 instance (Reflex t, Default a) => Default (Behavior t a) where
   def = pure def
 
@@ -258,6 +257,9 @@ filterMaybe = fmapMaybe id
 (<?>) :: FunctorMaybe f => (a -> Maybe b) -> f a -> f b
 (<?>) = fmapMaybe
 
+(<??>) :: Reflex t => Behavior t (a -> Maybe b) -> Event t a -> Event t b
+(<??>) = attachWithMaybe ($)
+
 
 
 (?>) :: FunctorMaybe f => Getting (First a) s a -> f s -> f a
@@ -265,6 +267,8 @@ filterMaybe = fmapMaybe id
 
 infixl 4 ?>
 infixl 4 <?>
+infixl 4 <??>
+
 infixl 4 <#>
 
 instance (Reflex t, Num a) => Num (Dynamic t a) where

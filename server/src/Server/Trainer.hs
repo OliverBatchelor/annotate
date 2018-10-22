@@ -30,7 +30,7 @@ trainerLoop :: Env -> WS.Connection ->  IO ()
 trainerLoop env@Env{store} conn = do
   atomically $ do
     dataset <- exportCollection <$> readLog store
-    sendTrainer env (TrainerDataset dataset)
+    sendTrainer env (TrainerInit dataset)
 
   runLoop
 
@@ -45,13 +45,22 @@ trainerLoop env@Env{store} conn = do
             processMsg msg
 
       processMsg = \case
-        TrainerDetections clientId k detections ->
-          sendClient env clientId (ServerDetection k detections)
+        TrainerDetections dest k detections netId ->
+          case dest of
+            Just clientId -> sendClient env clientId (ServerDetection k detections)
+            Nothing       -> return () -- TODO, store detections
 
         TrainerReqError clientId err ->
           sendClient env clientId (ServerError (ErrTrainer err))
+
         TrainerError err ->
           writeLog env ("trainer error: " <> show err)
+
+        TrainerCheckpoint (run, epoch) score best ->
+          updateLog store $ CmdCheckpoint (run, epoch) score best
+
+
+
 
 trainerServer :: Env -> WS.ServerApp
 trainerServer env pending = do

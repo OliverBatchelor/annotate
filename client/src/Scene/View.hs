@@ -268,7 +268,7 @@ shapeAttributes shapeType ShapeProperties{selected, hidden, colour} =
     , pointer_events_ =: "visiblePainted"]
   where
 
-    style colour = [("fill", showColour colour)]
+    style colour = [("stroke", showColour colour)]
 
 
 

@@ -19,17 +19,21 @@ import Server.Store
 nextClient :: Map ClientId Client -> ClientId
 nextClient m = fromMaybe 0 (succ . fst . fst <$>  M.maxViewWithKey m)
 
-sendHello :: Env -> ClientId -> STM ()
-sendHello env clientId = do
-  config <- view #config <$> readLog (env ^. #store)
-  sendClient env clientId (ServerHello clientId config)
+userPreferences :: UserId -> Store -> Preferences
+userPreferences k store = fromMaybe def $ preview (#preferences . ix k) store
+
+sendHello :: Env -> ClientId -> UserId -> STM ()
+sendHello env clientId userId = do
+  store <- readLog (env ^. #store)
+  sendClient env clientId (ServerHello clientId (userPreferences userId store) (store ^. #config))
 
 connectClient :: Env -> WS.Connection ->  IO ClientId
 connectClient env conn = do
   chan <- sendThread conn
   atomically $ do
     clientId <- nextClient <$> readTVar (env ^. #clients)
-    modifyTVar (env ^. #clients) (M.insert clientId (Client chan Nothing))
+
+    modifyTVar (env ^. #clients) (M.insert clientId (Client chan Nothing 0))
     writeLog env $ "connected: " <> show clientId
     return clientId
 
@@ -63,9 +67,9 @@ clientOpen env clientId navId k = do
       sendClient env clientId (ServerDocument navId doc)
 
 
-clientLoop :: Env -> WS.Connection -> ClientId -> IO ()
-clientLoop env conn clientId = do
-  atomically $ sendHello env clientId
+clientLoop :: Env -> WS.Connection -> ClientId -> UserId -> IO ()
+clientLoop env conn clientId userId = do
+  atomically $ sendHello env clientId userId
   forever $ do
     str <- WS.receiveData conn
     atomically $ case eitherDecode str of
@@ -75,26 +79,30 @@ clientLoop env conn clientId = do
 
       Right msg -> do
         writeLog env (show clientId <> " <- " <> show msg)
-        processMsg env clientId msg
+        processMsg env clientId userId msg
 
-processMsg :: Env -> ClientId -> ClientMsg -> STM ()
-processMsg env@Env{store} clientId msg = do
+processMsg :: Env -> ClientId -> UserId -> ClientMsg -> STM ()
+processMsg env@Env{store} clientId userId msg = do
   time <- getCurrentTime'
   case msg of
     ClientNav navId nav -> case nav of
-      (NavTo k)          -> clientOpen env clientId navId k
-      (NavNext ordering) -> clientOpenNext env clientId navId ordering
+      NavTo k  -> clientOpen env clientId navId k
+      NavNext  -> do
+        prefs <- userPreferences userId <$> readLog store
+        clientOpenNext env clientId (prefs ^. #ordering) navId
 
     ClientSubmit doc -> void $ do
       updateLog store (CmdSubmit doc time)
       sendTrainer env (TrainerUpdate (doc ^. #name) (Just (exportImage doc)))
 
-
-
-    ClientDetect k params -> do
-      running <- sendTrainer env (TrainerDetect clientId k params)
+    ClientDetect k -> do
+      prefs <- userPreferences userId <$> readLog store
+      running <- sendTrainer env (TrainerDetect (Just clientId) k (prefs ^. #detection))
       unless running $
         sendClient env clientId (ServerError ErrNotRunning)
+
+    ClientPreferences preferences ->
+      updateLog store (CmdPreferences 0 preferences)
 
     ClientConfig (ConfigClass k mClass) -> do
       updateLog store (CmdClass k mClass)
@@ -105,10 +113,8 @@ processMsg env@Env{store} clientId msg = do
       sendClient env clientId (ServerCollection collection)
 
 
-
-
-clientOpenNext :: Env -> ClientId -> NavId -> ImageOrdering -> STM ()
-clientOpenNext env clientId navId ordering =
+clientOpenNext :: Env -> ClientId -> ImageOrdering -> NavId -> STM ()
+clientOpenNext env clientId ordering navId =
   withClient_ (env ^. #clients) clientId $ \Client {document} -> do
     maybeDoc <- findNext env ordering document
     case maybeDoc of
@@ -126,5 +132,5 @@ clientServer env pending = do
 
   WS.forkPingThread conn 30
   finally
-    (clientLoop env conn clientId)
+    (clientLoop env conn clientId 0)
     (clientDisconnected env clientId)

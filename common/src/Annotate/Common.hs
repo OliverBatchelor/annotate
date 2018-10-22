@@ -23,6 +23,8 @@ import qualified Data.Aeson as Aeson
 
 type AnnotationId = Int
 type ClientId = Int
+type UserId = Int
+
 type ClassId = Int
 
 type DocName = Text
@@ -47,11 +49,9 @@ instance HasBounds Shape where
 
 data Detection = Detection
   { label      :: ClassId
-  , bounds     :: Box
+  , shape      :: Shape
   , confidence :: Float
   } deriving (Generic, Show, Eq)
-
-
 
 data Annotation = Annotation
   { shape :: Shape
@@ -187,7 +187,7 @@ data ErrCode
 type NavId = Int
 
 data ServerMsg
-  = ServerHello ClientId Config
+  = ServerHello ClientId Preferences Config
   | ServerConfig Config
   | ServerCollection Collection
   | ServerUpdateInfo DocName DocInfo
@@ -195,12 +195,11 @@ data ServerMsg
   | ServerOpen (Maybe DocName) ClientId DateTime
   | ServerError ErrCode
   | ServerDetection DocName [Detection]
-  | ServerEnd
       deriving (Generic, Show, Eq)
 
 
 data Navigation
-  = NavNext ImageOrdering
+  = NavNext 
   | NavTo DocName
     deriving (Generic, Show, Eq)
 
@@ -211,10 +210,10 @@ data ConfigUpdate
 data ClientMsg
   = ClientNav NavId Navigation
   | ClientSubmit Document
-  | ClientDetect DocName DetectionParams
+  | ClientDetect DocName
   | ClientConfig ConfigUpdate
+  | ClientPreferences Preferences
   | ClientCollection
-
       deriving (Generic, Show, Eq)
 
 

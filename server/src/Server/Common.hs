@@ -31,10 +31,11 @@ import Text.Megaparsec hiding (some, many)
 import Text.Megaparsec.Char
 import Text.Megaparsec.Char.Lexer (decimal)
 
-
 data Store = Store
   { config    :: Config
   , images :: Map DocName Document
+  , trainer :: TrainerState
+  , preferences :: Map UserId Preferences
   } deriving (Show, Eq, Generic)
 
 data Command where
@@ -44,14 +45,15 @@ data Command where
   CmdImages :: [(DocName, DocInfo)] -> Command
   CmdClass :: ClassId -> Maybe ClassConfig -> Command
   CmdSetRoot  :: Text -> Command
-
+  CmdCheckpoint :: NetworkId -> Float -> Bool -> Command
+  CmdPreferences :: UserId -> Preferences -> Command
     deriving (Show, Eq, Generic)
 
 
-
 data Client  = Client
-  { connection :: TChan (Maybe ServerMsg)
-  , document   :: Maybe DocName
+  { connection  :: TChan (Maybe ServerMsg)
+  , document    :: Maybe DocName
+  , user        :: UserId
   } deriving (Generic)
 
 
@@ -59,6 +61,11 @@ type Clients = TVar (Map ClientId Client)
 type Documents = TVar (Map DocName [ClientId])
 
 type LogMsg = String
+
+type Epoch = Int
+type RunId = Int
+
+type NetworkId = (RunId, Epoch)
 
 data Trainer = Trainer
   { connection :: TChan (Maybe ToTrainer)
@@ -80,16 +87,17 @@ data ServerException = LogError String | DecodeError Text | FileError Text
 instance Exception ServerException
 
 data ToTrainer
-  = TrainerDataset TrainCollection
+  = TrainerInit TrainCollection
   | TrainerUpdate DocName (Maybe TrainImage)
-  | TrainerDetect ClientId DocName DetectionParams
+  | TrainerDetect (Maybe ClientId) DocName DetectionParams
     deriving (Show, Generic, Eq)
 
 
 data FromTrainer
-  =  TrainerDetections ClientId DocName [Detection]
+  =  TrainerDetections (Maybe ClientId) DocName [Detection] NetworkId
   | TrainerReqError ClientId Text
   | TrainerError Text
+  | TrainerCheckpoint NetworkId Float Bool
     deriving (Show, Generic, Eq)
 
 
@@ -109,17 +117,30 @@ data TrainCollection = TrainCollection
   } deriving (Show, Eq, Generic)
 
 
+data ModelState = ModelState
+  { state :: Maybe ByteString
+  , epoch :: Epoch
+  , score :: Float
+  } deriving (Show, Eq, Generic)
+
+data TrainerState = TrainerState
+  { best    :: ModelState
+  , current :: ModelState
+  , run     :: RunId
+  } deriving (Show, Eq, Generic)
+
 
 instance FromJSON ToTrainer
 instance FromJSON FromTrainer
 instance FromJSON TrainCollection
 instance FromJSON TrainImage
 
-
 instance ToJSON ToTrainer
 instance ToJSON FromTrainer
 instance ToJSON TrainCollection
 instance ToJSON TrainImage
+
+
 
 -- Collection of miscellaneous utilities / common functions
 
@@ -225,3 +246,18 @@ defaultInfo dim filename = DocInfo
   , imageSize = dim
   , numAnnotations = 0
   }
+
+instance Default TrainerState where
+  def =  TrainerState
+    { best    = def
+    , current = def
+    , run = 0
+    }
+
+
+instance Default ModelState where
+  def =  ModelState
+    { state = Nothing
+    , epoch = 0
+    , score = 0.0
+    }

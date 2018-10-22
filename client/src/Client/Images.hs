@@ -1,6 +1,8 @@
 module Client.Images where
 
 import Annotate.Prelude hiding (div)
+import qualified Annotate.Prelude as Prelude
+
 import Annotate.Common hiding (label)
 
 import Client.Common
@@ -8,7 +10,7 @@ import Client.Widgets
 import Client.Select
 
 import Data.Ord (comparing, Ordering(..))
-import Data.List (sortBy)
+import Data.List (sortBy, findIndex)
 
 import qualified GHC.Real as Real
 
@@ -138,11 +140,24 @@ imagesTab = column "h-100 p-1 v-spacing-2" $ do
   let sorted   = sortImages <$> sortOpts <*> filterOpt <*> images
       searched = searchImages <$> searchText <*> sorted
 
+      findOffset :: [(DocName, DocInfo)] -> Maybe DocName -> Maybe Int
+      findOffset images Nothing = Nothing
+      findOffset images (Just k) = do
+        i <- findIndex ((== k) . fst) images
+        return $ (i `Prelude.div` size) * size
+
+      searchOffset images k t
+        | t == ""   = findOffset images k
+        | otherwise = Just 0
+
   rec
     offset <- holdDyn 0 $ leftmost
-      [ 0 <$ updated searched
+      [ searchOffset <$> current searched <*> current selected <??> updated searchText
+      , findOffset <$> current searched <??> updated selected
       , attachWith (+) (current offset) updatePage
       ]
+
+    -- logEvent (findOffset <$> current searched <??> updated selected)
 
     userSelect <- table [class_ =: "table table-sm table-hover"] $ do
       thead [] $ showHeader

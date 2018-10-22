@@ -94,7 +94,7 @@ headWidget env = do
 prefsCss :: Preferences -> Text
 prefsCss Preferences{opacity} = renderCSS $ do
   ".shape" ? do
-    "fill-opacity" .= showText opacity
+    "stroke-opacity" .= showText opacity
 
 
 nonEmpty :: [a] -> Maybe [a]
@@ -199,25 +199,20 @@ sceneWidget cmds loaded = do
 replaceDetections :: Config -> EditorDocument -> [Detection] -> EditCmd
 replaceDetections conf doc detections = DocEdit (replaceAllEdit doc annotations') where
   nextId = doc ^. #nextId
-  annotations' = M.fromList (zip [nextId..] $ fmapMaybe toAnnotation detections)
+  annotations' = M.fromList (zip [nextId..] $ toAnnotation <$> detections)
 
-  toAnnotation detection = do
-    let label = detection ^. #label
-    classConfig <- M.lookup label (conf ^. #classes)
-    shape <- detectedShape classConfig detection
-
-    return $ Annotation
+  toAnnotation detection@Detection{..} = Annotation
       {shape, label, detection = Just detection, confirm   = False}
-
-detectedShape :: ClassConfig -> Detection -> Maybe Shape
-detectedShape classConf detection = (case (classConf ^. #shape) of
-  BoxConfig    -> Just $ BoxShape bounds
-  CircleConfig -> Just $ CircleShape $ Circle (boxCentre bounds) ((h + w) * 0.25)
-
-  _ -> Nothing)
-    where
-      bounds   = detection ^. #bounds
-      (V2 w h) = boxSize bounds
+--
+-- detectedShape :: ClassConfig -> Detection -> Maybe Shape
+-- detectedShape classConf detection = (case (classConf ^. #shape) of
+--   BoxConfig    -> Just $ BoxShape bounds
+--   CircleConfig -> Just $ CircleShape $ Circle (boxCentre bounds) ((h + w) * 0.25)
+--
+--   _ -> Nothing)
+--     where
+--       bounds   = detection ^. #bounds
+--       (V2 w h) = boxSize bounds
 
 
 annotationsPatch :: DocumentPatch -> Maybe (PatchMap AnnotationId Annotation)
@@ -340,10 +335,10 @@ handleLocation userUpdate = mdo
 
 
 manageDocument :: forall t m. GhcjsBuilder t m
-               => Dynamic t Preferences -> Event t () -> Event t ServerMsg
-               -> (Event t ImageOrdering, Event t DocName)
+               => Event t () -> Event t ServerMsg
+               -> (Event t (), Event t DocName)
                -> m (Dynamic t (Maybe DocName), Event t Document, Event t ClientMsg)
-manageDocument preferences hello serverMsg (userNext, userTo) = mdo
+manageDocument hello serverMsg (userNext, userTo) = mdo
 
   selected <- handleLocation $ leftmost [userTo, view #name <$> validLoad]
   navId    <- count request
@@ -353,9 +348,9 @@ manageDocument preferences hello serverMsg (userNext, userTo) = mdo
   let validLoad = filterMaybe (latest <$> current navId <@> loadedMsg)
 
       request = leftmost
-        [ NavNext <$> userNext
+        [ NavNext <$ userNext
         , NavTo <$> attachWithMaybe needsLoad loaded (updated selected)
-        , initialNav <$> current selected <@> current preferences `tag` hello
+        , initialNav <$> current selected <@ hello
         ]
 
       clientMsg = ClientNav <$> current navId <@> request
@@ -364,7 +359,7 @@ manageDocument preferences hello serverMsg (userNext, userTo) = mdo
 
   return (selected, validLoad, clientMsg)
     where
-      initialNav selected Preferences{ordering} = fromMaybe (NavNext ordering) (NavTo <$> selected)
+      initialNav selected = fromMaybe NavNext (NavTo <$> selected)
       loadedMsg  = preview _ServerDocument <?> serverMsg
 
       needsLoad k k' = if k /= k' then k' else Nothing
@@ -374,14 +369,13 @@ manageDocument preferences hello serverMsg (userNext, userTo) = mdo
         return doc
 
 
-navigationCmd :: Reflex t => Dynamic t Preferences -> Event t [AppCommand]
-                          -> ((Event t ImageOrdering, Event t DocName), Event t (Maybe ImageCat))
-navigationCmd prefs cmds = (navigation, save) where
+navigationCmd :: Reflex t => Event t [AppCommand]
+                          -> ((Event t (), Event t DocName), Event t (Maybe ImageCat))
+navigationCmd cmds = (navigation, save) where
     (submit, open) = (oneOf _SubmitCmd cmds, oneOf _OpenCmd cmds)
     save = leftmost [ Just <$> submit, Nothing <$ open ]
-    navigation = (navigateNext prefs submit, open)
+    navigation = (void submit, open)
 
-    navigateNext prefs e = view #ordering <$> (current prefs `tag` e)
 
 
 save :: Preferences -> Maybe ImageCat -> EditorDocument -> Document
@@ -406,10 +400,8 @@ connectingDialog (opened, closed) = void $ workflow disconnected where
   disconnected = workflow' $ Dialog.connecting >> return (connected <$ opened)
   connected    = workflow' $ return (disconnected <$ closed)
 
-clientDetect :: Reflex t => Dynamic t (Maybe DocName) -> Dynamic t Preferences -> Event t [AppCommand] -> Event t ClientMsg
-clientDetect docSelected preferences cmds = attachWithMaybe makeDetect (current preferences)
-    (current docSelected `tag` oneOf _DetectCmd cmds)
-  where   makeDetect prefs k = ClientDetect <$> k <*> pure (view #detection prefs)
+clientDetect :: Reflex t => Dynamic t (Maybe DocName) -> Event t [AppCommand] -> Event t ClientMsg
+clientDetect docSelected cmds = fmap ClientDetect <?> (current docSelected `tag` oneOf _DetectCmd cmds)
 
 
 bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m (AppEnv t)
@@ -417,17 +409,18 @@ bodyWidget host = mdo
 
   (opened, closed, serverMsg, serverErrors) <- network host clientMsg
   let clientMsg = toList <$> mergeList
-        [ clientNav
+        [ saveDocument preferences document saves
+        , clientDetect docSelected cmds
+        , clientNav
         , clientConfig
-        , clientDetect docSelected preferences cmds
         , ClientCollection <$ hello
-        , saveDocument preferences document saves
+        , ClientPreferences <$> prefsChanged
         ]
 
-      (navigations, saves) = navigationCmd preferences cmds
+      (navigations, saves) = navigationCmd cmds
       clientConfig = ClientConfig <$> oneOf _ConfigCmd cmds
 
-  (docSelected, loaded, clientNav) <- manageDocument preferences (void hello) serverMsg navigations
+  (docSelected, loaded, clientNav) <- manageDocument (void hello) serverMsg navigations
 
   collection <- holdCollection serverMsg
 
@@ -444,11 +437,14 @@ bodyWidget host = mdo
         , collection
         }
 
-  config <- holdDyn def $ leftmost [view _2 <$> hello, preview _ServerConfig <?> serverMsg]
-  preferences <- foldDyn updatePrefs def (fmapMaybe (preview _PrefCmd) <$> cmds)
+  config <- holdDyn def $ leftmost [initConfig, preview _ServerConfig <?> serverMsg]
+  preferences <- foldDyn updatePrefs def $
+    mconcat [pure . SetPrefs <$> initPrefs, fmapMaybe (preview _PrefCmd) <$> cmds]
+
+  prefsChanged <- debounce 0.5 (updated preferences)
 
   let classSelected = oneOf _ClassCmd cmds
-      hello         = preview _ServerHello <?> serverMsg
+      (hello, initPrefs, initConfig)  = split3 (preview _ServerHello <?> serverMsg)
 
   currentClass <- foldDyn ($) 0 $ mergeWith (.)
     [ validClass <$> updated config
@@ -465,6 +461,7 @@ bodyWidget host = mdo
 
   setTitle $ ffor docSelected $ \doc ->
     "Annotate - " <> fromMaybe ("no document") doc
+
 
   connectingDialog (opened, void closed)
   ((shortcuts, action, document, selection), interfaceCmds) <- flip runReaderT env $ runEventWriterT $ do
@@ -506,6 +503,8 @@ updatePrefs cmds = flip (foldr updatePref) cmds where
 
   updatePref (SetThreshold t)  = #threshold .~ t
   updatePref (SetImageOrder order)  = #ordering .~ order
+
+  updatePref (SetPrefs prefs) = const prefs
   --updatePref _ = id
 
 

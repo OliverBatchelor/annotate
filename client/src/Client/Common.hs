@@ -61,9 +61,10 @@ data PrefCommand
   | SetNms Float
   | SetMinThreshold Float
   | SetDetections Int
-
-  | SetThreshold Float
   | SetImageOrder ImageOrdering
+  | SetThreshold Float
+
+  | SetPrefs Preferences
 
   deriving (Generic, Show)
 

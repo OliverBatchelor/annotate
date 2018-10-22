@@ -73,6 +73,28 @@ data Document1 = Document1
   , annotations :: AnnotationMap
   } deriving (Generic, Show, Eq)
 
+
+data Store0 = Store0
+  { config    :: Config
+  , images :: Map DocName Document
+  } deriving (Show, Eq, Generic)
+
+data Store1 = Store1
+  { config    :: Config
+  , images :: Map DocName Document
+  , trainer :: TrainerState
+  } deriving (Show, Eq, Generic)
+
+instance Migrate Store1 where
+  type MigrateFrom Store1 = Store0
+  migrate Store0{..} = Store1{..}
+    where trainer = def
+
+instance Migrate Store where
+  type MigrateFrom Store = Store1
+  migrate Store1{..} = Store{..}
+    where preferences = mempty
+
 instance Migrate Document where
   type MigrateFrom Document = Document5
   migrate Document5{..} = Document {name, history, annotations, validArea, info = migrateInfo info} where
@@ -133,6 +155,23 @@ $(deriveSafeCopy 1 'extension ''DocInfo1)
 $(deriveSafeCopy 2 'extension ''DocInfo2)
 
 
+$(deriveSafeCopy 0 'base ''Store0)
+$(deriveSafeCopy 1 'extension ''Store1)
+
+
+data Detection0 = Detection0
+  { label      :: ClassId
+  , bounds     :: Box
+  , confidence :: Float
+  } deriving (Generic, Show, Eq)
+
+
+instance Migrate Detection where
+  type MigrateFrom Detection = Detection0
+  migrate Detection0{..} = Detection{..}
+    where shape = BoxShape bounds
+
+$(deriveSafeCopy 0 'base ''Detection0)
 
 
 data Annotation1 = Annotation1 { shape :: Shape, label :: ClassId }
@@ -167,7 +206,7 @@ $(deriveSafeCopy 0 'base ''Extents)
 $(deriveSafeCopy 3 'extension ''Annotation)
 $(deriveSafeCopy 0 'base ''Shape)
 
-$(deriveSafeCopy 0 'base ''Detection)
+$(deriveSafeCopy 1 'extension ''Detection)
 
 $(deriveSafeCopy 0 'base ''ImageCat)
 $(deriveSafeCopy 6 'extension ''Document)
@@ -182,8 +221,15 @@ $(deriveSafeCopy 0 'base ''HistoryEntry)
 $(deriveSafeCopy 0 'base ''Edit)
 $(deriveSafeCopy 0 'base ''EditAction)
 
-$(deriveSafeCopy 0 'base ''Store)
+$(deriveSafeCopy 2 'extension ''Store)
 $(deriveSafeCopy 0 'base ''Command)
+
+$(deriveSafeCopy 0 'base ''TrainerState)
+$(deriveSafeCopy 0 'base ''ModelState)
+$(deriveSafeCopy 0 'base ''Preferences)
+$(deriveSafeCopy 0 'base ''DetectionParams)
+$(deriveSafeCopy 0 'base ''ImageOrdering)
+
 
 
 docInfo :: DocName -> Traversal' Store DocInfo
@@ -214,14 +260,31 @@ instance Persistable Store where
   update (CmdClass k conf)  = over (#config . #classes) (M.alter (const conf) k)
   update (CmdSetRoot path)  = #config . #root .~ path
 
+  update (CmdCheckpoint netId score best) = over #trainer $
+    checkpoint netId score best
 
-instance FromJSON Store
-instance ToJSON Store
+  update (CmdPreferences user preferences) = over #preferences (M.insert user preferences)
+
+applyWhen :: Bool -> (a -> a) -> a -> a
+applyWhen True f = f
+applyWhen False _ = id
+
+checkpoint :: (RunId, Epoch) -> Float -> Bool -> TrainerState -> TrainerState
+checkpoint (run, epoch) score isBest state = if run /= state ^. #run then reset else update
+    where
+      update = state & #current .~ model
+                     & applyWhen isBest (#best .~ model)
+
+      reset = TrainerState model model run
+      model = ModelState Nothing epoch score
+
 
 initialStore :: Config -> Store
 initialStore config = Store
   { config = config
   , images = M.empty
+  , trainer = def
+  , preferences = mempty
   }
 
 
@@ -236,6 +299,8 @@ importCollection :: TrainCollection -> Store
 importCollection TrainCollection{..} = Store
   { config = config
   , images = M.fromList (importImage <$> images)
+  , trainer = def
+  , preferences = def
   }
 
 importImage :: TrainImage -> (DocName, Document)
