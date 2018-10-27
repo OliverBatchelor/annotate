@@ -86,7 +86,13 @@ main = do
   import' <- forM importJson $ \file ->
     BS.readFile file >>= fmap importCollection . tryDecode
 
-  store <- case create' <|> import' of
+  let reset = create' <|> import'
+  exists <- doesFileExist database
+
+  when (isJust reset && exists) $
+    throw (FileExists database)
+
+  store <- case reset of
     Just initial -> freshLog initial database
     Nothing      -> openLog database >>= either (throw . LogError) return
 
@@ -114,7 +120,6 @@ main = do
 
     BS.writeFile file (encodePretty (exportCollection state))
 
-  -- (atomically $ readLog store) >>= BS.writeFile "test.json" . encodePretty
 
   let port' = fromMaybe 3000 port
   atomically $ writeLog env ("Anotate server listening on port " <> show port')

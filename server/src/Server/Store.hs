@@ -36,7 +36,7 @@ data DocInfo2 = DocInfo2
   } deriving (Generic, Show, Eq)
 
 
-data Document5 = Document5
+data Document6 = Document6
   { name  :: DocName
   , info  :: DocInfo
   , annotations :: AnnotationMap
@@ -44,6 +44,14 @@ data Document5 = Document5
   , history :: [(UTCTime, HistoryEntry)]
   } deriving (Generic, Show, Eq)
 
+
+data Document5 = Document5
+  { name  :: DocName
+  , info  :: DocInfo
+  , annotations :: AnnotationMap
+  , validArea   :: Maybe Box
+  , history :: [(UTCTime, HistoryEntry)]
+  } deriving (Generic, Show, Eq)
 
 data Document4 = Document4
   { name  :: DocName
@@ -96,8 +104,14 @@ instance Migrate Store where
     where preferences = mempty
 
 instance Migrate Document where
-  type MigrateFrom Document = Document5
-  migrate Document5{..} = Document {name, history, annotations, validArea, info = migrateInfo info} where
+  type MigrateFrom Document = Document6
+  migrate Document6{..} = Document{..}
+    where detections = Nothing
+
+
+instance Migrate Document6 where
+  type MigrateFrom Document6 = Document5
+  migrate Document5{..} = Document6 {name, history, annotations, validArea, info = migrateInfo info} where
     migrateInfo info = info {naturalKey, hashedName} :: DocInfo
     naturalKey = makeNaturalKey name
     hashedName = Hash32 (fromIntegral (hash name))
@@ -124,6 +138,7 @@ instance Migrate DocInfo1 where
     where naturalKey = NaturalKey []
           hashedName = 0
 
+
 instance Migrate Document4 where
   type MigrateFrom Document4 = Document3
   migrate Document3{..} = Document4 {..}
@@ -143,11 +158,6 @@ instance Migrate Document2 where
     } where
         annotations' = M.filter (view #confirm) annotations
 
-$(deriveSafeCopy 1 'base ''Document1)
-$(deriveSafeCopy 2 'extension ''Document2)
-$(deriveSafeCopy 3 'extension ''Document3)
-$(deriveSafeCopy 4 'extension ''Document4)
-$(deriveSafeCopy 5 'extension ''Document5)
 
 
 $(deriveSafeCopy 0 'base ''DocInfo0)
@@ -209,7 +219,14 @@ $(deriveSafeCopy 0 'base ''Shape)
 $(deriveSafeCopy 1 'extension ''Detection)
 
 $(deriveSafeCopy 0 'base ''ImageCat)
-$(deriveSafeCopy 6 'extension ''Document)
+
+$(deriveSafeCopy 1 'base ''Document1)
+$(deriveSafeCopy 2 'extension ''Document2)
+$(deriveSafeCopy 3 'extension ''Document3)
+$(deriveSafeCopy 4 'extension ''Document4)
+$(deriveSafeCopy 5 'extension ''Document5)
+$(deriveSafeCopy 6 'extension ''Document6)
+$(deriveSafeCopy 7 'extension ''Document)
 
 $(deriveSafeCopy 0 'base ''NaturalKey)
 $(deriveSafeCopy 3 'extension ''DocInfo)
@@ -244,8 +261,11 @@ updateInfo doc time = over (docInfo k) $ \info ->
 updateDocument :: Document -> (Store -> Store)
 updateDocument doc = #images . at (doc ^. #name) .~ Just doc
 
+updateDetections :: NetworkId -> (DocName, [Detection]) -> Map DocName Document -> Map DocName Document
+updateDetections netId (k, detections) = ix k . #detections .~ Just (detections, netId)
+
 emptyDoc :: DocName -> DocInfo -> Document
-emptyDoc k info = Document k info mempty Nothing []
+emptyDoc k info = Document k info mempty Nothing [] Nothing
 
 
 instance Persistable Store where
@@ -264,6 +284,8 @@ instance Persistable Store where
     checkpoint netId score best
 
   update (CmdPreferences user preferences) = over #preferences (M.insert user preferences)
+  update (CmdDetections detections netId) = over #images $
+    foldr (.) id (updateDetections netId <$> detections)
 
 applyWhen :: Bool -> (a -> a) -> a -> a
 applyWhen True f = f

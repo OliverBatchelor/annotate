@@ -84,8 +84,9 @@ data AppCommand
   | ClassCmd (Set AnnotationId) ClassId
   | PrefCmd PrefCommand
 
-
   deriving (Generic, Show)
+
+
 
 data SceneEvent
   = SceneEnter
@@ -133,6 +134,10 @@ data AppEnv t = AppEnv
   , selection    ::  (Dynamic t DocParts)
 
   , collection :: (Dynamic t Collection)
+
+  , loaded     :: Event t Document
+  , detections :: Event t [Detection]
+
   } deriving Generic
 
 

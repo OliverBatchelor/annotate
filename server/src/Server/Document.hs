@@ -17,50 +17,63 @@ minSet s
   | null s        = Nothing
   | otherwise     = Just (S.elemAt 0 s)
 
-nextCircular :: Ord a => Set a -> a -> Maybe a
-nextCircular s x = S.lookupGT x s' <|> minSet s'
-  where s' = S.delete x s
+lookupNext :: Ord a => Set a -> a -> Maybe a
+lookupNext s x = S.lookupGT x s <|> minSet s
 
-nextSet :: Ord k => [k] -> Maybe k -> Maybe k
-nextSet items = (\case
-    Nothing      -> minSet s
-    Just current -> nextCircular s current)
-      where s = S.fromList items
+maybeNext :: Ord a => Set a -> Maybe a -> Maybe a
+maybeNext s = \case
+    Nothing -> minSet s
+    Just x  -> lookupNext (S.delete x s) x
 
 
-findNext' :: ImageOrdering -> Map DocName Document ->  Map DocName [ClientId] -> Maybe DocName -> Maybe DocName
+nextSet :: Ord a => Set a -> Maybe a -> [a]
+nextSet s = \case
+    Nothing -> S.toList s
+    Just x  -> S.toList ys <> S.toList xs
+      where (xs, _, ys) = S.splitMember x s
+
+
+
+findNext' :: ImageOrdering ->  Map DocName Document ->  Map DocName [ClientId] -> Maybe DocName -> [DocName]
 findNext' ordering images openDocs current = case ordering of
-    OrderSequential -> unNatural <$> nextSet sorted (makeNaturalKey <$> current)
+    OrderSequential -> unNatural <$>  nextSet sorted (makeNaturalKey <$> current)
     OrderMixed      -> unKey <$> nextSet mixed (hashKey <$> current)
 
   where
-    editable = filter isFresh (M.elems images)
-    sorted = view (#info . #naturalKey) <$> editable
-    mixed = getHash <$> editable
 
-    getHash Document{info, name} = HashedKey name (unHash $ view #hashedName info) 
+    editable = filter isFresh (M.elems images)
+    sorted = S.fromList (view (#info . #naturalKey) <$> editable)
+    mixed = S.fromList (getHash <$> editable)
+
+    getHash Document{info, name} = HashedKey name (unHash $ view #hashedName info)
 
     isFresh Document{info, name} =
         info ^. #category == New &&
         not (M.member name openDocs)
 
 
-findNext :: Env -> ImageOrdering -> Maybe DocName -> STM (Maybe DocName)
+findNext :: Env -> ImageOrdering -> Maybe DocName ->  STM [DocName]
 findNext Env{..} ordering maybeCurrent =
   findNext' ordering <$> (view #images <$> readLog store) <*> readTVar documents <*> pure maybeCurrent
 
 
-openDocument :: Env -> ClientId -> DocName -> STM ()
-openDocument env@Env {..} clientId k = do
-  closeDocument env clientId
+withDocument :: Env -> DocName -> (Document -> STM ()) -> STM ()
+withDocument env k f = do
+  store <- readLog (env ^. #store)
+  traverse_ f (lookupDoc k store)
 
-  writeLog env ("opening " <> show clientId <> ", " <> show k)
+
+openDocument :: ClientEnv -> DocName -> STM ()
+openDocument env@ClientEnv {..} k = do
+  closeDocument env
+
+  writeLog (upcast env) ("opening " <> show clientId <> ", " <> show k)
 
   modifyTVar clients (ix clientId . #document .~ Just k)
   modifyTVar documents (M.alter addClient k)
 
   time <- getCurrentTime'
-  broadcast env (ServerOpen (Just k) clientId time)
+  broadcast (upcast env) (ServerOpen (Just k) clientId time)
 
     where
       addClient = \case
@@ -71,17 +84,17 @@ clientDocument :: ClientId -> Traversal' (Map ClientId Client) DocName
 clientDocument clientId = ix clientId . #document . traverse
 
 
-closeDocument :: Env -> ClientId -> STM ()
-closeDocument env@Env {..} clientId  = preview (clientDocument clientId) <$> readTVar clients >>= traverse_ withDoc
+closeDocument :: ClientEnv -> STM ()
+closeDocument env@ClientEnv{..}  = preview (clientDocument clientId) <$> readTVar clients >>= traverse_ withDoc
   where
     withDoc k = do
-        writeLog env ("closing " <> show clientId <> ", " <> show k)
+        writeLog (upcast env) ("closing " <> show clientId <> ", " <> show k)
 
         refs <- M.lookup k <$> readTVar documents
         modifyTVar documents (M.update removeClient k)
 
         mDoc <- lookupDoc k <$> readLog store
-        forM_ mDoc $ broadcast env . ServerUpdateInfo k . view #info
+        forM_ mDoc $ broadcast (upcast env) . ServerUpdateInfo k . view #info
 
     removeClient cs = case filter (/= clientId) cs of
         []  -> Nothing

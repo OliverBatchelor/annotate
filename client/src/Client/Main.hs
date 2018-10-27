@@ -176,7 +176,9 @@ network host send = do
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
             => Event t [AppCommand]
             -> Event t Document
-            -> m (Event t (DMap Shortcut Identity), Dynamic t Action, Dynamic t (Maybe EditorDocument), Dynamic t DocParts)
+            -> m (Event t (DMap Shortcut Identity), Dynamic t Action
+                 , Dynamic t (Maybe EditorDocument), Dynamic t DocParts)
+
 sceneWidget cmds loaded = do
 
   dim <- holdDyn (800, 600) (view (#info . #imageSize) <$> loaded)
@@ -191,28 +193,20 @@ sceneWidget cmds loaded = do
         sceneDefines viewport =<< view #preferences
 
         inViewport viewport $ replaceHold'
-            (documentEditor input cmds . fromDocument <$> loaded)
+            (documentEditor input cmds <$> loaded)
 
   return (matchShortcuts input, action, maybeDoc, selection)
 
+fromDetections ::
 
-replaceDetections :: Config -> EditorDocument -> [Detection] -> EditCmd
-replaceDetections conf doc detections = DocEdit (replaceAllEdit doc annotations') where
+replaceDetections :: EditorDocument -> [Detection] -> EditCmd
+replaceDetections doc detections = DocEdit (replaceAllEdit doc annotations') where
   nextId = doc ^. #nextId
   annotations' = M.fromList (zip [nextId..] $ toAnnotation <$> detections)
 
   toAnnotation detection@Detection{..} = Annotation
       {shape, label, detection = Just detection, confirm   = False}
---
--- detectedShape :: ClassConfig -> Detection -> Maybe Shape
--- detectedShape classConf detection = (case (classConf ^. #shape) of
---   BoxConfig    -> Just $ BoxShape bounds
---   CircleConfig -> Just $ CircleShape $ Circle (boxCentre bounds) ((h + w) * 0.25)
---
---   _ -> Nothing)
---     where
---       bounds   = detection ^. #bounds
---       (V2 w h) = boxSize bounds
+
 
 
 annotationsPatch :: DocumentPatch -> Maybe (PatchMap AnnotationId Annotation)
@@ -236,23 +230,28 @@ setClassCommand doc (selection, classId) = do
   guard (S.size selection > 0)
   return $ DocEdit (setClassEdit classId selection doc)
 
+
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => SceneInputs t
             -> Event t [AppCommand]
-            -> EditorDocument
-            -> m (Dynamic t Action, Dynamic t (Maybe EditorDocument), Event t (DocPart, SceneEvent), Dynamic t DocParts)
+            -> Document
+            -> m (Dynamic t Action, Dynamic t (Maybe EditorDocument)
+                 , Event t (DocPart, SceneEvent), Dynamic t DocParts)
+
 documentEditor input cmds loaded  = do
 
   rec
-    document <- holdDyn loaded edited
+    document <- holdDyn (editorDocument loaded) edited
+    env <- ask
 
     let (patch, edited) = split (attachWithMaybe (flip applyCmd') (current document) editCmd)
+
         clearCmd      = (clearAnnotations <$> current document) <@ (oneOf _ClearCmd cmds)
         setClassCmd   = attachWithMaybe setClassCommand (current document) (oneOf _ClassCmd cmds)
+        detectionsCmd = replaceDetections <$> current document <@> env ^. #detections
 
-        editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd]
+        editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd, detectionsCmd]
 
-  logEvent editCmd
   -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $ oneOf _SelectCmd cmds
 
@@ -260,8 +259,6 @@ documentEditor input cmds loaded  = do
 
   entry <- historyEntry editCmd
   history <- foldDyn (:) [(time, HistOpen)] entry
-
-  env <- ask
 
   rec
     annotations  <- holdIncremental annotations0 (annotationsPatch <?> patch)
@@ -273,17 +270,17 @@ documentEditor input cmds loaded  = do
     (action, sceneEvents) <- sceneView $ Scene
       { image    = ("images/" <> loaded ^. #name, loaded ^. #info . #imageSize)
       -- , viewport = viewport
-      , input    = input
-      , document = document
+      , input       = input
+      , document    = document
       , currentEdit = maybePatchDocument <$> pending <*> document
 
-      , selection = selection
+      , selection   = selection
       , annotations = patched
 
       , currentClass = view #currentClass env
-      , config = view #config env
-      , shortcut = view #shortcut env
-      , preferences = view #preferences env
+      , config       = view #config env
+      , shortcut     = view #shortcut env
+      , preferences  = view #preferences env
       }
 
   return (action, (withHistory <$> document <*> history), sceneEvents, selection)
@@ -355,7 +352,6 @@ manageDocument hello serverMsg (userNext, userTo) = mdo
 
       clientMsg = ClientNav <$> current navId <@> request
 
-  -- logEvent ((fmap (view #name) <$> current loaded) `attach` updated selected)
 
   return (selected, validLoad, clientMsg)
     where
@@ -409,12 +405,12 @@ bodyWidget host = mdo
 
   (opened, closed, serverMsg, serverErrors) <- network host clientMsg
   let clientMsg = toList <$> mergeList
-        [ saveDocument preferences document saves
-        , clientDetect docSelected cmds
+        [ clientDetect docSelected cmds
         , clientNav
         , clientConfig
         , ClientCollection <$ hello
         , ClientPreferences <$> prefsChanged
+        , saveDocument preferences document saves
         ]
 
       (navigations, saves) = navigationCmd cmds
@@ -424,7 +420,9 @@ bodyWidget host = mdo
 
   collection <- holdCollection serverMsg
 
-  let shortcut = fan shortcuts
+  let shortcut   = fan shortcuts
+      detections = preview _ServerDetection <?> serverMsg
+
       env = AppEnv
         { basePath = "http://" <> host
         , shortcut
@@ -435,6 +433,9 @@ bodyWidget host = mdo
         , currentClass
         , docSelected
         , collection
+
+        , loaded
+        , detections
         }
 
   config <- holdDyn def $ leftmost [initConfig, preview _ServerConfig <?> serverMsg]
@@ -451,20 +452,13 @@ bodyWidget host = mdo
     , const . snd <$> classSelected
     ]
 
-  let makeDetections (conf, maybeDoc) (k, detections) = do
-        doc <- maybeDoc
-        guard (k == doc ^. #name)
-        return [EditCmd (replaceDetections conf doc detections)]
-
-      detectionsCmd = attachWithMaybe makeDetections (liftA2 (,) (current config) (current document))  (preview _ServerDetection <?> serverMsg)
-      cmds = leftmost [interfaceCmds, detectionsCmd]
 
   setTitle $ ffor docSelected $ \doc ->
     "Annotate - " <> fromMaybe ("no document") doc
 
 
   connectingDialog (opened, void closed)
-  ((shortcuts, action, document, selection), interfaceCmds) <- flip runReaderT env $ runEventWriterT $ do
+  ((shortcuts, action, document, selection), cmds) <- flip runReaderT env $ runEventWriterT $ do
 
     runWithClose $ leftmost
       [ runDialog <$> oneOf _DialogCmd cmds

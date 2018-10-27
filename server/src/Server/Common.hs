@@ -47,13 +47,14 @@ data Command where
   CmdSetRoot  :: Text -> Command
   CmdCheckpoint :: NetworkId -> Float -> Bool -> Command
   CmdPreferences :: UserId -> Preferences -> Command
+  CmdDetections  :: [(DocName, [Detection])] -> NetworkId -> Command
     deriving (Show, Eq, Generic)
 
 
 data Client  = Client
   { connection  :: TChan (Maybe ServerMsg)
   , document    :: Maybe DocName
-  , user        :: UserId
+  , userId      :: UserId
   } deriving (Generic)
 
 
@@ -62,10 +63,7 @@ type Documents = TVar (Map DocName [ClientId])
 
 type LogMsg = String
 
-type Epoch = Int
-type RunId = Int
 
-type NetworkId = (RunId, Epoch)
 
 data Trainer = Trainer
   { connection :: TChan (Maybe ToTrainer)
@@ -79,23 +77,40 @@ data Env    = Env
   , trainer     :: TVar (Maybe Trainer)
   } deriving (Generic)
 
+data ClientEnv    = ClientEnv
+  { clientId    :: ClientId
+  , userId      :: UserId
+  , clients     :: Clients
+  , documents   :: Documents
+  , store       :: Log Store
+  , logChan     :: TChan LogMsg
+  , trainer     :: TVar (Maybe Trainer)
+  } deriving (Generic)
 
--- Types for dealing with the trainer
-data ServerException = LogError String | DecodeError Text | FileError Text
+clientEnv :: Env -> ClientId -> UserId -> ClientEnv
+clientEnv Env{..} clientId userId = ClientEnv{..}
+
+data ServerException = LogError String | DecodeError Text | FileError Text | FileExists FilePath
    deriving (Show, Typeable)
 
 instance Exception ServerException
 
+data DetectRequest
+  = DetectClient ClientId
+  | DetectLoad NavId ClientId
+  | DetectPre
+    deriving (Show, Generic, Eq)
+
+-- Types for dealing with the trainer
 data ToTrainer
   = TrainerInit TrainCollection
   | TrainerUpdate DocName (Maybe TrainImage)
-  | TrainerDetect (Maybe ClientId) DocName DetectionParams
+  | TrainerDetect DetectRequest DocName DetectionParams
     deriving (Show, Generic, Eq)
 
-
 data FromTrainer
-  =  TrainerDetections (Maybe ClientId) DocName [Detection] NetworkId
-  | TrainerReqError ClientId Text
+  =  TrainerDetections DetectRequest DocName [Detection] NetworkId
+  | TrainerReqError DetectRequest DocName Text
   | TrainerError Text
   | TrainerCheckpoint NetworkId Float Bool
     deriving (Show, Generic, Eq)
@@ -129,12 +144,16 @@ data TrainerState = TrainerState
   , run     :: RunId
   } deriving (Show, Eq, Generic)
 
+bestModel :: TrainerState -> NetworkId
+bestModel TrainerState{best, run} = (run, best ^. #epoch)
 
+instance FromJSON DetectRequest
 instance FromJSON ToTrainer
 instance FromJSON FromTrainer
 instance FromJSON TrainCollection
 instance FromJSON TrainImage
 
+instance ToJSON DetectRequest
 instance ToJSON ToTrainer
 instance ToJSON FromTrainer
 instance ToJSON TrainCollection
@@ -167,8 +186,14 @@ tryDecode str = case eitherDecode str of
 
 
 writeLog :: Env -> LogMsg -> STM ()
-writeLog env = writeTChan (env ^. #logChan)
+writeLog Env{logChan} = writeTChan logChan
 
+clientLog :: ClientEnv -> LogMsg -> STM ()
+clientLog ClientEnv{logChan, clientId} = writeTChan logChan . (show clientId <>)
+
+
+trainerConnected :: ClientEnv -> STM Bool
+trainerConnected env = isJust <$> readTVar (env ^. #trainer)
 
 
 sendTrainer' :: Env -> Maybe ToTrainer -> STM Bool
@@ -185,23 +210,40 @@ sendTrainer env = sendTrainer' env . Just
 
 
 
-withClient :: Clients -> ClientId -> (Client -> STM a) -> STM (Maybe a)
-withClient clients clientId  f = do
+withClient :: ClientEnv -> (Client -> STM a) -> STM (Maybe a)
+withClient ClientEnv{clients, clientId}  f = do
   mClient <- M.lookup clientId <$> readTVar clients
   traverse f mClient
 
-withClient_ :: Clients -> ClientId -> (Client -> STM a) -> STM ()
-withClient_ clients clientId  f = do
+withClient_ :: ClientEnv -> (Client -> STM a) -> STM ()
+withClient_ ClientEnv{clients, clientId}  f = do
   mClient <- M.lookup clientId <$> readTVar clients
   traverse_ f mClient
 
 
-sendClient :: Env -> ClientId -> ServerMsg -> STM ()
-sendClient env clientId msg = void $ do
+sendClient :: ClientEnv -> ServerMsg -> STM ()
+sendClient env msg = void $ do
+  clientLog env (" -> " <> show msg)
+
+  withClient env $ \Client {..} ->
+    writeTChan connection (Just msg)
+
+
+
+
+withClient' :: Env -> ClientId -> (Client -> STM a) -> STM ()
+withClient' Env{clients} clientId  f = do
+  mClient <- M.lookup clientId <$> readTVar clients
+  traverse_ f mClient
+
+
+sendClient' :: Env -> ClientId -> ServerMsg -> STM ()
+sendClient' env clientId msg = void $ do
   writeLog env (show clientId <> " -> " <> show msg)
 
-  withClient (env ^. #clients) clientId $ \Client {..} ->
+  withClient' env clientId $ \Client{connection} ->
     writeTChan connection (Just msg)
+
 
 
 broadcast :: Env -> ServerMsg -> STM ()
@@ -211,6 +253,27 @@ broadcast env msg = do
   clients <- readTVar (env ^. #clients)
   for_ clients $ \Client {..} ->
     writeTChan connection (Just msg)
+
+withClientEnvs :: Env -> (ClientEnv -> STM ()) -> STM ()
+withClientEnvs env f = do
+  clients <- readTVar (env ^. #clients)
+  for_ (M.toList clients) $ \(clientId, Client {..}) ->
+    f (clientEnv env clientId userId)
+
+
+withClients :: Env -> ((ClientId, Client) -> STM ()) -> STM ()
+withClients env f = do
+  clients <- readTVar (env ^. #clients)
+  for_ (M.toList clients) f
+
+
+withClientEnv :: Env -> ClientId -> (ClientEnv -> STM ()) -> STM ()
+withClientEnv env clientId f = do
+  clients <- readTVar (env ^. #clients)
+  for_ (M.lookup clientId clients) $ \Client {..} ->
+    f (clientEnv env clientId userId)
+
+
 
 
 lookupDoc :: DocName -> Store -> Maybe Document

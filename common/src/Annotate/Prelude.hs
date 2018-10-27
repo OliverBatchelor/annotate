@@ -78,6 +78,7 @@ import Data.String as X (IsString(..))
 import Data.Time.Clock as X
 
 import Data.Generics.Labels as X ()
+import Data.Generics.Product as X (upcast)
 import GHC.OverloadedLabels as X
 
 import System.Exit as X (ExitCode(..))

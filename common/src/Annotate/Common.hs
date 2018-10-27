@@ -30,6 +30,11 @@ type ClassId = Int
 type DocName = Text
 type DateTime = UTCTime
 
+type Epoch = Int
+type RunId = Int
+
+type NetworkId = (RunId, Epoch)
+
 data Shape = BoxShape     Box
            | CircleShape  Circle
            | PolygonShape Polygon
@@ -109,7 +114,9 @@ data Document = Document
   , info  :: DocInfo
   , annotations :: AnnotationMap
   , validArea   :: Maybe Box
+
   , history :: [(UTCTime, HistoryEntry)]
+  , detections :: Maybe ([Detection], NetworkId)
 
   } deriving (Generic, Show, Eq)
 
@@ -198,8 +205,9 @@ data ServerMsg
       deriving (Generic, Show, Eq)
 
 
+
 data Navigation
-  = NavNext 
+  = NavNext
   | NavTo DocName
     deriving (Generic, Show, Eq)
 

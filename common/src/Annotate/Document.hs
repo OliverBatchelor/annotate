@@ -34,8 +34,6 @@ data DocumentPatch = PatchAnns (Map AnnotationId (Maybe Annotation))
      deriving (Show, Eq, Generic)
 
 
-
-
 data EditorDocument = EditorDocument
   { undos :: [Edit]
   , redos :: [Edit]
@@ -48,18 +46,28 @@ data EditorDocument = EditorDocument
   } deriving (Generic, Show, Eq)
 
 
+fromDetections :: [Detection] -> AnnotationMap
+fromDetections detections = M.fromList (zip [0..] $ toAnnotation <$> detections) where
+  toAnnotation detection@Detection{..} = Annotation
+    {shape, label, detection = Just detection, confirm   = False}
 
-fromDocument :: Document -> EditorDocument
-fromDocument Document{..} = EditorDocument
+
+
+editorDocument :: Document -> EditorDocument
+editorDocument Document{..} = EditorDocument
     { undos = []
     , redos = []
     , name
     , info
     , validArea
-    , annotations
+    , annotations = annotations'
     , nextId = 1 + fromMaybe 0 (maxKey annotations)
     , history
-    }
+    } where
+      annotations' = fromMaybe annotations $ do
+        guard (info ^. #category == New && null annotations)
+        fromDetections . fst <$> detections
+
 
 toDocument :: EditorDocument -> Document
 toDocument EditorDocument{..} = Document
@@ -68,6 +76,7 @@ toDocument EditorDocument{..} = Document
   , validArea
   , annotations
   , history
+  , detections = Nothing
   }
 
 

@@ -22,10 +22,10 @@ nextClient m = fromMaybe 0 (succ . fst . fst <$>  M.maxViewWithKey m)
 userPreferences :: UserId -> Store -> Preferences
 userPreferences k store = fromMaybe def $ preview (#preferences . ix k) store
 
-sendHello :: Env -> ClientId -> UserId -> STM ()
-sendHello env clientId userId = do
-  store <- readLog (env ^. #store)
-  sendClient env clientId (ServerHello clientId (userPreferences userId store) (store ^. #config))
+sendHello :: ClientEnv ->  STM ()
+sendHello env@ClientEnv{store, clientId, userId} = do
+  store <- readLog store
+  sendClient env (ServerHello clientId (userPreferences userId store) (store ^. #config))
 
 connectClient :: Env -> WS.Connection ->  IO ClientId
 connectClient env conn = do
@@ -43,84 +43,116 @@ broadcastConfig env = do
   config <- view #config <$> readLog (env ^. #store)
   broadcast env (ServerConfig config)
 
-clientDisconnected :: Env -> ClientId -> IO ()
-clientDisconnected env clientId = atomically $ do
-  withClient (env ^. #clients) clientId $ \Client {..} -> do
+clientDisconnected :: ClientEnv -> IO ()
+clientDisconnected env@ClientEnv{clientId} = atomically $ do
+  withClient env $ \Client {..} -> do
     writeTChan connection Nothing
 
-    closeDocument env clientId
+    closeDocument env
     time <- getCurrentTime'
-    broadcast env (ServerOpen Nothing clientId time)
+    broadcast (upcast env) (ServerOpen Nothing clientId time)
 
   modifyTVar (view #clients env) (M.delete clientId)
-  writeLog env $ "disconnected: " <> show clientId
+  writeLog (upcast env) $ "disconnected: " <> show clientId
 
 
-clientOpen :: Env -> ClientId -> NavId -> DocName -> STM ()
-clientOpen env clientId navId k = do
-  mDoc <- lookupDoc k <$> readLog (env ^. #store)
-  case mDoc of
-    Nothing  -> sendClient env clientId $
-      ServerError (ErrNotFound navId k)
-    Just doc -> do
-      openDocument env clientId k
-      sendClient env clientId (ServerDocument navId doc)
 
-
-clientLoop :: Env -> WS.Connection -> ClientId -> UserId -> IO ()
-clientLoop env conn clientId userId = do
-  atomically $ sendHello env clientId userId
+clientLoop :: ClientEnv ->  WS.Connection -> IO ()
+clientLoop env conn = do
+  atomically $ sendHello env
   forever $ do
     str <- WS.receiveData conn
     atomically $ case eitherDecode str of
       Left err  -> do
-        writeLog env (show clientId <> " <- error decoding " <> show str <> ", " <> show err)
-        sendClient env clientId (ServerError (ErrDecode (fromString err)))
+        clientLog env (" <- error decoding " <> show str <> ", " <> show err)
+        sendClient env (ServerError (ErrDecode (fromString err)))
 
       Right msg -> do
-        writeLog env (show clientId <> " <- " <> show msg)
-        processMsg env clientId userId msg
+        clientLog env (" <- " <> show msg)
+        processMsg env msg
 
-processMsg :: Env -> ClientId -> UserId -> ClientMsg -> STM ()
-processMsg env@Env{store} clientId userId msg = do
+
+
+processMsg :: ClientEnv -> ClientMsg -> STM ()
+processMsg env@ClientEnv{store, clientId, userId} msg = do
   time <- getCurrentTime'
   case msg of
-    ClientNav navId nav -> case nav of
-      NavTo k  -> clientOpen env clientId navId k
-      NavNext  -> do
-        prefs <- userPreferences userId <$> readLog store
-        clientOpenNext env clientId (prefs ^. #ordering) navId
+    ClientNav navId nav -> do
+      case nav of
+        NavTo k  -> navTo   env navId k
+        NavNext  -> navNext env navId
+
 
     ClientSubmit doc -> void $ do
       updateLog store (CmdSubmit doc time)
-      sendTrainer env (TrainerUpdate (doc ^. #name) (Just (exportImage doc)))
+      sendTrainer (upcast env) (TrainerUpdate (doc ^. #name) (Just (exportImage doc)))
 
     ClientDetect k -> do
       prefs <- userPreferences userId <$> readLog store
-      running <- sendTrainer env (TrainerDetect (Just clientId) k (prefs ^. #detection))
+      detectRequest env (DetectClient (env ^. #clientId)) k
+      running <- detectRequest env (DetectClient clientId) k
       unless running $
-        sendClient env clientId (ServerError ErrNotRunning)
+        sendClient env (ServerError ErrNotRunning)
 
     ClientPreferences preferences ->
-      updateLog store (CmdPreferences 0 preferences)
+      updateLog store (CmdPreferences userId preferences)
+
 
     ClientConfig (ConfigClass k mClass) -> do
       updateLog store (CmdClass k mClass)
-      broadcastConfig env
+      broadcastConfig (upcast env)
 
     ClientCollection -> do
-      collection <- getCollection <$> readLog (env ^. #store)
-      sendClient env clientId (ServerCollection collection)
+      collection <- getCollection <$> readLog store
+      sendClient env (ServerCollection collection)
 
 
-clientOpenNext :: Env -> ClientId -> ImageOrdering -> NavId -> STM ()
-clientOpenNext env clientId ordering navId =
-  withClient_ (env ^. #clients) clientId $ \Client {document} -> do
-    maybeDoc <- findNext env ordering document
-    case maybeDoc of
-      Just k    -> clientOpen env clientId navId k
-      Nothing   -> sendClient env clientId $
-        ServerError (ErrEnd navId)
+
+needsDetect :: Store -> DocName -> Bool
+needsDetect store k = isJust $ do
+    Document{detections} <- M.lookup k (store ^. #images)
+    guard ((snd <$> detections) /= Just netId)
+
+  where netId = bestModel (store ^.  #trainer)
+
+-- detectNext :: ClientEnv -> STM ()
+-- detectNext env = void $ withNav env $ \prefs doc next ->
+--   detectRequest env (prefs ^. #detection) (maybeToList doc <> take 2 next)
+
+detectRequest :: ClientEnv -> DetectRequest -> DocName -> STM Bool
+detectRequest env@ClientEnv{userId, store} req k = do
+  prefs <- userPreferences userId <$> readLog store
+  sendTrainer (upcast env) (TrainerDetect req k (prefs ^. #detection))
+
+
+navTo :: ClientEnv -> NavId -> DocName -> STM ()
+navTo env navId k = do
+  store <- readLog (env ^. #store)
+  case lookupDoc k store of
+    Nothing  -> sendClient env (ServerError (ErrNotFound navId k))
+    Just doc -> do
+      openDocument env k
+      hasTrainer <- trainerConnected env
+      if needsDetect store k && hasTrainer
+        then void $ detectRequest env (DetectLoad navId (env ^. #clientId)) k
+        else sendClient env (ServerDocument navId doc)
+
+
+navNext :: ClientEnv -> NavId -> STM ()
+navNext env navId = do
+  next <- clientDoc env >>= nextFrom env
+  case next of
+    []      ->  sendClient env $ ServerError (ErrEnd navId)
+    (k : _) -> navTo env navId k
+
+clientDoc :: ClientEnv -> STM (Maybe DocName)
+clientDoc env = join <$> withClient env (return . view #document)
+
+nextFrom :: ClientEnv -> Maybe DocName -> STM [DocName]
+nextFrom env k = do
+  prefs <- userPreferences (env ^. #userId) <$> readLog (env ^. #store)
+  findNext (upcast env) (prefs ^. #ordering) k
+
 
 
 
@@ -130,7 +162,9 @@ clientServer env pending = do
   conn <- WS.acceptRequest pending
   clientId <- connectClient env conn
 
+  let clEnv = clientEnv env clientId 0
+
   WS.forkPingThread conn 30
   finally
-    (clientLoop env conn clientId 0)
-    (clientDisconnected env clientId)
+    (clientLoop clEnv conn)
+    (clientDisconnected clEnv)
