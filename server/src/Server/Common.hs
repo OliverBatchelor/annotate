@@ -103,7 +103,7 @@ data DetectRequest
 
 -- Types for dealing with the trainer
 data ToTrainer
-  = TrainerInit TrainCollection
+  = TrainerInit Config
   | TrainerUpdate DocName (Maybe TrainImage)
   | TrainerDetect DetectRequest DocName DetectionParams
     deriving (Show, Generic, Eq)

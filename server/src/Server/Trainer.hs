@@ -1,7 +1,7 @@
 module Server.Trainer where
 
 import Server.Common
-import Server.Store (exportCollection)
+import Server.Store (exportImage)
 -- import Server.Client (detectNext)
 import Server.Document
 
@@ -33,11 +33,18 @@ trainerState Env{store} = view #trainer <$> readLog store
 lookupKey :: Eq k => [(k, a)] -> k -> Maybe (k, a)
 lookupKey xs k = (k,) <$> lookup k xs
 
+isTraining :: Document -> Bool
+isTraining doc = category == Train || category == Test
+  where category = doc ^. #info . #category
+
 trainerLoop :: Env -> WS.Connection ->  IO ()
 trainerLoop env@Env{store} conn = do
   atomically $ do
-    dataset <- exportCollection <$> readLog store
-    sendTrainer env (TrainerInit dataset)
+    store <- readLog store
+    sendTrainer env (TrainerInit (store ^. #config))
+
+    for_ (store ^. #images) $ \doc -> when (isTraining doc) $ 
+      void $ sendTrainer env (TrainerUpdate (doc ^. #name) (Just (exportImage doc)))
 
   runLoop
 

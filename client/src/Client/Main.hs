@@ -97,8 +97,8 @@ prefsCss Preferences{opacity} = renderCSS $ do
     "stroke-opacity" .= showText opacity
 
 
-nonEmpty :: [a] -> Maybe [a]
-nonEmpty = \case
+nonEmptyList :: [a] -> Maybe [a]
+nonEmptyList = \case
   [] -> Nothing
   xs -> Just xs
 
@@ -138,8 +138,8 @@ errorMessage (ErrEnd _) = ("Finished", "No more new images available.")
 
 printLog :: (MonadIO m, Show a) => a -> m ()
 printLog = liftIO . putStrLn . truncate . show where
-  truncate str = if length str > 160
-    then take 160 str <> "..."
+  truncate str = if length str > 460
+    then take 460 str <> "..."
     else str
 
 
@@ -193,11 +193,10 @@ sceneWidget cmds loaded = do
         sceneDefines viewport =<< view #preferences
 
         inViewport viewport $ replaceHold'
-            (documentEditor input cmds <$> loaded)
+            (documentEditor input cmds . editorDocument <$> loaded)
 
   return (matchShortcuts input, action, maybeDoc, selection)
 
-fromDetections ::
 
 replaceDetections :: EditorDocument -> [Detection] -> EditCmd
 replaceDetections doc detections = DocEdit (replaceAllEdit doc annotations') where
@@ -226,22 +225,21 @@ historyEntry e = performEvent $ ffor e $ \cmd -> do
 
 
 setClassCommand :: EditorDocument -> (Set AnnotationId, ClassId) -> Maybe EditCmd
-setClassCommand doc (selection, classId) = do
-  guard (S.size selection > 0)
-  return $ DocEdit (setClassEdit classId selection doc)
+setClassCommand doc (selection, classId) =
+  guard (S.size selection > 0) $> DocEdit (setClassEdit classId selection doc)
 
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => SceneInputs t
             -> Event t [AppCommand]
-            -> Document
+            -> EditorDocument
             -> m (Dynamic t Action, Dynamic t (Maybe EditorDocument)
                  , Event t (DocPart, SceneEvent), Dynamic t DocParts)
 
 documentEditor input cmds loaded  = do
 
   rec
-    document <- holdDyn (editorDocument loaded) edited
+    document <- holdDyn loaded edited
     env <- ask
 
     let (patch, edited) = split (attachWithMaybe (flip applyCmd') (current document) editCmd)
@@ -298,6 +296,9 @@ pendingEdit doc action = do
 oneOf :: Reflex t => Getting (First a) s a -> Event t [s] -> Event t a
 oneOf getter = fmapMaybe (preview (traverse . getter))
 
+someOf :: Reflex t => Getting (First a) s a -> Event t [s] -> Event t [a]
+someOf getter cmds = nonEmptyList . fmapMaybe (preview getter) <?> cmds
+
 
 
 docFragment :: Text -> Maybe DocName
@@ -341,8 +342,7 @@ manageDocument hello serverMsg (userNext, userTo) = mdo
   navId    <- count request
 
   loaded <- hold Nothing (Just . view #name <$> validLoad)
-
-  let validLoad = filterMaybe (latest <$> current navId <@> loadedMsg)
+  let validLoad = isLatest <$> current navId <??> loadedMsg
 
       request = leftmost
         [ NavNext <$ userNext
@@ -359,10 +359,7 @@ manageDocument hello serverMsg (userNext, userTo) = mdo
       loadedMsg  = preview _ServerDocument <?> serverMsg
 
       needsLoad k k' = if k /= k' then k' else Nothing
-
-      latest latest (navId, doc)  = do
-        guard (navId == latest - 1)
-        return doc
+      isLatest latest (navId, doc)  = doc <$ guard (navId == latest - 1)
 
 
 navigationCmd :: Reflex t => Event t [AppCommand]
@@ -375,14 +372,13 @@ navigationCmd cmds = (navigation, save) where
 
 
 save :: Preferences -> Maybe ImageCat -> EditorDocument -> Document
-save prefs maybeCat = toDocument . setCat . (#annotations %~ M.mapMaybe confirmDetection)
-  where
-    setCat = maybe id (\cat -> #info . #category .~ cat) maybeCat
+save prefs maybeCat = toDocument . setCat . (#annotations %~ M.mapMaybe confirmDetection) where
+  setCat = maybe id (\cat -> #info . #category .~ cat) maybeCat
 
-    confirmDetection :: Annotation -> Maybe Annotation
-    confirmDetection ann = do
-      guard (getConfidence ann >= (prefs ^. #threshold))
-      return $ ann & #confirm .~ True
+  confirmDetection :: Annotation -> Maybe Annotation
+  confirmDetection ann = (ann & #confirm .~ True) <$
+    guard (getConfidence ann >= (prefs ^. #threshold))
+
 
 saveDocument :: Reflex t => Dynamic t Preferences -> Dynamic t (Maybe EditorDocument)
                         -> Event t (Maybe ImageCat) -> Event t ClientMsg
@@ -398,6 +394,11 @@ connectingDialog (opened, closed) = void $ workflow disconnected where
 
 clientDetect :: Reflex t => Dynamic t (Maybe DocName) -> Event t [AppCommand] -> Event t ClientMsg
 clientDetect docSelected cmds = fmap ClientDetect <?> (current docSelected `tag` oneOf _DetectCmd cmds)
+
+
+filterDocument :: Reflex t => Dynamic t (Maybe EditorDocument) -> Event t (DocName, a) -> Event t a
+filterDocument d = attachWithMaybe f (current d) where
+  f doc (k, a) = a <$ guard (fmap (view #name) doc == Just k)
 
 
 bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m (AppEnv t)
@@ -421,7 +422,7 @@ bodyWidget host = mdo
   collection <- holdCollection serverMsg
 
   let shortcut   = fan shortcuts
-      detections = preview _ServerDetection <?> serverMsg
+      detections = filterDocument document $ preview _ServerDetection <?> serverMsg
 
       env = AppEnv
         { basePath = "http://" <> host
@@ -440,7 +441,7 @@ bodyWidget host = mdo
 
   config <- holdDyn def $ leftmost [initConfig, preview _ServerConfig <?> serverMsg]
   preferences <- foldDyn updatePrefs def $
-    mconcat [pure . SetPrefs <$> initPrefs, fmapMaybe (preview _PrefCmd) <$> cmds]
+    mconcat [pure . SetPrefs <$> initPrefs, someOf _PrefCmd cmds]
 
   prefsChanged <- debounce 0.5 (updated preferences)
 
@@ -752,6 +753,6 @@ overlay shortcut document prefs = row "expand  disable-cursor" $ do
           leftmost [ Discard <$ discard, Test <$ test, Train <$ train ]
 
     buttonRow = row "p-2 spacing-4"
-    nonEmpty label = notNullOf (_Just . label . traverse)
+    --nonEmpty label = notNullOf (_Just . label . traverse)
     fromDocument a f = fromMaybe a . fmap f <$> document
     docOpen = isJust <$> document

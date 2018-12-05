@@ -89,7 +89,6 @@ processMsg env@ClientEnv{store, clientId, userId} msg = do
 
     ClientDetect k -> do
       prefs <- userPreferences userId <$> readLog store
-      detectRequest env (DetectClient (env ^. #clientId)) k
       running <- detectRequest env (DetectClient clientId) k
       unless running $
         sendClient env (ServerError ErrNotRunning)

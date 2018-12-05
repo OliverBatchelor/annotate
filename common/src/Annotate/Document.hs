@@ -41,6 +41,8 @@ data EditorDocument = EditorDocument
   , info  :: DocInfo
   , annotations :: AnnotationMap
   , validArea :: Maybe Box
+  , threshold :: Float
+
   , nextId :: AnnotationId
   , history :: [(UTCTime, HistoryEntry)]
   } deriving (Generic, Show, Eq)
@@ -61,7 +63,7 @@ editorDocument Document{..} = EditorDocument
     , info
     , validArea
     , annotations = annotations'
-    , nextId = 1 + fromMaybe 0 (maxKey annotations)
+    , nextId = 1 + fromMaybe 0 (maxKey annotations')
     , history
     } where
       annotations' = fromMaybe annotations $ do

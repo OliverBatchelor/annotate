@@ -69,11 +69,6 @@ data Annotation = Annotation
 type AnnotationMap = Map AnnotationId Annotation
 
 
-data EditAction
-  = Add Annotation
-  | Delete
-  | Modify Annotation
-  deriving (Generic, Show, Eq)
 
 
   -- data AddAction
@@ -91,6 +86,13 @@ data EditAction
   --   | SetArea (Maybe Box)
   --   deriving (Eq, Show, Generic)
 
+
+
+  data EditAction
+    = Add Annotation
+    | Delete
+    | Modify Annotation
+    deriving (Generic, Show, Eq)
 
 -- TODO: Edit _should_ be basic operations as above, e.g. add/delete/move
 data Edit = Edit (Map AnnotationId EditAction)
