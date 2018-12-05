@@ -197,8 +197,8 @@ commandM' cmd = commandM (const cmd)
 showText :: Show a => a -> Text
 showText = T.pack . show
 
-clearAnnotations :: EditorDocument -> EditCmd
-clearAnnotations = DocEdit . clearAllEdit
+clearAnnotations :: EditCmd
+clearAnnotations = DocEdit ClearAllEdit
 
 makePrisms ''AppCommand
 makePrisms ''SceneEvent

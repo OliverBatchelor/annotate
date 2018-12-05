@@ -68,35 +68,29 @@ data Annotation = Annotation
 
 type AnnotationMap = Map AnnotationId Annotation
 
+type DocParts = Map AnnotationId (Set Int)
+type Rigid = (Float, Vec)
+
+data Edit
+  = SetClassEdit ClassId (Set AnnotationId)
+  | DeletePartsEdit DocParts
+  | TransformPartsEdit Rigid DocParts
+  | ClearAllEdit
+  | ReplaceAllEdit AnnotationMap
+  | SetAreaEdit (Maybe Box)
+  | AddEdit AnnotationMap
+  deriving (Generic, Show, Eq)
+
+data AnnotationPatch
+  = Add Annotation
+  | Delete
+  | Modify Annotation
+  deriving (Generic, Show, Eq)
 
 
-
-  -- data AddAction
-  --   = AddObject Annotation
-  --   | AddPolygon (Map Int Position)
-  --   | AddLine (Map Int Circle)
-  --   deriving (Generic, Show, Eq)
-  --
-  --
-  -- data Edit
-  --   = Add (Map AnnotationId AddAction)
-  --   | Delete DocParts
-  --   | SetClass (Set AnnotationId) ClassId
-  --   | Transform DocParts Float Vector
-  --   | SetArea (Maybe Box)
-  --   deriving (Eq, Show, Generic)
-
-
-
-  data EditAction
-    = Add Annotation
-    | Delete
-    | Modify Annotation
-    deriving (Generic, Show, Eq)
-
--- TODO: Edit _should_ be basic operations as above, e.g. add/delete/move
-data Edit = Edit (Map AnnotationId EditAction)
-          | SetArea (Maybe Box)
+data DocumentPatch
+    = PatchAnns (Map AnnotationId AnnotationPatch)
+    | PatchArea (Maybe Box)
   deriving (Eq, Show, Generic)
 
 
@@ -248,8 +242,9 @@ instance FromJSON Shape
 instance FromJSON Annotation
 instance FromJSON Detection
 
-instance FromJSON EditAction
+instance FromJSON AnnotationPatch
 instance FromJSON HistoryEntry
+
 instance FromJSON Edit
 instance FromJSON EditCmd
 
@@ -276,8 +271,9 @@ instance ToJSON Shape
 instance ToJSON Annotation
 instance ToJSON Detection
 
-instance ToJSON EditAction
+instance ToJSON AnnotationPatch
 instance ToJSON HistoryEntry
+
 instance ToJSON Edit
 instance ToJSON EditCmd
 

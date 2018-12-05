@@ -349,7 +349,7 @@ editAction m = Workflow $ do
 
 
 addAnnotation :: AppBuilder t m => Scene t -> Event t Annotation -> m ()
-addAnnotation scene add = editCommand (addEdit <$> current nextId <@> add)
+addAnnotation scene add = editCommand (AddEdit <$> (M.singleton <$> current nextId <@> add))
   where nextId = view #nextId <$> scene ^. #document
 
 
@@ -544,8 +544,9 @@ actions scene@Scene{..} = holdWorkflow $
     viewCommand zoomCmd
     command SelectCmd $ leftmost [selectAll, selectionClick]
 
-    editCommand $ filterMaybe $ deletePartsEdit <$> current selection <*> current document
-       <@ select shortcut ShortDelete
+    let deleteSelection = ffilter (not . null) (current selection <@ select shortcut ShortDelete)
+    editCommand $ DeletePartsEdit <$> deleteSelection 
+
 
     docCommand (const DocUndo) (select shortcut ShortUndo)
     docCommand (const DocRedo) (select shortcut ShortRedo)
@@ -563,7 +564,7 @@ actions scene@Scene{..} = holdWorkflow $
 
     let maybeEdit s t = do
           guard $ abs (s - 1.0) > eps || norm t > eps
-          return $ transformPartsEdit (s, t) target doc
+          return $ TransformPartsEdit (s, t) target 
         edit = maybeEdit <$> scale <*> offset
 
         pointer e = if isJust e then "pointer" else "default"
@@ -598,7 +599,7 @@ actions scene@Scene{..} = holdWorkflow $
       (maybeIntersection . makeBox p1 <$> mouse)
 
     let doneEdit      = current selectedEdit `tag` mouseUp LeftButton
-        selectedEdit = (Just . setAreaEdit) <$> selectedArea
+        selectedEdit = (Just . SetAreaEdit) <$> selectedArea
 
     editCommand (filterMaybe doneEdit)
     return ("crosshair", selectedEdit, base <$ doneEdit)

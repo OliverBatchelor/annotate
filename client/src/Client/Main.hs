@@ -199,7 +199,7 @@ sceneWidget cmds loaded = do
 
 
 replaceDetections :: EditorDocument -> [Detection] -> EditCmd
-replaceDetections doc detections = DocEdit (replaceAllEdit doc annotations') where
+replaceDetections doc detections = DocEdit (ReplaceAllEdit annotations') where
   nextId = doc ^. #nextId
   annotations' = M.fromList (zip [nextId..] $ toAnnotation <$> detections)
 
@@ -208,10 +208,10 @@ replaceDetections doc detections = DocEdit (replaceAllEdit doc annotations') whe
 
 
 
-annotationsPatch :: DocumentPatch -> Maybe (PatchMap AnnotationId Annotation)
-annotationsPatch = fmap PatchMap . preview _PatchAnns
+annotationsPatch :: DocumentPatch' -> Maybe (PatchMap AnnotationId Annotation)
+annotationsPatch = fmap PatchMap . preview _PatchAnns'
 
-maybePatch :: Maybe DocumentPatch -> PatchMap AnnotationId Annotation
+maybePatch :: Maybe DocumentPatch' -> PatchMap AnnotationId Annotation
 maybePatch maybePatch = fromMaybe mempty (maybePatch >>= annotationsPatch)
 
 historyEntry :: GhcjsAppBuilder t m => Event t EditCmd -> m (Event t (UTCTime, HistoryEntry))
@@ -226,7 +226,7 @@ historyEntry e = performEvent $ ffor e $ \cmd -> do
 
 setClassCommand :: EditorDocument -> (Set AnnotationId, ClassId) -> Maybe EditCmd
 setClassCommand doc (selection, classId) =
-  guard (S.size selection > 0) $> DocEdit (setClassEdit classId selection doc)
+  guard (S.size selection > 0) $> DocEdit (SetClassEdit classId selection)
 
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
@@ -244,7 +244,7 @@ documentEditor input cmds loaded  = do
 
     let (patch, edited) = split (attachWithMaybe (flip applyCmd') (current document) editCmd)
 
-        clearCmd      = (clearAnnotations <$> current document) <@ (oneOf _ClearCmd cmds)
+        clearCmd      = clearAnnotations <$ oneOf _ClearCmd cmds
         setClassCmd   = attachWithMaybe setClassCommand (current document) (oneOf _ClassCmd cmds)
         detectionsCmd = replaceDetections <$> current document <@> env ^. #detections
 
@@ -287,7 +287,7 @@ documentEditor input cmds loaded  = do
 
 
 
-pendingEdit :: EditorDocument -> Action -> Maybe DocumentPatch
+pendingEdit :: EditorDocument -> Action -> Maybe DocumentPatch'
 pendingEdit doc action = do
   edit <- action ^. #edit
   fst <$> applyEdit edit doc

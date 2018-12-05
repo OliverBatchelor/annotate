@@ -235,8 +235,8 @@ $(deriveSafeCopy 0 'base ''ClassConfig)
 $(deriveSafeCopy 0 'base ''ShapeConfig)
 
 $(deriveSafeCopy 0 'base ''HistoryEntry)
-$(deriveSafeCopy 0 'base ''Edit)
-$(deriveSafeCopy 0 'base ''EditAction)
+$(deriveSafeCopy 0 'base ''DocumentPatch)
+$(deriveSafeCopy 0 'base ''AnnotationPatch)
 
 $(deriveSafeCopy 2 'extension ''Store)
 $(deriveSafeCopy 0 'base ''Command)
