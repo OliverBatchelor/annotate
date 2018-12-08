@@ -176,31 +176,43 @@ html, body {
 
 }
 
-.control {
+#control {
+  vector-effect: non-scaling-stroke;
+  
   fill:black;
-  fill-opacity: 0.0;
+  stroke: black;
+
   pointer-events:all;
 }
 
 .annotation:hover .control {
-  fill-opacity: 0.3;
+  fill-opacity: 0.4;
 }
 
 
+.control {
+  fill-opacity: 0.0;
+  stroke-opacity: 0.0;
+}
+
 .selected .control {
-  fill-opacity: 0.3;
+  stroke-width:2;
+
+  stroke-opacity: 1.0;
+  fill-opacity: 0.4;
 }
 
 .shape {
   vector-effect: non-scaling-stroke;
 
   stroke-width:2;
-  stroke-dasharray: 5, 5;
-
-  fill-opacity: 0;
   pointer-events: all;
 }
 
+
+.marginal {
+  stroke-dasharray: 5, 5;
+}
 
 
 .shadow {

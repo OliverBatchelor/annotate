@@ -116,13 +116,16 @@ data FromTrainer
     deriving (Show, Generic, Eq)
 
 
+
+
 -- Input/export types
 data TrainImage = TrainImage
   { imageFile   :: DocName,
     annotations :: [Annotation],
     imageSize   :: (Int, Int),
     category    :: ImageCat,
-    validArea   :: Maybe Box
+    validArea   :: Maybe Box,
+    history     :: [(UTCTime, HistoryEntry)]
   } deriving (Show, Eq, Generic)
 
 

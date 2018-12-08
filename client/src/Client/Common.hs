@@ -50,6 +50,7 @@ data Dialog = ClassDialog DocParts
 data PrefCommand
   = ZoomBrush Float
   | SetOpacity Float
+  | SetBorder Float
   | SetGamma Float
   | SetBrightness Float
   | SetContrast Float
@@ -63,6 +64,7 @@ data PrefCommand
   | SetDetections Int
   | SetImageOrder ImageOrdering
   | SetThreshold Float
+  | SetMargin Float
 
   | SetPrefs Preferences
 

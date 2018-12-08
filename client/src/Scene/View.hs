@@ -118,7 +118,7 @@ sceneEvents k e = (k,) <$> leftmost
 
 
 annotationProperties :: Reflex t => ShapeProperties t -> [Property t]
-annotationProperties ShapeProperties{selected, hidden} =
+annotationProperties ShapeProperties{selected, hidden, marginal} =
     [ classList ["annotation", "selected" `gated` (isJust <$> selected)]
     , hidden_ ~: hidden
     , pointer_events_ =: "visiblePainted"
@@ -257,18 +257,19 @@ data ShapeProperties t = ShapeProperties
   { selected :: !(Dynamic t (Maybe (Set Int)))
   , colour   :: !(Dynamic t HexColour)
   , hidden   :: !(Dynamic t Bool)
+  , marginal :: !(Dynamic t Bool)
   , elemId   :: !Text
   } deriving Generic
 
 
 shapeAttributes :: Reflex t => Text -> ShapeProperties t -> [Property t]
-shapeAttributes shapeType ShapeProperties{selected, hidden, colour} =
-    [ classList [pure shapeType, "shape", defaults "selected" . isJust <$> selected]
+shapeAttributes shapeType ShapeProperties{selected, hidden, colour, marginal} =
+    [ classList [pure shapeType, "shape", defaults "selected" . isJust <$> selected, "marginal" `gated` marginal]
     , style_ ~: style <$> colour
     , pointer_events_ =: "visiblePainted"]
   where
 
-    style colour = [("stroke", showColour colour)]
+    style colour = [("stroke", showColour colour), ("fill", showColour colour)]
 
 
 
@@ -289,27 +290,29 @@ holdHover e = holdDyn False $ fmapMaybe f e where
 
 annotationView :: forall t m. (Builder t m)
                => Dynamic t ClassMap
-               -> Dynamic t Float
+               -> (Dynamic t Float, Dynamic t Float)
                -> Dynamic t Bool
                -> Dynamic t (Maybe (Set Int))
                -> AnnotationId -> Updated t Annotation -> m (Event t (DocPart, SceneEvent))
-annotationView classMap threshold instanceCols selected k obj = do
-  classId <- holdUpdated (view #label <$> obj)
+annotationView classMap (hideThreshold, marginalThreshold) instanceCols selected k obj = do
+  classId    <- holdUpdated (view #label <$> obj)
+  confidence <- holdUpdated (getConfidence <$> obj)
 
   let (colour :: Dynamic t HexColour)    = lookupCol <$> instanceCols <*> classInfo
       (classInfo :: Dynamic t (Maybe ClassAttrs)) = M.lookup <$> classId <*> classMap
-      hidden    = liftA2 (||)  (hiddenClass <$> classInfo) ((> confidence) <$> threshold)
+      
+      hidden    = liftA2 (||)  (hiddenClass <$> classInfo) (liftA2 (<) confidence hideThreshold)
+      marginal  = (liftA2 (<) confidence marginalThreshold)
 
   rec
-    e     <- shapeView (ShapeProperties selected colour hidden shapeId) obj
+    e     <- shapeView (ShapeProperties selected colour hidden marginal shapeId) obj
     -- hover <- holdHover (snd <$> e)
 
   return (arrange k <$> e)
     where
       shapeId = "ann" <> fromString (show k)
-
       hiddenClass = fromMaybe False . fmap (view #hidden)
-      confidence  = getConfidence (obj ^. #initial)
+
 
       lookupCol :: Bool -> Maybe ClassAttrs -> HexColour
       lookupCol instanceCols classInfo = fromMaybe 0x000000 $ if instanceCols
@@ -483,6 +486,16 @@ selectParts Scene{document, selection, input, shortcut} =
     SceneInputs{keyboard, mouseDown, mouseDownOn} = input
 
 
+confirmAnnotation :: Reflex t => Scene t -> Event t (Maybe AnnotationId)
+confirmAnnotation Scene{document, input} = confirm <$> current document <@> clicked where
+  confirm EditorDocument{annotations} (i, _) = do 
+    ann <- M.lookup i annotations
+    guard $ not (ann ^. #confirm)
+    return i
+    
+  clicked = input ^. #mouseDownOn
+
+
 boxQuery :: EditorDocument -> Box -> DocParts
 boxQuery EditorDocument{annotations} box = M.mapMaybe (queryShape . view #shape) annotations where
   queryShape shape | getBounds shape `intersectBoxBox` box = queryParts shape
@@ -546,7 +559,7 @@ actions scene@Scene{..} = holdWorkflow $
 
     let deleteSelection = ffilter (not . null) (current selection <@ select shortcut ShortDelete)
     editCommand $ DeletePartsEdit <$> deleteSelection 
-
+    editCommand $ fmap (ConfirmDetectionEdit . S.singleton) <?> confirmAnnotation scene
 
     docCommand (const DocUndo) (select shortcut ShortUndo)
     docCommand (const DocRedo) (select shortcut ShortRedo)
@@ -634,7 +647,6 @@ actions scene@Scene{..} = holdWorkflow $
   selectAll        = documentParts <$> current document `tag` select shortcut ShortSelectAll
   selectionClick   = selectParts scene
 
-
   mouseDownAt = current mouse <@ mouseDown LeftButton
 
   holdingShift   = S.member Key.Shift <$> keyboard
@@ -642,21 +654,25 @@ actions scene@Scene{..} = holdWorkflow $
   eps = 1e-2
 
 
+getThresholds :: Preferences -> Set Key -> (Float, Float)
+getThresholds Preferences{threshold, margin} keyboard = (lower, threshold) where 
+  lower = if S.member Key.Control keyboard then threshold - margin else threshold
+  
+
 sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart, SceneEvent))
 sceneView scene@Scene{..} = do
     imageView image
 
     classMap     <- holdUniqDyn (classProperties <$> config <*> preferences)
     instanceCols <- holdUniqDyn (view #instanceColours <$> preferences)
-    threshold    <- holdUniqDyn (view #threshold <$> preferences)
+
+    thresholds  <- holdUniqDyn (getThresholds <$> preferences <*> input ^. #keyboard)  
 
     events <- holdMergePatched =<< incrementalMapWithUpdates annotations (\k ->
-       annotationView classMap threshold instanceCols (isSelected k) k)
+       annotationView classMap (split thresholds) instanceCols (isSelected k) k)
 
     maskOut (snd image) (view #validArea <$> currentEdit)
-
     action <- actions scene
-
 
     return (action, minElem <?> events)
       where

@@ -9,6 +9,10 @@ import Data.SafeCopy
 
 import Control.Concurrent.Log
 
+data OldHistoryEntry = HistOpen | HistSubmit | HistEdit DocumentPatch | HistUndo | HistRedo
+  deriving (Show, Eq, Generic)
+
+
 data DocInfo0 = DocInfo0
   { modified    :: Maybe DateTime
   , numAnnotations :: Int
@@ -35,13 +39,34 @@ data DocInfo2 = DocInfo2
   , imageSize   :: (Int, Int)
   } deriving (Generic, Show, Eq)
 
+data Document8 = Document8
+  { name  :: DocName
+  , info  :: DocInfo
+  , annotations :: AnnotationMap
+  , validArea   :: Maybe Box
+  , history :: [(UTCTime, HistoryEntry)]
+  , detections :: Maybe ([Detection], NetworkId)
+
+  } deriving (Generic, Show, Eq)
+
+
+data Document7 = Document7
+  { name  :: DocName
+  , info  :: DocInfo
+  , annotations :: AnnotationMap
+  , validArea   :: Maybe Box
+  , history :: [(UTCTime, OldHistoryEntry)]
+  , detections :: Maybe ([Detection], NetworkId)
+
+  } deriving (Generic, Show, Eq)
+
 
 data Document6 = Document6
   { name  :: DocName
   , info  :: DocInfo
   , annotations :: AnnotationMap
   , validArea   :: Maybe Box
-  , history :: [(UTCTime, HistoryEntry)]
+  , history :: [(UTCTime, OldHistoryEntry)]
   } deriving (Generic, Show, Eq)
 
 
@@ -50,7 +75,7 @@ data Document5 = Document5
   , info  :: DocInfo
   , annotations :: AnnotationMap
   , validArea   :: Maybe Box
-  , history :: [(UTCTime, HistoryEntry)]
+  , history :: [(UTCTime, OldHistoryEntry)]
   } deriving (Generic, Show, Eq)
 
 data Document4 = Document4
@@ -58,7 +83,7 @@ data Document4 = Document4
   , info  :: DocInfo
   , annotations :: AnnotationMap
   , validArea   :: Maybe Box
-  , history :: [(UTCTime, HistoryEntry)]
+  , history :: [(UTCTime, OldHistoryEntry)]
   } deriving (Generic, Show, Eq)
 
 
@@ -79,6 +104,27 @@ data Document1 = Document1
   { name  :: DocName
   , info  :: DocInfo
   , annotations :: AnnotationMap
+  } deriving (Generic, Show, Eq)
+
+
+data Preferences0 = Preferences0
+  { controlSize       :: Float
+  , brushSize         :: Float
+
+  , instanceColours   :: Bool
+
+  , opacity           :: Float
+
+  , hiddenClasses     :: Set Int
+
+  , gamma             :: Float
+  , brightness        :: Float
+  , contrast          :: Float
+
+  , detection    :: DetectionParams
+
+  , threshold    :: Float
+  , ordering    :: ImageOrdering
   } deriving (Generic, Show, Eq)
 
 
@@ -103,11 +149,31 @@ instance Migrate Store where
   migrate Store1{..} = Store{..}
     where preferences = mempty
 
-instance Migrate Document where
-  type MigrateFrom Document = Document6
-  migrate Document6{..} = Document{..}
-    where detections = Nothing
 
+instance Migrate Preferences where
+  type MigrateFrom Preferences = Preferences0
+  migrate Preferences0{..} = Preferences{..}
+    where 
+      margin = 0.1
+      border = 1
+   
+
+
+
+instance Migrate Document where
+  type MigrateFrom Document = Document8
+  migrate Document8{..} = Document{..}
+
+instance Migrate Document8 where
+  type MigrateFrom Document8 = Document7
+  migrate Document7{..} = Document8{..}
+    where history = []
+    
+
+instance Migrate Document7 where
+  type MigrateFrom Document7 = Document6
+  migrate Document6{..} = Document7{..}
+    where detections = Nothing
 
 instance Migrate Document6 where
   type MigrateFrom Document6 = Document5
@@ -226,13 +292,21 @@ $(deriveSafeCopy 3 'extension ''Document3)
 $(deriveSafeCopy 4 'extension ''Document4)
 $(deriveSafeCopy 5 'extension ''Document5)
 $(deriveSafeCopy 6 'extension ''Document6)
-$(deriveSafeCopy 7 'extension ''Document)
+$(deriveSafeCopy 7 'extension ''Document7)
+$(deriveSafeCopy 8 'extension ''Document8)
+
+$(deriveSafeCopy 9 'extension ''Document)
+
 
 $(deriveSafeCopy 0 'base ''NaturalKey)
 $(deriveSafeCopy 3 'extension ''DocInfo)
 $(deriveSafeCopy 0 'base ''Config)
 $(deriveSafeCopy 0 'base ''ClassConfig)
 $(deriveSafeCopy 0 'base ''ShapeConfig)
+
+$(deriveSafeCopy 0 'base ''Edit)
+
+$(deriveSafeCopy 0 'base ''OldHistoryEntry)
 
 $(deriveSafeCopy 0 'base ''HistoryEntry)
 $(deriveSafeCopy 0 'base ''DocumentPatch)
@@ -243,10 +317,12 @@ $(deriveSafeCopy 0 'base ''Command)
 
 $(deriveSafeCopy 0 'base ''TrainerState)
 $(deriveSafeCopy 0 'base ''ModelState)
-$(deriveSafeCopy 0 'base ''Preferences)
+
+$(deriveSafeCopy 0 'base ''Preferences0)
+$(deriveSafeCopy 1 'extension ''Preferences)
+
 $(deriveSafeCopy 0 'base ''DetectionParams)
 $(deriveSafeCopy 0 'base ''ImageOrdering)
-
 
 
 docInfo :: DocName -> Traversal' Store DocInfo
@@ -340,4 +416,5 @@ exportImage Document{..} = TrainImage
   , category  = info ^. #category
   , annotations = filter (view #confirm) (M.elems annotations)
   , validArea = validArea
+  , history = history
   }

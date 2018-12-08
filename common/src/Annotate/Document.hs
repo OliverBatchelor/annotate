@@ -61,13 +61,16 @@ editorDocument Document{..} = EditorDocument
     , name
     , info
     , validArea
-    , annotations = annotations'
-    , nextId = 1 + fromMaybe 0 (maxKey annotations')
+    , annotations = annotations
+    , nextId = 1 + fromMaybe 0 (maxKey annotations)
     , history
-    } where
-      annotations' = fromMaybe annotations $ do
-        guard (info ^. #category == New && null annotations)
-        fromDetections . fst <$> detections
+    }
+
+
+initialDetections :: Document -> Maybe AnnotationMap    
+initialDetections Document{info, annotations, detections} = do
+  guard (info ^. #category == New && null annotations)
+  fromDetections . fst <$> detections
 
 
 toDocument :: EditorDocument -> Document
@@ -310,6 +313,10 @@ replaceAllEdit new  EditorDocument{annotations}  = PatchAnns $ changes <$> align
   changes (This _)   = Delete
   changes (That ann) = Add ann
 
+confirmDetectionEdit :: Set AnnotationId -> EditorDocument -> DocumentPatch
+confirmDetectionEdit ids doc = PatchAnns $ M.intersectionWith f (setToMap' ids) (doc ^. #annotations) where
+  f _ annot = Modify (annot & #confirm .~ True)
+
 addEdit :: AnnotationMap -> EditorDocument ->  DocumentPatch
 addEdit anns _ = PatchAnns $ Add <$> anns
 
@@ -327,6 +334,7 @@ editPatch = \case
   ReplaceAllEdit anns         -> replaceAllEdit anns
   AddEdit anns                -> addEdit anns
   SetAreaEdit area            -> setAreaEdit area
+  ConfirmDetectionEdit ids    -> confirmDetectionEdit ids
 
 patchInverse :: EditorDocument -> DocumentPatch -> Maybe (DocumentPatch, DocumentPatch')
 patchInverse doc (PatchAnns e) = do

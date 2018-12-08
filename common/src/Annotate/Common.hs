@@ -51,7 +51,6 @@ instance HasBounds Shape where
  getBounds (PolygonShape s) = getBounds s
  getBounds (LineShape s)    = getBounds s
 
-
 data Detection = Detection
   { label      :: ClassId
   , shape      :: Shape
@@ -61,10 +60,15 @@ data Detection = Detection
 data Annotation = Annotation
   { shape :: Shape
   , label :: ClassId
-  , detection :: Maybe Detection
-  , confirm :: Bool
+  , method :: Method
   } deriving (Generic, Show, Eq)
 
+  
+data Method
+  = Confirm 
+  | Detect Detection
+  | Review Detection
+  deriving (Generic, Show, Eq)
 
 type AnnotationMap = Map AnnotationId Annotation
 
@@ -79,6 +83,8 @@ data Edit
   | ReplaceAllEdit AnnotationMap
   | SetAreaEdit (Maybe Box)
   | AddEdit AnnotationMap
+  | ConfirmDetectionEdit (Set AnnotationId)
+
   deriving (Generic, Show, Eq)
 
 data AnnotationPatch
@@ -94,7 +100,7 @@ data DocumentPatch
   deriving (Eq, Show, Generic)
 
 
-data HistoryEntry = HistOpen | HistSubmit | HistEdit Edit | HistUndo | HistRedo
+data HistoryEntry = HistOpen | HistSubmit | HistEdit Edit | HistUndo | HistRedo | HistClose 
   deriving (Show, Eq, Generic)
 
 data EditCmd = DocEdit Edit | DocUndo | DocRedo
@@ -108,7 +114,7 @@ newtype NaturalKey = NaturalKey [Either Int Text]
 data Document = Document
   { name  :: DocName
   , info  :: DocInfo
-  , annotations :: AnnotationMap
+  , annotations :: Map AnnotationId Annotation
   , validArea   :: Maybe Box
 
   , history :: [(UTCTime, HistoryEntry)]
@@ -154,7 +160,10 @@ data Preferences = Preferences
   , brushSize         :: Float
 
   , instanceColours   :: Bool
+
   , opacity           :: Float
+  , border            :: Float
+
   , hiddenClasses     :: Set Int
 
   , gamma             :: Float
@@ -162,7 +171,9 @@ data Preferences = Preferences
   , contrast          :: Float
 
   , detection    :: DetectionParams
+
   , threshold    :: Float
+  , margin       :: Float
 
   , ordering    :: ImageOrdering
   } deriving (Generic, Show, Eq)
@@ -240,6 +251,7 @@ instance FromJSON Preferences
 instance FromJSON ImageCat
 instance FromJSON Shape
 instance FromJSON Annotation
+instance FromJSON Method
 instance FromJSON Detection
 
 instance FromJSON AnnotationPatch
@@ -269,6 +281,7 @@ instance ToJSON Preferences
 instance ToJSON ImageCat
 instance ToJSON Shape
 instance ToJSON Annotation
+instance ToJSON Method
 instance ToJSON Detection
 
 instance ToJSON AnnotationPatch
@@ -301,6 +314,9 @@ instance Default Preferences where
     , brushSize = 40
     , instanceColours = False
     , opacity = 0.4
+    , border = 1
+
+
     , hiddenClasses = mempty
     , gamma = 1.0
     , brightness = 0.0
@@ -308,6 +324,8 @@ instance Default Preferences where
 
     , detection = def
     , threshold = 0.5
+    , margin = 0.1
+
     , ordering = OrderMixed
     }
 

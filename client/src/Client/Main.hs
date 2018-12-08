@@ -92,9 +92,10 @@ headWidget env = do
     icons = decodeUtf8 $(embedFile $ "../html/css/materialdesignicons.min.css")
 
 prefsCss :: Preferences -> Text
-prefsCss Preferences{opacity} = renderCSS $ do
+prefsCss Preferences{opacity, border} = renderCSS $ do
   ".shape" ? do
-    "stroke-opacity" .= showText opacity
+    "stroke-opacity" .= showText border
+    "fill-opacity" .= showText opacity
 
 
 nonEmptyList :: [a] -> Maybe [a]
@@ -193,13 +194,13 @@ sceneWidget cmds loaded = do
         sceneDefines viewport =<< view #preferences
 
         inViewport viewport $ replaceHold'
-            (documentEditor input cmds . editorDocument <$> loaded)
+            (documentEditor input cmds  <$> loaded)
 
   return (matchShortcuts input, action, maybeDoc, selection)
 
 
 replaceDetections :: EditorDocument -> [Detection] -> EditCmd
-replaceDetections doc detections = DocEdit (ReplaceAllEdit annotations') where
+replaceDetections doc detections = DocEdit $ ReplaceAllEdit annotations' where
   nextId = doc ^. #nextId
   annotations' = M.fromList (zip [nextId..] $ toAnnotation <$> detections)
 
@@ -214,52 +215,67 @@ annotationsPatch = fmap PatchMap . preview _PatchAnns'
 maybePatch :: Maybe DocumentPatch' -> PatchMap AnnotationId Annotation
 maybePatch maybePatch = fromMaybe mempty (maybePatch >>= annotationsPatch)
 
-historyEntry :: GhcjsAppBuilder t m => Event t EditCmd -> m (Event t (UTCTime, HistoryEntry))
-historyEntry e = performEvent $ ffor e $ \cmd -> do
-  time <- liftIO getCurrentTime
-  return (time, entry cmd) where
-    entry = \case
+
+historyEntry :: EditCmd -> HistoryEntry
+historyEntry = \case
       DocUndo   -> HistUndo
       DocRedo   -> HistRedo
       DocEdit e -> HistEdit e
-
+ 
 
 setClassCommand :: EditorDocument -> (Set AnnotationId, ClassId) -> Maybe EditCmd
 setClassCommand doc (selection, classId) =
   guard (S.size selection > 0) $> DocEdit (SetClassEdit classId selection)
 
+ 
+
+
+
+
+loadedDocument :: Document -> UTCTime -> EditorDocument
+loadedDocument doc time = case initialDetections doc of
+  Nothing         -> loaded
+  Just detections -> loaded 
+    & #history      %~  mappend [(time, HistEdit (ReplaceAllEdit detections))]
+    & #annotations   .~ detections
+    & #nextId        .~ 1 + fromMaybe 0 (maxKey detections)
+
+  where
+    loaded = editorDocument doc
+
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => SceneInputs t
             -> Event t [AppCommand]
-            -> EditorDocument
+            -> Document
             -> m (Dynamic t Action, Dynamic t (Maybe EditorDocument)
                  , Event t (DocPart, SceneEvent), Dynamic t DocParts)
 
-documentEditor input cmds loaded  = do
+documentEditor input cmds loaded'  = do
 
   rec
     document <- holdDyn loaded edited
     env <- ask
+    time <- liftIO getCurrentTime
 
+        
     let (patch, edited) = split (attachWithMaybe (flip applyCmd') (current document) editCmd)
+        loaded = loadedDocument loaded' time
 
         clearCmd      = clearAnnotations <$ oneOf _ClearCmd cmds
         setClassCmd   = attachWithMaybe setClassCommand (current document) (oneOf _ClassCmd cmds)
         detectionsCmd = replaceDetections <$> current document <@> env ^. #detections
 
-        editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd, detectionsCmd]
+        editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd,  detectionsCmd]
 
   -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $ oneOf _SelectCmd cmds
 
-  time <- liftIO getCurrentTime
-
-  entry <- historyEntry editCmd
+  entry <- withTime (historyEntry <$> editCmd)
   history <- foldDyn (:) [(time, HistOpen)] entry
 
   rec
-    annotations  <- holdIncremental annotations0 (annotationsPatch <?> patch)
+    annotations  <- holdIncremental (loaded ^. #annotations) (annotationsPatch <?> patch)
     let patched = patchIncremental annotations (maybePatch <$> pending)
         pending = pendingEdit <$> document <*> action
 
@@ -282,8 +298,8 @@ documentEditor input cmds loaded  = do
       }
 
   return (action, (withHistory <$> document <*> history), sceneEvents, selection)
-    where annotations0 = loaded ^. #annotations
-          withHistory doc entries = Just (doc & over #history (entries <>))
+    where 
+      withHistory doc entries = Just (doc & over #history (entries <>))
 
 
 
@@ -370,20 +386,33 @@ navigationCmd cmds = (navigation, save) where
     navigation = (void submit, open)
 
 
-
-save :: Preferences -> Maybe ImageCat -> EditorDocument -> Document
-save prefs maybeCat = toDocument . setCat . (#annotations %~ M.mapMaybe confirmDetection) where
+save :: Preferences -> (UTCTime, Maybe ImageCat) -> EditorDocument -> Document
+save prefs (time, maybeCat) = toDocument . addClose . setCat . confirm where
   setCat = maybe id (\cat -> #info . #category .~ cat) maybeCat
+  addClose = #history %~ ((time, HistClose) :) 
+  confirm = #annotations %~ M.mapMaybe confirmDetection
 
   confirmDetection :: Annotation -> Maybe Annotation
   confirmDetection ann = (ann & #confirm .~ True) <$
     guard (getConfidence ann >= (prefs ^. #threshold))
 
 
-saveDocument :: Reflex t => Dynamic t Preferences -> Dynamic t (Maybe EditorDocument)
-                        -> Event t (Maybe ImageCat) -> Event t ClientMsg
-saveDocument preferences document submit = fmap ClientSubmit <?> maybeSave where
-    maybeSave = f <$> current document <*> current preferences <@> submit
+withTime :: GhcjsBuilder t m => Event t a -> m (Event t (UTCTime, a))
+withTime e = performEvent $ ffor e $ \a -> do
+  time <- liftIO getCurrentTime
+  return (time, a) 
+    
+
+saveDocument :: GhcjsBuilder t m => Dynamic t Preferences -> Dynamic t (Maybe EditorDocument)
+                        -> Event t (Maybe ImageCat) -> m (Event t ClientMsg)
+saveDocument preferences document submit = do 
+  
+  submitAt <- withTime submit 
+  return $ fmap ClientSubmit <?> 
+    (f <$> current document <*> current preferences <@> submitAt)
+
+  where
+
     f doc prefs cat = save prefs cat <$> doc
 
 
@@ -411,12 +440,13 @@ bodyWidget host = mdo
         , clientConfig
         , ClientCollection <$ hello
         , ClientPreferences <$> prefsChanged
-        , saveDocument preferences document saves
+        , clientSaves
         ]
 
       (navigations, saves) = navigationCmd cmds
       clientConfig = ClientConfig <$> oneOf _ConfigCmd cmds
 
+  clientSaves <- saveDocument preferences document saves
   (docSelected, loaded, clientNav) <- manageDocument (void hello) serverMsg navigations
 
   collection <- holdCollection serverMsg
@@ -483,6 +513,7 @@ updatePrefs cmds = flip (foldr updatePref) cmds where
   updatePref :: PrefCommand -> Preferences -> Preferences
   updatePref (ZoomBrush delta) = #brushSize %~ clamp (2, 400) . (* wheelZoom delta)
   updatePref (SetOpacity opacity) = #opacity .~ opacity
+  updatePref (SetBorder border) = #border .~ border
   updatePref (SetGamma gamma) = #gamma .~ gamma
   updatePref (SetBrightness brightness) = #brightness .~ brightness
   updatePref (SetContrast contrast) = #contrast .~ contrast
@@ -497,6 +528,8 @@ updatePrefs cmds = flip (foldr updatePref) cmds where
   updatePref (SetDetections d)    = #detection . #detections .~ d
 
   updatePref (SetThreshold t)  = #threshold .~ t
+  updatePref (SetMargin m)  = #margin .~ m
+
   updatePref (SetImageOrder order)  = #ordering .~ order
 
   updatePref (SetPrefs prefs) = const prefs
@@ -621,6 +654,11 @@ settingsTab = column "h-100 v-spacing-2" $ do
         inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #opacity <$> prefs)
         prefCommand (SetOpacity <$> inp)
 
+    labelled "Border opacity" $ do
+      inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #border <$> prefs)
+      prefCommand (SetBorder <$> inp)
+  
+
     labelled "Control size" $ do
       inp <- rangePreview (printFloat0) (5.0, 50.0) 1 (view #controlSize <$> prefs)
       prefCommand (SetControlSize <$> inp)
@@ -634,8 +672,7 @@ settingsTab = column "h-100 v-spacing-2" $ do
         prefCommand (SetImageOrder <$> inp)
 
 
-  column "v-spacing-2 p-2 border" $ do
-    h5 [] $ text "Image adjustment"
+  settingsPane "Image adjustment" $ do
     labelled "Gamma" $ do
         inp <- rangePreview printFloat (0.25, 4.0) 0.01 (view #gamma <$> prefs)
         prefCommand (SetGamma <$> inp)
@@ -648,8 +685,7 @@ settingsTab = column "h-100 v-spacing-2" $ do
         inp <- rangePreview printFloat (0.0, 10.0) 0.01 (view #contrast <$> prefs)
         prefCommand (SetContrast <$> inp)
 
-  column "v-spacing-2 p-2 border" $ do
-    h5 [] $ text "Detection settings"
+  settingsPane "Detection settings" $ do
 
     labelled "Non maxima suppression" $ do
       inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view (#detection . #nms) <$> prefs)
@@ -663,8 +699,7 @@ settingsTab = column "h-100 v-spacing-2" $ do
       inp <- rangePreview (T.pack . show) (0, 1000) 1 (view (#detection . #detections) <$> prefs)
       prefCommand (SetDetections <$> inp)
 
-  column "v-spacing-2 p-2 border" $ do
-    h5 [] $ text "Active detections"
+  settingsPane "Active detections" $ do
 
     let showCounts (V2 n total) = showText n <> "/" <> showText total
         counts = detectionSummary <$> doc <*> (view #threshold <$> prefs)
@@ -676,6 +711,9 @@ settingsTab = column "h-100 v-spacing-2" $ do
       inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #threshold <$> prefs)
       prefCommand (SetThreshold <$> inp)
 
+    labelled "Threshold margin" $ do
+      inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #margin <$> prefs)
+      prefCommand (SetMargin <$> inp)      
 
   spacer
 
