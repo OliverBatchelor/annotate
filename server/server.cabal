@@ -33,7 +33,7 @@ executable server
   build-depends:       base >=4.9 && <5,
                        common, wai, wai-websockets, wai-app-static, text, bytestring, safe,
                        warp, http-types, websockets, aeson, mtl, containers,
-                       cmdargs, lens, generic-lens, generic-lens-labels, filepath, directory,
+                       cmdargs, lens, generic-lens, filepath, directory,
                        safecopy, time, stm, stm-persist, servant-server, process,
                        megaparsec >= 6, parser-combinators, linear, aeson-pretty,
                        pipes, pipes-aeson, pipes-bytestring, unix, hashable

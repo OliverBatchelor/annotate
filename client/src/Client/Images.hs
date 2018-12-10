@@ -114,7 +114,7 @@ enabled_ = contramap not disabled_
 toggleButton :: forall t m. AppBuilder t m => (Text, Text) -> m (Dynamic t Bool)
 toggleButton icons = mdo
   e <- button_ [class_ =: "btn btn-light"] $
-      icon (def & #name .~ Dyn (swapping icons isOpen))
+      icon ( (def :: IconConfig t) & #name .~ Dyn (swapping icons isOpen))
   isOpen <- toggle False (domEvent Click e)
   return isOpen
 

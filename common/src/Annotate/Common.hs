@@ -57,18 +57,24 @@ data Detection = Detection
   , confidence :: Float
   } deriving (Generic, Show, Eq)
 
+data Tag 
+  = Detected
+  | Postive
+  | Negative
+  | Confirmed
+  | Deleted
+    deriving (Generic, Show, Eq)
+  
 data Annotation = Annotation
   { shape :: Shape
   , label :: ClassId
-  , method :: Method
+  , detection :: Maybe (Tag, Detection)
   } deriving (Generic, Show, Eq)
 
-  
-data Method
-  = Confirm 
-  | Detect Detection
-  | Review Detection
-  deriving (Generic, Show, Eq)
+data BasicAnnotation = BasicAnnotation 
+  { shape :: Shape
+  , label :: ClassId
+  } deriving (Generic, Show, Eq)
 
 type AnnotationMap = Map AnnotationId Annotation
 
@@ -80,9 +86,9 @@ data Edit
   | DeletePartsEdit DocParts
   | TransformPartsEdit Rigid DocParts
   | ClearAllEdit
-  | ReplaceAllEdit AnnotationMap
+  | DetectionEdit [Detection]
   | SetAreaEdit (Maybe Box)
-  | AddEdit AnnotationMap
+  | AddEdit [BasicAnnotation]
   | ConfirmDetectionEdit (Set AnnotationId)
 
   deriving (Generic, Show, Eq)
@@ -251,7 +257,8 @@ instance FromJSON Preferences
 instance FromJSON ImageCat
 instance FromJSON Shape
 instance FromJSON Annotation
-instance FromJSON Method
+instance FromJSON BasicAnnotation
+instance FromJSON Tag
 instance FromJSON Detection
 
 instance FromJSON AnnotationPatch
@@ -281,7 +288,9 @@ instance ToJSON Preferences
 instance ToJSON ImageCat
 instance ToJSON Shape
 instance ToJSON Annotation
-instance ToJSON Method
+instance ToJSON BasicAnnotation
+
+instance ToJSON Tag
 instance ToJSON Detection
 
 instance ToJSON AnnotationPatch
@@ -344,10 +353,19 @@ newClass k = ClassConfig
   }
 
 
+fromBasic :: BasicAnnotation -> Annotation
+fromBasic BasicAnnotation{..} = Annotation{..} where
+  detection = Nothing
+
+toBasic :: Annotation -> BasicAnnotation
+toBasic Annotation{..} = BasicAnnotation{..}  
+
+
 getConfidence :: Annotation -> Float
-getConfidence Annotation{confirm, detection} = if confirm
-    then 1.0
-    else fromMaybe 1.0 (view #confidence <$> detection)
+getConfidence Annotation{detection} = case detection of 
+  Just (Detected, d)  -> d ^. #confidence
+  Just (Deleted, _) -> 0.0
+  _                 -> 1.0
 
 
 maxKey :: Ord k => Map k a -> Maybe k

@@ -10,11 +10,11 @@ import Builder.Html
 
 type Selectable t m = Dynamic t Bool -> m (Event t ())
 
-tab :: Builder t m => Text -> Text -> Selectable t m
+tab :: forall t m. Builder t m => Text -> Text -> Selectable t m
 tab iconName t = \active ->
   li [class_ =: "nav-item"] $ do
     e <- a_ [classList ["nav-link", "active" `gated` active]] $
-      iconTextH t (def & #name .~ pure iconName)
+      iconTextH t ( (def :: IconConfig t)  & #name .~ pure iconName)
     return (domEvent Click e)
 
 

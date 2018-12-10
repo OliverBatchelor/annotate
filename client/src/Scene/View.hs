@@ -351,10 +351,7 @@ editAction m = Workflow $ do
       where f cursor edit = Action cursor True edit
 
 
-addAnnotation :: AppBuilder t m => Scene t -> Event t Annotation -> m ()
-addAnnotation scene add = editCommand (AddEdit <$> (M.singleton <$> current nextId <@> add))
-  where nextId = view #nextId <$> scene ^. #document
-
+  
 
 
 makeBox :: Position -> Position -> Box
@@ -433,16 +430,12 @@ drawLines scene SceneInputs{..} finish = void $ do
       return (drawing <$> next)
 
 
+addAnnotation :: AppBuilder t m => Event t BasicAnnotation -> m ()
+addAnnotation add = editCommand (AddEdit . pure <$> add)
+
 addShapes :: AppBuilder t m => Scene t -> Event t Shape -> m ()
-addShapes scene e = addAnnotation scene (makeAnnotation e)
-  where
-    makeAnnotation e = create <$> current (scene ^. #currentClass) <@> e
-    create label shape = Annotation
-      { shape
-      , label
-      , detection = Nothing
-      , confirm   = True
-      }
+addShapes scene e = addAnnotation (makeAnnotation e)
+  where  makeAnnotation e = BasicAnnotation <$> e <#> current (scene ^. #currentClass)
 
 
 alterPart ::  AnnotationId -> (Set Int -> Set Int) -> DocParts -> DocParts
@@ -490,10 +483,14 @@ confirmAnnotation :: Reflex t => Scene t -> Event t (Maybe AnnotationId)
 confirmAnnotation Scene{document, input} = confirm <$> current document <@> clicked where
   confirm EditorDocument{annotations} (i, _) = do 
     ann <- M.lookup i annotations
-    guard $ not (ann ^. #confirm)
+    (t, _) <- ann ^. #detection
+    guard (canConfirm t)
     return i
     
   clicked = input ^. #mouseDownOn
+
+  canConfirm Detected = True
+  canConfirm _        = False
 
 
 boxQuery :: EditorDocument -> Box -> DocParts
@@ -656,7 +653,7 @@ actions scene@Scene{..} = holdWorkflow $
 
 getThresholds :: Preferences -> Set Key -> (Float, Float)
 getThresholds Preferences{threshold, margin} keyboard = (lower, threshold) where 
-  lower = if S.member Key.Control keyboard then threshold - margin else threshold
+  lower = if S.member Key.R keyboard then threshold - margin else threshold
   
 
 sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart, SceneEvent))

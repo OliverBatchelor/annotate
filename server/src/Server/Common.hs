@@ -121,7 +121,7 @@ data FromTrainer
 -- Input/export types
 data TrainImage = TrainImage
   { imageFile   :: DocName,
-    annotations :: [Annotation],
+    annotations :: [BasicAnnotation],
     imageSize   :: (Int, Int),
     category    :: ImageCat,
     validArea   :: Maybe Box,

@@ -42,46 +42,30 @@ data EditorDocument = EditorDocument
   , info  :: DocInfo
   , annotations :: AnnotationMap
   , validArea :: Maybe Box
-  , nextId :: AnnotationId
   , history :: [(UTCTime, HistoryEntry)]
   } deriving (Generic, Show, Eq)
 
 
-fromDetections :: [Detection] -> AnnotationMap
-fromDetections detections = M.fromList (zip [0..] $ toAnnotation <$> detections) where
+fromDetections :: AnnotationId -> [Detection] -> AnnotationMap
+fromDetections i detections = M.fromList (zip [i..] $ toAnnotation <$> detections) where
   toAnnotation detection@Detection{..} = Annotation
-    {shape, label, detection = Just detection, confirm   = False}
+    {shape, label, detection = Just (Detected, detection) }
+
 
 
 
 editorDocument :: Document -> EditorDocument
-editorDocument Document{..} = EditorDocument
-    { undos = []
-    , redos = []
-    , name
-    , info
-    , validArea
-    , annotations = annotations
-    , nextId = 1 + fromMaybe 0 (maxKey annotations)
-    , history
-    }
+editorDocument Document{..} = EditorDocument{..} where
+    undos = []
+    redos = []
 
 
-initialDetections :: Document -> Maybe AnnotationMap    
-initialDetections Document{info, annotations, detections} = do
-  guard (info ^. #category == New && null annotations)
-  fromDetections . fst <$> detections
 
 
-toDocument :: EditorDocument -> Document
-toDocument EditorDocument{..} = Document
-  { name
-  , info
-  , validArea
-  , annotations
-  , history
-  , detections = Nothing
-  }
+
+toDocument :: Float -> EditorDocument ->  Document
+toDocument threshold EditorDocument{..} = Document{..}
+  where detections = Nothing
 
 
 makePrisms ''DocumentPatch'
@@ -113,6 +97,10 @@ maxId EditorDocument{..} = maybeMaximum
   , maxEdits redos
   , maxKey annotations
   ]
+
+nextId :: EditorDocument -> AnnotationId
+nextId = fromMaybe 0 .  fmap (+1) . maxId
+
 
 subParts :: EditorDocument -> AnnotationId -> Set Int
 subParts doc k = fromMaybe mempty $  do
@@ -149,8 +137,7 @@ maybePatchDocument Nothing  = id
 maybePatchDocument (Just p) = patchDocument p
 
 patchDocument :: DocumentPatch' -> EditorDocument -> EditorDocument
-patchDocument (PatchAnns' p) = over #annotations (patchMap p) . over #nextId inc
-  where inc =max (fromMaybe 0 $ (+1) <$> maxKey p)
+patchDocument (PatchAnns' p)  = over #annotations (patchMap p)
 patchDocument' (PatchArea' b) = #validArea .~ b
 
 
@@ -307,18 +294,26 @@ transformEdit  rigid ids  = modifyShapes (const $ Just . transformShape rigid) (
 clearAllEdit :: EditorDocument -> DocumentPatch
 clearAllEdit doc = PatchAnns $ const Delete <$> doc ^. #annotations
 
-replaceAllEdit ::    AnnotationMap -> EditorDocument -> DocumentPatch
-replaceAllEdit new  EditorDocument{annotations}  = PatchAnns $ changes <$> align annotations new where
+
+detectionEdit :: [Detection] -> EditorDocument -> DocumentPatch
+detectionEdit detections doc = replace (fromDetections (nextId doc) detections) doc
+
+
+replace :: AnnotationMap -> EditorDocument -> DocumentPatch
+replace anns  EditorDocument{annotations}  = PatchAnns $ changes <$> align annotations anns where
   changes (These _ ann) = Modify ann
   changes (This _)   = Delete
   changes (That ann) = Add ann
 
+
 confirmDetectionEdit :: Set AnnotationId -> EditorDocument -> DocumentPatch
 confirmDetectionEdit ids doc = PatchAnns $ M.intersectionWith f (setToMap' ids) (doc ^. #annotations) where
-  f _ annot = Modify (annot & #confirm .~ True)
+  f _ annot = Modify (annot & #detection . traverse . _1 .~ Confirmed)
 
-addEdit :: AnnotationMap -> EditorDocument ->  DocumentPatch
-addEdit anns _ = PatchAnns $ Add <$> anns
+
+addEdit :: [BasicAnnotation] -> EditorDocument ->  DocumentPatch
+addEdit anns doc = PatchAnns $ Add <$> anns' where
+  anns' = M.fromList (zip [nextId doc..] $ fromBasic <$> anns)
 
 patchMap :: (Ord k) =>  Map k (Maybe a) -> Map k a -> Map k a
 patchMap patch m = m `diff` patch <> M.mapMaybe id adds where
@@ -331,7 +326,7 @@ editPatch = \case
   DeletePartsEdit parts       -> deletePartsEdit parts
   TransformPartsEdit t parts  -> transformPartsEdit t parts
   ClearAllEdit                -> clearAllEdit
-  ReplaceAllEdit anns         -> replaceAllEdit anns
+  DetectionEdit detections    -> detectionEdit detections
   AddEdit anns                -> addEdit anns
   SetAreaEdit area            -> setAreaEdit area
   ConfirmDetectionEdit ids    -> confirmDetectionEdit ids

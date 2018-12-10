@@ -49,6 +49,8 @@ bgColour :: Maybe HexColour -> [Style]
 bgColour (Just colour) = [("background-color", showColour colour)]
 bgColour Nothing = []
 
+iconConf :: Reflex t => IconConfig t
+iconConf = def
 
 icon :: Builder t m => IconConfig t -> m ()
 icon IconConfig{..} = i [ classes_ ~: activeList ["mdi", (mappend "mdi-") <$> name, pure sizeClass]] blank

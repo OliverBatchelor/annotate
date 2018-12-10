@@ -217,12 +217,7 @@ instance Migrate Document3 where
 
 instance Migrate Document2 where
   type MigrateFrom Document2 = Document1
-  migrate Document1{..} = Document2
-    { name = name
-    , info = info & #numAnnotations .~ M.size annotations'
-    , annotations = annotations'
-    } where
-        annotations' = M.filter (view #confirm) annotations
+  migrate Document1{..} = Document2{..}
 
 
 
@@ -257,16 +252,31 @@ data Annotation2 = Annotation2
   { shape :: Shape, label :: ClassId, detection :: Maybe Detection}
     deriving (Generic, Show, Eq)
 
+data Annotation3 = Annotation3
+  { shape :: Shape, label :: ClassId, detection :: Maybe Detection, confirm :: Bool}
+    deriving (Generic, Show, Eq)
+  
 instance Migrate Annotation2 where
   type MigrateFrom Annotation2 = Annotation1
   migrate Annotation1{..} = Annotation2{shape, label, detection = Nothing}
 
+instance Migrate Annotation3 where
+  type MigrateFrom Annotation3 = Annotation2
+  migrate Annotation2{..} = Annotation3{shape, label, detection = Nothing, confirm = True}
+  
 instance Migrate Annotation where
-  type MigrateFrom Annotation = Annotation2
-  migrate Annotation2{..} = Annotation{shape, label, detection, confirm = True}
+  type MigrateFrom Annotation = Annotation3
+  migrate Annotation3{..} = Annotation{shape, label, detection = Nothing}
+
+
+$(deriveSafeCopy 0 'base ''Tag)
+$(deriveSafeCopy 0 'base ''BasicAnnotation)
+
 
 $(deriveSafeCopy 1 'base ''Annotation1)
 $(deriveSafeCopy 2 'extension ''Annotation2)
+$(deriveSafeCopy 3 'extension ''Annotation3)
+$(deriveSafeCopy 4 'extension ''Annotation)
 
 $(deriveSafeCopy 0 'base ''Hash32)
 
@@ -278,10 +288,7 @@ $(deriveSafeCopy 0 'base ''Polygon)
 $(deriveSafeCopy 0 'base ''WideLine)
 
 $(deriveSafeCopy 0 'base ''Extents)
-
-$(deriveSafeCopy 3 'extension ''Annotation)
 $(deriveSafeCopy 0 'base ''Shape)
-
 $(deriveSafeCopy 1 'extension ''Detection)
 
 $(deriveSafeCopy 0 'base ''ImageCat)
@@ -332,7 +339,6 @@ updateInfo :: Document -> UTCTime -> (Store -> Store)
 updateInfo doc time = over (docInfo k) $ \info ->
   info & #modified .~ Just time & #numAnnotations .~ length (doc ^. #annotations)
     where k = view #name doc
-
 
 updateDocument :: Document -> (Store -> Store)
 updateDocument doc = #images . at (doc ^. #name) .~ Just doc
@@ -404,7 +410,7 @@ importCollection TrainCollection{..} = Store
 importImage :: TrainImage -> (DocName, Document)
 importImage TrainImage{..} = (imageFile, document) where
   document = emptyDoc imageFile info
-    & #annotations .~ M.fromList (zip [0..]  annotations)
+    & #annotations .~ M.fromList (zip [0..] (fromBasic <$> annotations))
     & #validArea   .~ validArea
   info :: DocInfo = (defaultInfo imageSize imageFile)
     {modified = Nothing, category = category, numAnnotations = length annotations}
@@ -414,7 +420,7 @@ exportImage Document{..} = TrainImage
   { imageFile = name
   , imageSize = info ^. #imageSize
   , category  = info ^. #category
-  , annotations = filter (view #confirm) (M.elems annotations)
+  , annotations = M.elems (toBasic <$> annotations)
   , validArea = validArea
   , history = history
   }

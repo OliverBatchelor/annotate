@@ -199,14 +199,6 @@ sceneWidget cmds loaded = do
   return (matchShortcuts input, action, maybeDoc, selection)
 
 
-replaceDetections :: EditorDocument -> [Detection] -> EditCmd
-replaceDetections doc detections = DocEdit $ ReplaceAllEdit annotations' where
-  nextId = doc ^. #nextId
-  annotations' = M.fromList (zip [nextId..] $ toAnnotation <$> detections)
-
-  toAnnotation detection@Detection{..} = Annotation
-      {shape, label, detection = Just detection, confirm   = False}
-
 
 
 annotationsPatch :: DocumentPatch' -> Maybe (PatchMap AnnotationId Annotation)
@@ -227,21 +219,26 @@ setClassCommand :: EditorDocument -> (Set AnnotationId, ClassId) -> Maybe EditCm
 setClassCommand doc (selection, classId) =
   guard (S.size selection > 0) $> DocEdit (SetClassEdit classId selection)
 
+
+loadDetections :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
+loadDetections time detections doc = doc
+  & #history      %~  mappend [(time, HistEdit (DetectionEdit detections))]
+  & #annotations  .~ fromDetections 0 detections
+
+
+loadReview :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
+loadReview time detections doc = doc
+
  
-
-
-
-
 loadedDocument :: Document -> UTCTime -> EditorDocument
-loadedDocument doc time = case initialDetections doc of
-  Nothing         -> loaded
-  Just detections -> loaded 
-    & #history      %~  mappend [(time, HistEdit (ReplaceAllEdit detections))]
-    & #annotations   .~ detections
-    & #nextId        .~ 1 + fromMaybe 0 (maxKey detections)
+loadedDocument doc@Document{info, annotations, detections} time = maybeLoad (editorDocument doc) where
 
-  where
-    loaded = editorDocument doc
+    f = if info ^. #category == New && null annotations
+      then loadDetections time
+      else loadReview time
+
+    maybeLoad = fromMaybe id (f . fst <$> detections)
+    
 
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
@@ -264,7 +261,7 @@ documentEditor input cmds loaded'  = do
 
         clearCmd      = clearAnnotations <$ oneOf _ClearCmd cmds
         setClassCmd   = attachWithMaybe setClassCommand (current document) (oneOf _ClassCmd cmds)
-        detectionsCmd = replaceDetections <$> current document <@> env ^. #detections
+        detectionsCmd = DocEdit . DetectionEdit <$> env ^. #detections
 
         editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd,  detectionsCmd]
 
@@ -387,14 +384,10 @@ navigationCmd cmds = (navigation, save) where
 
 
 save :: Preferences -> (UTCTime, Maybe ImageCat) -> EditorDocument -> Document
-save prefs (time, maybeCat) = toDocument . addClose . setCat . confirm where
-  setCat = maybe id (\cat -> #info . #category .~ cat) maybeCat
-  addClose = #history %~ ((time, HistClose) :) 
-  confirm = #annotations %~ M.mapMaybe confirmDetection
+save prefs (time, maybeCat) doc = toDocument (prefs ^. #threshold) $ doc
+  &  maybe id (\cat -> #info . #category .~ cat) maybeCat
+  & #history %~ ((time, HistClose) :) 
 
-  confirmDetection :: Annotation -> Maybe Annotation
-  confirmDetection ann = (ann & #confirm .~ True) <$
-    guard (getConfidence ann >= (prefs ^. #threshold))
 
 
 withTime :: GhcjsBuilder t m => Event t a -> m (Event t (UTCTime, a))
@@ -720,12 +713,15 @@ settingsTab = column "h-100 v-spacing-2" $ do
 
 detectionSummary :: Maybe EditorDocument -> Float -> V2 Int
 detectionSummary Nothing    _         = V2 0 0
-detectionSummary (Just doc) threshold = sum $ M.mapMaybe (fmap summary) detections where
+detectionSummary (Just doc) threshold = sum $ summary <$> detections where
   summary Detection{..} = V2 (if confidence > threshold then 1 else 0) 1
-  detections = view #detection <$> doc ^. #annotations
+  detections = M.mapMaybe getDetection (doc ^. #annotations)
+
+getDetection :: Annotation -> Maybe Detection
+getDetection Annotation{detection} = snd <$> detection
 
 
-sidebar :: AppBuilder t m => m ()
+sidebar :: forall t m. AppBuilder t m => m ()
 sidebar = mdo
 
   isOpen <- div [classList ["enable-cursor sidebar bg-white p-2", swapping ("closed", "open") isOpen]] $ do
@@ -743,7 +739,7 @@ sidebar = mdo
     where
       toggler = mdo
         e <- a_ [class_ =: "toggler p-2"] $
-            icon (def & #name .~ Dyn (swapping ("chevron-right", "chevron-left") isOpen))
+            icon ((def :: IconConfig t)  & #name .~ Dyn (swapping ("chevron-right", "chevron-left") isOpen))
         isOpen <- toggle False (domEvent Click e)
         return isOpen
 
