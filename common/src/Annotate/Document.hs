@@ -45,6 +45,10 @@ data EditorDocument = EditorDocument
   , history :: [(UTCTime, HistoryEntry)]
   } deriving (Generic, Show, Eq)
 
+makePrisms ''DocumentPatch'
+makePrisms ''EditCmd
+makePrisms ''DocumentPatch
+
 
 fromDetections :: AnnotationId -> [Detection] -> AnnotationMap
 fromDetections i detections = M.fromList (zip [i..] $ toAnnotation <$> detections) where
@@ -52,25 +56,31 @@ fromDetections i detections = M.fromList (zip [i..] $ toAnnotation <$> detection
     {shape, label, detection = Just (Detected, detection) }
 
 
-
-
 editorDocument :: Document -> EditorDocument
-editorDocument Document{..} = EditorDocument{..} where
-    undos = []
-    redos = []
-
-
-
-
-
+editorDocument Document{..} = EditorDocument
+    {name, info, annotations = fromBasic <$> annotations
+    , validArea, history
+    , undos = [], redos = []
+    } 
+    
 toDocument :: Float -> EditorDocument ->  Document
-toDocument threshold EditorDocument{..} = Document{..}
-  where detections = Nothing
+toDocument t EditorDocument{..} = Document
+  { name, info, validArea
+  , history, detections = Nothing
+  , annotations = toBasic <$> M.filter (thresholdDetection t) annotations
+  } 
+        
 
+thresholdDetection :: Float -> Annotation -> Bool
+thresholdDetection t Annotation{detection} = case detection of 
+  Just (tag, Detection{confidence}) -> 
+          tag == Detected && confidence >= t 
+          || tag == Confirmed
+          || tag == Positive
 
-makePrisms ''DocumentPatch'
-makePrisms ''EditCmd
-makePrisms ''DocumentPatch
+  Nothing -> True
+
+  
 
 allAnnotations :: EditorDocument -> [AnnotationId]
 allAnnotations EditorDocument{annotations} = M.keys annotations
@@ -308,7 +318,10 @@ replace anns  EditorDocument{annotations}  = PatchAnns $ changes <$> align annot
 
 confirmDetectionEdit :: Set AnnotationId -> EditorDocument -> DocumentPatch
 confirmDetectionEdit ids doc = PatchAnns $ M.intersectionWith f (setToMap' ids) (doc ^. #annotations) where
-  f _ annot = Modify (annot & #detection . traverse . _1 .~ Confirmed)
+  f = const (Modify . confirmDetection)
+
+confirmDetection :: Annotation -> Annotation
+confirmDetection = #detection . traverse . _1 .~ Confirmed
 
 
 addEdit :: [BasicAnnotation] -> EditorDocument ->  DocumentPatch

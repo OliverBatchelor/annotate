@@ -59,8 +59,8 @@ data Detection = Detection
 
 data Tag 
   = Detected
-  | Postive
-  | Negative
+  | Positive
+  | Negative 
   | Confirmed
   | Deleted
     deriving (Generic, Show, Eq)
@@ -120,7 +120,7 @@ newtype NaturalKey = NaturalKey [Either Int Text]
 data Document = Document
   { name  :: DocName
   , info  :: DocInfo
-  , annotations :: Map AnnotationId Annotation
+  , annotations :: Map AnnotationId BasicAnnotation
   , validArea   :: Maybe Box
 
   , history :: [(UTCTime, HistoryEntry)]

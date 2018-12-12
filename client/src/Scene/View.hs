@@ -510,8 +510,6 @@ boxQuery EditorDocument{annotations} box = M.mapMaybe (queryShape . view #shape)
   f i b = if b then Just i else Nothing
 
 
-
-
 maskOut :: AppBuilder t m => Dim -> Dynamic t (Maybe Box) -> m ()
 maskOut dim box = void $ do
   path_ [ d_ ~: shadowPath, class_ =: "shadow" ]
@@ -548,7 +546,7 @@ actions scene@Scene{..} = holdWorkflow $
     let beginPan    = pan <$> mouseDownAt
         beginSelectRect = rectSelect <$> gate (current holdingShift) mouseDownAt
 
-        beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` keyDown Key.Space
+        beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` keyDown drawKey
         beginDragSelection   = filterMaybe $ drag <$> current mouse <*> current document <@> selectionClick
 
     viewCommand zoomCmd
@@ -584,7 +582,7 @@ actions scene@Scene{..} = holdWorkflow $
 
   -- Draw boxes
   drawMode k config = action $ do
-    let finish = keyUp Key.Space
+    let finish = keyUp drawKey
 
     for_ (M.lookup k (config ^. #classes)) $ \classConfig ->
       case classConfig ^. #shape of
@@ -637,7 +635,8 @@ actions scene@Scene{..} = holdWorkflow $
     return ("move", base <$ mouseUp LeftButton)
 
   zoomCmd = attachWith (flip ZoomView) (current mouse) wheel
-  cancel = leftmost [void focus, void $ keyDown Key.Escape]
+  cancel = leftmost [void focus, select shortcut ShortCancel]
+  drawKey = Key.Space
 
   SceneInputs{..} = input
 
@@ -653,7 +652,7 @@ actions scene@Scene{..} = holdWorkflow $
 
 getThresholds :: Preferences -> Set Key -> (Float, Float)
 getThresholds Preferences{threshold, margin} keyboard = (lower, threshold) where 
-  lower = if S.member Key.R keyboard then threshold - margin else threshold
+  lower = if S.member Key.KeyR keyboard then threshold - margin else threshold
   
 
 sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart, SceneEvent))

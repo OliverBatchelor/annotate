@@ -39,6 +39,16 @@ data DocInfo2 = DocInfo2
   , imageSize   :: (Int, Int)
   } deriving (Generic, Show, Eq)
 
+data Document9 = Document9
+  { name  :: DocName
+  , info  :: DocInfo
+  , annotations :: AnnotationMap
+  , validArea   :: Maybe Box
+  , history :: [(UTCTime, HistoryEntry)]
+  , detections :: Maybe ([Detection], NetworkId)
+
+  } deriving (Generic, Show, Eq)
+
 data Document8 = Document8
   { name  :: DocName
   , info  :: DocInfo
@@ -161,8 +171,16 @@ instance Migrate Preferences where
 
 
 instance Migrate Document where
-  type MigrateFrom Document = Document8
-  migrate Document8{..} = Document{..}
+  type MigrateFrom Document = Document9
+  migrate Document9{..} = Document
+    {name, history, validArea, detections
+    , info, annotations = toBasic <$> annotations}
+
+
+instance Migrate Document9 where
+  type MigrateFrom Document9 = Document8
+  migrate Document8{..} = Document9{..}
+    
 
 instance Migrate Document8 where
   type MigrateFrom Document8 = Document7
@@ -301,8 +319,10 @@ $(deriveSafeCopy 5 'extension ''Document5)
 $(deriveSafeCopy 6 'extension ''Document6)
 $(deriveSafeCopy 7 'extension ''Document7)
 $(deriveSafeCopy 8 'extension ''Document8)
+$(deriveSafeCopy 9 'extension ''Document9)
 
-$(deriveSafeCopy 9 'extension ''Document)
+
+$(deriveSafeCopy 10 'extension ''Document)
 
 
 $(deriveSafeCopy 0 'base ''NaturalKey)
@@ -410,7 +430,7 @@ importCollection TrainCollection{..} = Store
 importImage :: TrainImage -> (DocName, Document)
 importImage TrainImage{..} = (imageFile, document) where
   document = emptyDoc imageFile info
-    & #annotations .~ M.fromList (zip [0..] (fromBasic <$> annotations))
+    & #annotations .~ M.fromList (zip [0..] annotations)
     & #validArea   .~ validArea
   info :: DocInfo = (defaultInfo imageSize imageFile)
     {modified = Nothing, category = category, numAnnotations = length annotations}
@@ -420,7 +440,7 @@ exportImage Document{..} = TrainImage
   { imageFile = name
   , imageSize = info ^. #imageSize
   , category  = info ^. #category
-  , annotations = M.elems (toBasic <$> annotations)
+  , annotations = M.elems annotations
   , validArea = validArea
   , history = history
   }
