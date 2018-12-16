@@ -106,7 +106,16 @@ data DocumentPatch
   deriving (Eq, Show, Generic)
 
 
-data HistoryEntry = HistOpen | HistSubmit | HistEdit Edit | HistUndo | HistRedo | HistClose 
+data HistoryEntry 
+  = HistOpen 
+  | HistSubmit 
+  | HistEdit Edit 
+  | HistUndo 
+  | HistRedo 
+  | HistClose 
+  | HistDetections [Detection] 
+  | HistReview [Detection] 
+
   deriving (Show, Eq, Generic)
 
 data EditCmd = DocEdit Edit | DocUndo | DocRedo

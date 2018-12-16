@@ -219,17 +219,19 @@ setClassCommand :: EditorDocument -> (Set AnnotationId, ClassId) -> Maybe EditCm
 setClassCommand doc (selection, classId) =
   guard (S.size selection > 0) $> DocEdit (SetClassEdit classId selection)
 
-
 loadDetections :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
 loadDetections time detections doc = doc
-  & #history      %~  mappend [(time, HistEdit (DetectionEdit detections))]
+  & #history      %~  mappend [(time, HistDetections detections)]
   & #annotations  .~ fromDetections 0 detections
-
 
 loadReview :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
 loadReview time detections doc = doc
+  & #history      %~  mappend [(time, HistReview detections)]
 
- 
+loadOffline :: UTCTime -> EditorDocument -> EditorDocument
+loadOffline time doc = doc
+  & #history      %~  mappend [(time, HistOpen)]
+
 loadedDocument :: Document -> UTCTime -> EditorDocument
 loadedDocument doc@Document{info, annotations, detections} time = maybeLoad (editorDocument doc) where
 
@@ -237,7 +239,7 @@ loadedDocument doc@Document{info, annotations, detections} time = maybeLoad (edi
       then loadDetections time
       else loadReview time
 
-    maybeLoad = fromMaybe id (f . fst <$> detections)
+    maybeLoad = fromMaybe (loadOffline time) (f . fst <$> detections)
     
 
 
@@ -269,7 +271,7 @@ documentEditor input cmds loaded'  = do
   selection <- holdDyn mempty $ oneOf _SelectCmd cmds
 
   entry <- withTime (historyEntry <$> editCmd)
-  history <- foldDyn (:) [(time, HistOpen)] entry
+  history <- foldDyn (:) [] entry
 
   rec
     annotations  <- holdIncremental (loaded ^. #annotations) (annotationsPatch <?> patch)
