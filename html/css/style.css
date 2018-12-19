@@ -171,10 +171,6 @@ html, body {
   stroke-width:2;
 }
 
-.selected {
-  fill-opacity: 0.3;
-
-}
 
 #control {
   vector-effect: non-scaling-stroke;
@@ -202,11 +198,19 @@ html, body {
   fill-opacity: 0.4;
 }
 
+
+.selected {
+  fill-opacity: 0.3;
+  z-index: 1;
+
+}
+
 .shape {
   vector-effect: non-scaling-stroke;
 
   stroke-width:2;
   pointer-events: all;
+
 }
 
 

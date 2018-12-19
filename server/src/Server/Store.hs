@@ -8,6 +8,7 @@ import qualified Data.Map as M
 import Data.SafeCopy
 
 import Control.Concurrent.Log
+import qualified Data.Text as Text
 
 data OldHistoryEntry = HistOpen | HistSubmit | HistEdit DocumentPatch | HistUndo | HistRedo
   deriving (Show, Eq, Generic)
@@ -286,6 +287,16 @@ instance Migrate Annotation where
   type MigrateFrom Annotation = Annotation3
   migrate Annotation3{..} = Annotation{shape, label, detection = Nothing}
 
+newtype NaturalKey0 = NaturalKey0 [Either Int Text]
+  deriving (Ord, Eq, Generic, Show)
+
+
+instance Migrate NaturalKey where
+  type MigrateFrom NaturalKey = NaturalKey0
+  migrate (NaturalKey0 ks) = NaturalKey (migrate' <$> ks) where
+    migrate' (Left i)  = Left (i, Text.pack (show i))
+    migrate' (Right t) = Right t
+
 
 $(deriveSafeCopy 0 'base ''Tag)
 $(deriveSafeCopy 0 'base ''BasicAnnotation)
@@ -325,7 +336,10 @@ $(deriveSafeCopy 9 'extension ''Document9)
 $(deriveSafeCopy 10 'extension ''Document)
 
 
-$(deriveSafeCopy 0 'base ''NaturalKey)
+$(deriveSafeCopy 0 'base ''NaturalKey0)
+$(deriveSafeCopy 1 'extension ''NaturalKey)
+
+
 $(deriveSafeCopy 3 'extension ''DocInfo)
 $(deriveSafeCopy 0 'base ''Config)
 $(deriveSafeCopy 0 'base ''ClassConfig)

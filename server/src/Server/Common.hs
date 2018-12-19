@@ -26,9 +26,10 @@ import qualified Network.WebSockets             as WS
 import Data.Aeson (eitherDecode)
 import Data.Generics.Product.Subtype (upcast)
 
+import Data.Char as Char
 
 import Text.Megaparsec hiding (some, many)
-import Text.Megaparsec.Char
+import Text.Megaparsec.Char 
 import Text.Megaparsec.Char.Lexer (decimal)
 
 data Store = Store
@@ -294,10 +295,20 @@ makeNaturalKey :: DocName -> NaturalKey
 makeNaturalKey filename = fromMaybe
   (error "failed to parse sort key!") (parseMaybe parseNaturalKey (Text.unpack filename))
 
+
+
+
+
 parseNaturalKey :: Parser NaturalKey
 parseNaturalKey = (NaturalKey <$> many part) <* eof where
   nonNumber = Text.pack <$> takeWhile1P (Just "non digit") (not . isDigit)
-  part = (Left <$> decimal) <|> (Right <$> nonNumber)
+  part = (Left <$> numeric) <|> (Right <$> nonNumber)
+
+  numeric = do 
+    ds <- takeWhile1P (Just "digit") Char.isDigit
+    return (value ds, Text.pack ds)
+
+  value = foldl (\ x -> ((10 * x) +) . fromIntegral . Char.digitToInt) 0
 
 
 type Parser = Parsec Void String

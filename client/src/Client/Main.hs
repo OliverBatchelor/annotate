@@ -223,7 +223,7 @@ loadDetections :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
 loadDetections time detections doc = doc
   & #history      %~  mappend [(time, HistDetections detections)]
   & #annotations  .~ fromDetections 0 detections
-
+ 
 loadReview :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
 loadReview time detections doc = doc
   & #history      %~  mappend [(time, HistReview detections)]

@@ -121,7 +121,8 @@ data HistoryEntry
 data EditCmd = DocEdit Edit | DocUndo | DocRedo
   deriving (Show, Eq, Generic)
 
-newtype NaturalKey = NaturalKey [Either Int Text]
+
+newtype NaturalKey = NaturalKey [Either (Int, Text) Text]
   deriving (Ord, Eq, Generic, Show)
 
 
@@ -155,7 +156,7 @@ data DocInfo = DocInfo
 data ClassConfig = ClassConfig
   { name :: Text
   , shape :: ShapeConfig
-  , colour :: HexColour
+  , colour :: HexColournumber
   } deriving (Generic, Show, Eq)
 
 
@@ -206,9 +207,9 @@ data Collection = Collection
 
 
 data ErrCode
-  = ErrDecode Text
-  | ErrNotFound NavId DocName
-  | ErrNotRunning
+  = ErrDecode Texnumber
+  | ErrNotFound Nnumber
+  | ErrNotRunningnumber
   | ErrTrainer Text
   | ErrEnd NavId
     deriving (Generic, Show, Eq)
@@ -426,7 +427,7 @@ hashKeys = M.mapKeys hashKey
 
 unNatural :: NaturalKey -> Text
 unNatural (NaturalKey xs) = Text.concat (show' <$> xs) where
-  show' (Left i)  = Text.pack (show i)
+  show' (Left (i, t))  = t
   show' (Right t) = t
 
 

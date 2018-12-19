@@ -140,24 +140,17 @@ imagesTab = column "h-100 p-1 v-spacing-2" $ do
   let sorted   = sortImages <$> sortOpts <*> filterOpt <*> images
       searched = searchImages <$> searchText <*> sorted
 
-      findOffset :: [(DocName, DocInfo)] -> Maybe DocName -> Maybe Int
-      findOffset images Nothing = Nothing
-      findOffset images (Just k) = do
+      findOffset :: [(DocName, DocInfo)] -> Maybe DocName -> Int
+      findOffset images Nothing = 0
+      findOffset images (Just k) = fromMaybe 0 $ do
         i <- findIndex ((== k) . fst) images
         return $ (i `Prelude.div` size) * size
-
-      searchOffset images k t
-        | t == ""   = findOffset images k
-        | otherwise = Just 0
-
   rec
     offset <- holdDyn 0 $ leftmost
-      [ searchOffset <$> current searched <*> current selected <??> updated searchText
-      , findOffset <$> current searched <??> updated selected
+      [ updated (findOffset <$> searched <*> selected)
       , attachWith (+) (current offset) updatePage
       ]
 
-    -- logEvent (findOffset <$> current searched <??> updated selected)
 
     userSelect <- table [class_ =: "table table-sm table-hover"] $ do
       thead [] $ showHeader

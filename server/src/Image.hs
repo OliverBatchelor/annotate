@@ -17,6 +17,7 @@ import Text.Megaparsec.Char.Lexer (decimal)
 import qualified Data.Text as Text
 import System.FilePath
 import System.Directory
+import System.Posix.Files
 
 import Server.Common (defaultInfo)
 
@@ -37,17 +38,29 @@ validExtension exts filename = any (\e -> fmap toLower e == ext) exts where
   ext = fmap toLower (takeExtension filename)
 
 
-findImages :: Config -> FilePath -> IO [DocName]
-findImages config root = do
+findImages' :: Config -> FilePath -> IO [FilePath]
+findImages' config root = do
   contents <- fmap fromString <$> listDirectory root
 
-  return $ fromString <$> filter (validExtension exts) contents
+  files <- filterM (fmap isRegularFile . getFileStatus . toAbs) contents
+  directories <- filterM (fmap isDirectory . getFileStatus . toAbs) contents 
+  
+  subDirs <- for directories $ \d -> do
+      images <- findImages' config (root </> d)
+      return (fmap (d </>) images)
+  
+  return (mconcat (filter (validExtension exts) files : subDirs))
     where exts = Text.unpack <$> config ^. #extensions
+          toAbs = (root </>)
+
+findImages :: Config -> FilePath -> IO [DocName]
+findImages config root = fmap fromString <$> findImages' config root
+  
 
 findNewImages :: Config -> FilePath -> Set DocName -> IO [(DocName, DocInfo)]
 findNewImages config root existing = do
   images <- findImages config root
-
+  
   catMaybes <$> for (filter (`S.notMember` existing) images)
     (\image -> fmap (image, ) <$> imageInfo root image)
 
