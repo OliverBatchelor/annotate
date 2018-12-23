@@ -156,7 +156,7 @@ data DocInfo = DocInfo
 data ClassConfig = ClassConfig
   { name :: Text
   , shape :: ShapeConfig
-  , colour :: HexColournumber
+  , colour :: HexColour
   } deriving (Generic, Show, Eq)
 
 
@@ -167,7 +167,7 @@ data Config = Config
   } deriving (Generic, Show, Eq)
 
 
-data ImageOrdering = OrderSequential | OrderMixed
+data ImageOrdering = OrderSequential | OrderMixed | OrderBackwards
   deriving (Show, Eq, Ord, Enum, Generic)
 
 
@@ -207,9 +207,9 @@ data Collection = Collection
 
 
 data ErrCode
-  = ErrDecode Texnumber
-  | ErrNotFound Nnumber
-  | ErrNotRunningnumber
+  = ErrDecode Text
+  | ErrNotFound NavId DocName
+  | ErrNotRunning
   | ErrTrainer Text
   | ErrEnd NavId
     deriving (Generic, Show, Eq)

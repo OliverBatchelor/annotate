@@ -32,11 +32,15 @@ nextSet s = \case
     Just x  -> S.toList ys <> S.toList xs
       where (xs, _, ys) = S.splitMember x s
 
+prevSet :: Ord a => Set a -> Maybe a -> [a]
+prevSet s = reverse . nextSet s
+      
 
 
 findNext' :: ImageOrdering ->  Map DocName Document ->  Map DocName [ClientId] -> Maybe DocName -> [DocName]
 findNext' ordering images openDocs current = case ordering of
     OrderSequential -> unNatural <$>  nextSet sorted (makeNaturalKey <$> current)
+    OrderBackwards  -> unNatural <$>  prevSet sorted (makeNaturalKey <$> current)
     OrderMixed      -> unKey <$> nextSet mixed (hashKey <$> current)
 
   where

@@ -663,7 +663,7 @@ settingsTab = column "h-100 v-spacing-2" $ do
   settingsPane "Trainer settings" $ do
 
     labelled "Image order" $ do
-        inp <- selectView [("Mixed", OrderMixed), ("Sequential", OrderSequential)] (view #ordering <$> prefs)
+        inp <- selectView [("Mixed", OrderMixed), ("Sequential", OrderSequential), ("Backwards", OrderBackwards)] (view #ordering <$> prefs)
         prefCommand (SetImageOrder <$> inp)
 
 
