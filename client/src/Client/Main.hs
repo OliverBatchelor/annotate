@@ -459,7 +459,6 @@ bodyWidget host = mdo
         , currentClass
         , docSelected
         , collection
-
         , loaded
         , detections
         }

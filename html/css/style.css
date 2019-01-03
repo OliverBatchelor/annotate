@@ -216,7 +216,7 @@ html, body {
 .preload {
   width:1px; 
   height:1px; 
-  visibility:hidden; 
+  /* visibility:hidden;  */
   overflow:hidden
 }
 
