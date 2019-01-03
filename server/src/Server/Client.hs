@@ -85,6 +85,7 @@ processMsg env@ClientEnv{store, clientId, userId} msg = do
 
     ClientSubmit doc -> void $ do
       updateLog store (CmdSubmit doc time)
+      broadcastUpdate env (doc ^. #name)
       sendTrainer (upcast env) (TrainerUpdate (doc ^. #name) (Just (exportImage doc)))
 
     ClientDetect k -> do
@@ -150,7 +151,7 @@ clientDoc env = join <$> withClient env (return . view #document)
 nextFrom :: ClientEnv -> Maybe DocName -> STM [DocName]
 nextFrom env k = do
   prefs <- userPreferences (env ^. #userId) <$> readLog (env ^. #store)
-  findNext (upcast env) (prefs ^. #ordering) k
+  findNext (upcast env) (prefs ^. #sortOptions) k
 
 
 

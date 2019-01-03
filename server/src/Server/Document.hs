@@ -11,6 +11,8 @@ import Control.Concurrent.Log
 
 import Control.Lens
 
+import Data.List (splitAt, elemIndex)
+
 
 minSet :: Ord a => Set a -> Maybe a
 minSet s
@@ -36,29 +38,31 @@ prevSet :: Ord a => Set a -> Maybe a -> [a]
 prevSet s = reverse . nextSet s
       
 
-
-findNext' :: ImageOrdering ->  Map DocName Document ->  Map DocName [ClientId] -> Maybe DocName -> [DocName]
-findNext' ordering images openDocs current = case ordering of
-    OrderSequential -> unNatural <$>  nextSet sorted (makeNaturalKey <$> current)
-    OrderBackwards  -> unNatural <$>  prevSet sorted (makeNaturalKey <$> current)
-    OrderMixed      -> unKey <$> nextSet mixed (hashKey <$> current)
-
-  where
-
-    editable = filter isFresh (M.elems images)
-    sorted = S.fromList (view (#info . #naturalKey) <$> editable)
-    mixed = S.fromList (getHash <$> editable)
-
-    getHash Document{info, name} = HashedKey name (unHash $ view #hashedName info)
-
-    isFresh Document{info, name} =
-        info ^. #category == New &&
-        not (M.member name openDocs)
+rotate :: Int -> [a] -> [a]
+rotate n xs = bs <> as 
+  where (as, bs) = splitAt n xs
 
 
-findNext :: Env -> ImageOrdering -> Maybe DocName ->  STM [DocName]
-findNext Env{..} ordering maybeCurrent =
-  findNext' ordering <$> (view #images <$> readLog store) <*> readTVar documents <*> pure maybeCurrent
+rotateFrom :: Eq a => Maybe a -> [a] -> [a]
+rotateFrom current ks = fromMaybe ks $ do
+  k <- current
+  i <- elemIndex k ks
+  return (drop 1 (rotate i ks))
+
+
+sortAll :: SortOptions ->  Set DocName ->  Map DocName Document  -> [DocName]
+sortAll sortOptions openDocs = filter inUse . fmap fst . sortImages sortOptions . M.toList . M.map (view #info)
+   where inUse k = S.notMember k openDocs
+
+  
+findNext :: Env -> SortOptions -> Maybe DocName ->  STM [DocName]
+findNext Env{..} sortOptions current = do
+  images <- view #images <$> readLog store
+  openDocs  <- readTVar documents
+
+  return $ rotateFrom current (sortAll sortOptions (usedSet openDocs) images)
+    where
+      usedSet m = fromMaybe id (S.delete <$> current) $ M.keysSet m
 
 
 withDocument :: Env -> DocName -> (Document -> STM ()) -> STM ()
@@ -88,6 +92,12 @@ clientDocument :: ClientId -> Traversal' (Map ClientId Client) DocName
 clientDocument clientId = ix clientId . #document . traverse
 
 
+broadcastUpdate :: ClientEnv -> DocName -> STM ()
+broadcastUpdate env@ClientEnv{..} k = do
+  mDoc <- lookupDoc k <$> readLog store
+  forM_ mDoc $ broadcast (upcast env) . ServerUpdateInfo k . view #info
+
+
 closeDocument :: ClientEnv -> STM ()
 closeDocument env@ClientEnv{..}  = preview (clientDocument clientId) <$> readTVar clients >>= traverse_ withDoc
   where
@@ -97,8 +107,6 @@ closeDocument env@ClientEnv{..}  = preview (clientDocument clientId) <$> readTVa
         refs <- M.lookup k <$> readTVar documents
         modifyTVar documents (M.update removeClient k)
 
-        mDoc <- lookupDoc k <$> readLog store
-        forM_ mDoc $ broadcast (upcast env) . ServerUpdateInfo k . view #info
 
     removeClient cs = case filter (/= clientId) cs of
         []  -> Nothing

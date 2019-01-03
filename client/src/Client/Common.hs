@@ -62,13 +62,23 @@ data PrefCommand
   | SetNms Float
   | SetMinThreshold Float
   | SetDetections Int
-  | SetImageOrder ImageOrdering
   | SetThreshold Float
   | SetMargin Float
 
   | SetPrefs Preferences
+  | SetSort SortCommand
+  | SetAutoDetect Bool
 
   deriving (Generic, Show)
+
+
+data SortCommand
+  = SetSortKey SortKey
+  | SetReverse Bool
+  | SetFilter FilterOption
+  | SetSearch Text
+  deriving (Generic, Show)
+
 
 data AppCommand
   = ViewCmd ViewCommand
@@ -149,6 +159,11 @@ localPath path = do
   base <- asks basePath
   return $ base <> "/" <> path
 
+
+imagePath :: MonadReader (AppEnv t) m => Text -> m Text
+imagePath path = localPath ("images/" <> path)
+  
+
 newtype Shortcuts t = Shortcuts (forall a. Shortcut a -> Event t a)
 
 askShortcuts :: (Reflex t, MonadReader (AppEnv t) m) => m (Shortcuts t)
@@ -171,6 +186,9 @@ docCommand f = command (EditCmd . f)
 
 viewCommand :: AppBuilder t m => Event t ViewCommand -> m ()
 viewCommand = command ViewCmd
+
+sortCommand :: AppBuilder t m => Event t SortCommand -> m ()
+sortCommand = command (PrefCmd . SetSort)
 
 prefCommand :: AppBuilder t m => Event t PrefCommand -> m ()
 prefCommand = command PrefCmd

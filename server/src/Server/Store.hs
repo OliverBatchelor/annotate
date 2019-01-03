@@ -118,6 +118,10 @@ data Document1 = Document1
   } deriving (Generic, Show, Eq)
 
 
+data ImageOrdering = OrderSequential | OrderMixed | OrderBackwards
+  deriving (Show, Eq, Ord, Enum, Generic)
+
+
 data Preferences0 = Preferences0
   { controlSize       :: Float
   , brushSize         :: Float
@@ -136,6 +140,32 @@ data Preferences0 = Preferences0
 
   , threshold    :: Float
   , ordering    :: ImageOrdering
+  } deriving (Generic, Show, Eq)
+
+
+
+data Preferences1 = Preferences1
+  { controlSize       :: Float
+  , brushSize         :: Float
+
+  , instanceColours   :: Bool
+
+  , opacity           :: Float
+  , border            :: Float
+
+  , hiddenClasses     :: Set Int
+
+  , gamma             :: Float
+  , brightness        :: Float
+  , contrast          :: Float
+
+  , detection    :: DetectionParams
+
+  , threshold    :: Float
+  , margin       :: Float
+
+  , ordering    :: ImageOrdering
+
   } deriving (Generic, Show, Eq)
 
 
@@ -161,14 +191,18 @@ instance Migrate Store where
     where preferences = mempty
 
 
-instance Migrate Preferences where
-  type MigrateFrom Preferences = Preferences0
-  migrate Preferences0{..} = Preferences{..}
+instance Migrate Preferences1 where
+  type MigrateFrom Preferences1 = Preferences0
+  migrate Preferences0{..} = Preferences1{..}
     where 
       margin = 0.1
       border = 1
    
-
+instance Migrate Preferences where
+  type MigrateFrom Preferences = Preferences1
+  migrate Preferences1{..} = Preferences{..} where 
+    sortOptions = def
+    autoDetect = True
 
 
 instance Migrate Document where
@@ -360,10 +394,15 @@ $(deriveSafeCopy 0 'base ''TrainerState)
 $(deriveSafeCopy 0 'base ''ModelState)
 
 $(deriveSafeCopy 0 'base ''Preferences0)
-$(deriveSafeCopy 1 'extension ''Preferences)
+$(deriveSafeCopy 1 'extension ''Preferences1)
+$(deriveSafeCopy 2 'extension ''Preferences)
 
 $(deriveSafeCopy 0 'base ''DetectionParams)
 $(deriveSafeCopy 0 'base ''ImageOrdering)
+
+$(deriveSafeCopy 0 'base ''SortKey)
+$(deriveSafeCopy 0 'base ''FilterOption)
+$(deriveSafeCopy 0 'base ''SortOptions)
 
 
 docInfo :: DocName -> Traversal' Store DocInfo

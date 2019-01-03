@@ -202,7 +202,6 @@ html, body {
 .selected {
   fill-opacity: 0.3;
   z-index: 1;
-
 }
 
 .shape {
@@ -211,6 +210,14 @@ html, body {
   stroke-width:2;
   pointer-events: all;
 
+}
+
+
+.preload {
+  width:1px; 
+  height:1px; 
+  visibility:hidden; 
+  overflow:hidden
 }
 
 

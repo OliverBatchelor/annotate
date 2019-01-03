@@ -323,8 +323,8 @@ annotationView classMap (hideThreshold, marginalThreshold) instanceCols selected
 
 imageView :: (AppBuilder t m) => Image -> m (ElemType t m)
 imageView (file, dim) = do
-    path <- localPath file
-
+    path <- imagePath file
+    
     Svg.image_
       [draggable_ =: False, class_ =: "disable-cursor"
       , wh_ =: fromDim dim, href_ =: path

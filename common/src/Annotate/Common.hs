@@ -21,6 +21,11 @@ import Data.Hashable
 import qualified Data.Text as Text
 import qualified Data.Aeson as Aeson
 
+import qualified Text.Fuzzy as Fuzzy
+
+import Data.Ord (comparing)
+import Data.List (sortBy)
+
 type AnnotationId = Int
 type ClientId = Int
 type UserId = Int
@@ -167,8 +172,27 @@ data Config = Config
   } deriving (Generic, Show, Eq)
 
 
-data ImageOrdering = OrderSequential | OrderMixed | OrderBackwards
-  deriving (Show, Eq, Ord, Enum, Generic)
+
+
+data SortKey = SortCat | SortNum | SortName | SortModified | SortMixed
+  deriving (Eq, Show, Generic)
+
+data FilterOption = FilterAll | FilterCat ImageCat | FilterEdited
+  deriving (Eq, Generic)
+
+instance Show FilterOption where
+  show FilterAll        = "All"
+  show (FilterCat cat)  = show cat
+  show FilterEdited     = "Edited"
+
+
+data SortOptions = SortOptions 
+  { sortKey   :: SortKey
+  , reversed :: Bool 
+  , filtering :: FilterOption
+  , search   :: Text
+  } deriving (Show, Generic, Eq)
+  
 
 
 data Preferences = Preferences
@@ -191,7 +215,9 @@ data Preferences = Preferences
   , threshold    :: Float
   , margin       :: Float
 
-  , ordering    :: ImageOrdering
+  , sortOptions :: SortOptions
+  , autoDetect  :: Bool
+
   } deriving (Generic, Show, Eq)
 
 data DetectionParams = DetectionParams
@@ -260,7 +286,6 @@ instance FromJSON ShapeConfig
 instance FromJSON ClassConfig
 
 instance FromJSON DetectionParams
-instance FromJSON ImageOrdering
 
 instance FromJSON Preferences
 
@@ -288,11 +313,14 @@ instance FromJSON ServerMsg
 instance FromJSON ClientMsg
 instance FromJSON ErrCode
 
+instance FromJSON SortKey
+instance FromJSON FilterOption
+instance FromJSON SortOptions
+
 instance ToJSON ShapeConfig
 instance ToJSON ClassConfig
 
 instance ToJSON DetectionParams
-instance ToJSON ImageOrdering
 instance ToJSON Preferences
 
 instance ToJSON ImageCat
@@ -320,6 +348,10 @@ instance ToJSON ServerMsg
 instance ToJSON ClientMsg
 instance ToJSON ErrCode
 
+instance ToJSON SortKey
+instance ToJSON FilterOption
+instance ToJSON SortOptions
+
 instance Default Config where
   def = Config
     { root = ""
@@ -345,8 +377,19 @@ instance Default Preferences where
     , threshold = 0.5
     , margin = 0.1
 
-    , ordering = OrderMixed
+    , sortOptions = def
+    , autoDetect = True
     }
+
+instance Default SortOptions where
+  def = SortOptions 
+    { sortKey = SortMixed
+    , reversed = False
+    , filtering = FilterAll
+    , search = ""
+    }
+
+
 
 instance Default DetectionParams where
   def = DetectionParams
@@ -361,7 +404,6 @@ newClass k = ClassConfig
   , colour  = fromMaybe 0xFFFF00 $ preview (ix k) defaultColours
   , shape   = BoxConfig
   }
-
 
 fromBasic :: BasicAnnotation -> Annotation
 fromBasic BasicAnnotation{..} = Annotation{..} where
@@ -434,8 +476,48 @@ unNatural (NaturalKey xs) = Text.concat (show' <$> xs) where
 emptyCollection :: Collection
 emptyCollection = Collection mempty
 
+
+filterImage :: FilterOption -> (DocName, DocInfo) -> Bool
+filterImage opt (_, DocInfo{category}) = case opt of
+  FilterAll     -> category /= Discard
+  FilterEdited  -> category == Train || category == Test
+  FilterCat cat -> category == cat
+
+
+reverseComparing :: Ord b => (a -> b) -> a -> a -> Ordering
+reverseComparing f x y = reverseOrdering $ compare (f x) (f y)
+
+reverseOrdering :: Ordering -> Ordering
+reverseOrdering LT = GT
+reverseOrdering GT = LT
+reverseOrdering EQ = EQ
+
+compareWith ::  Bool -> SortKey -> (DocName, DocInfo) -> (DocName, DocInfo) -> Ordering
+compareWith rev key = (case key of
+  SortCat         -> compares (view #category &&& view #naturalKey)
+  SortNum         -> compares (view #numAnnotations &&& view #naturalKey)
+  SortModified    -> compares (view #modified &&& view #naturalKey)
+  SortName        -> compares (view #naturalKey)
+  SortMixed       -> compares (view #hashedName))
+  where
+    compares :: forall a. Ord a => (DocInfo -> a) -> (DocName, DocInfo) -> (DocName, DocInfo) -> Ordering
+    compares f = if rev then reverseComparing (f . snd) else comparing (f . snd)
+
+
+
+sortImages :: SortOptions -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
+sortImages SortOptions{..} = searchImages search . sortBy (compareWith reversed sortKey) . filter (filterImage filtering)
+
+searchImages :: Text ->  [(DocName, DocInfo)] -> [(DocName, DocInfo)]
+searchImages ""   = id
+searchImages str  = \images -> Fuzzy.original <$>
+  Fuzzy.filter str images "" "" fst False
+
+
 makePrisms ''Navigation
 
 makePrisms ''ClientMsg
 makePrisms ''ServerMsg
 makePrisms ''Shape
+
+

@@ -281,7 +281,7 @@ documentEditor input cmds loaded'  = do
     -- logEvent (updated (pending <$> document <*> action))
 
     (action, sceneEvents) <- sceneView $ Scene
-      { image    = ("images/" <> loaded ^. #name, loaded ^. #info . #imageSize)
+      { image    = (loaded ^. #name, loaded ^. #info . #imageSize)
       -- , viewport = viewport
       , input       = input
       , document    = document
@@ -448,7 +448,7 @@ bodyWidget host = mdo
 
   let shortcut   = fan shortcuts
       detections = filterDocument document $ preview _ServerDetection <?> serverMsg
-
+ 
       env = AppEnv
         { basePath = "http://" <> host
         , shortcut
@@ -483,6 +483,7 @@ bodyWidget host = mdo
     "Annotate - " <> fromMaybe ("no document") doc
 
 
+
   connectingDialog (opened, void closed)
   ((shortcuts, action, document, selection), cmds) <- flip runReaderT env $ runEventWriterT $ do
 
@@ -490,6 +491,7 @@ bodyWidget host = mdo
       [ runDialog <$> oneOf _DialogCmd cmds
       , errorDialog <$> serverErrors
       ]
+
 
     cursorLock action $ do
       div [class_ =: "scene expand"] $
@@ -522,12 +524,21 @@ updatePrefs cmds = flip (foldr updatePref) cmds where
   updatePref (SetNms nms)         = #detection . #nms .~ nms
   updatePref (SetDetections d)    = #detection . #detections .~ d
 
-  updatePref (SetThreshold t)  = #threshold .~ t
-  updatePref (SetMargin m)  = #margin .~ m
-
-  updatePref (SetImageOrder order)  = #ordering .~ order
+  updatePref (SetThreshold t)   = #threshold .~ t
+  updatePref (SetMargin m)      = #margin .~ m
 
   updatePref (SetPrefs prefs) = const prefs
+
+  updatePref (SetSort sortCmd)  = #sortOptions %~ updateSort sortCmd
+  updatePref (SetAutoDetect b)  = #autoDetect .~ b
+
+
+updateSort :: SortCommand -> SortOptions -> SortOptions
+updateSort (SetSortKey k)  = #sortKey .~ k
+updateSort (SetReverse b)  = #reversed .~ b
+updateSort (SetFilter opt) = #filtering .~ opt
+updateSort (SetSearch t)   = #search .~ t
+
   --updatePref _ = id
 
 
@@ -567,80 +578,19 @@ holdCollection serverMsg = mdo
 
 
 
-
-rangeSlider :: (Builder t m, Read a, Show a, Num a) => (a, a) -> a -> a -> Event t a -> m (Dynamic t a)
-rangeSlider (l, u) step initial setter = do
-
-  rec
-    slider <- inputElem
-        [ type_ =: "range", showA "min" =: l, showA "max" =: u
-        , showA "step" =: step, class_ =: "custom-range"] $ def
-
-          & inputElementConfig_setValue      .~ (textValue <$> setter)
-          & inputElementConfig_initialValue  .~ (textValue initial)
-
-  holdDyn initial (read . T.unpack <$> _inputElement_input slider)
-
-    where
-      textValue = T.pack . show
-
-rangeView :: (Builder t m, Read a, Show a, Num a, Eq a) => (a, a) -> a -> Dynamic t a -> m (Event t a)
-rangeView range step = toView (rangeSlider range step (fst range))
-
--- selectOption :: Builder t m => [Property t] -> [(Text, a)] -> a -> Event t a -> m (Dynamic t a)
-selectView :: (Builder t m, Eq a) => [(Text, a)] -> Dynamic t a -> m (Event t a)
-selectView options = toView (selectOption [class_ =: "custom-select"] options option)
-  where option = snd (L.head options)
-
-rangePreview :: (Builder t m, Read a, Show a, Num a, Eq a) => (a -> Text) -> (a, a) -> a -> Dynamic t a -> m (Event t a)
-rangePreview showValue range step value = row "spacing-3 align-items-center" $ do
-  inp <- rangeView range step value
-  span [] $ dynText $ (showValue <$> value)
-  return inp
-
-printFloat :: Float -> Text
-printFloat = T.pack . printf "%.2f"
-
-printFloat0 :: Float -> Text
-printFloat0 = T.pack . printf "%.0f"
+trainerTab :: AppBuilder t m => m () 
+trainerTab = sidePane $ do
+  groupPane "Status" $ do
+    return ()
 
 
-toView :: (Builder t m, Eq a) => (Event t a -> m (Dynamic t a)) -> Dynamic t a -> m (Event t a)
-toView makeWidget value = do
-    postBuild <- getPostBuild
-
-    rec
-      value' <- makeWidget $ leftmost
-        [ (attachPromptlyDynWithMaybe filterEq value' (updated value))
-        , current value `tag` postBuild
-        ]
-
-    return (updated value')
-
-filterEq :: (Eq a) => a -> a -> Maybe a
-filterEq x y = if x == y then Nothing else Just y
-
-
-checkboxLabel :: Builder t m => Text -> Text -> Dynamic t Bool -> m (Event t Bool)
-checkboxLabel i t value = div [class_ =: "custom-control custom-checkbox"] $ do
-    let attrs = M.fromList [("class", "custom-control-input"), ("id", i)]
-
-    inp <- checkboxView (pure attrs) value
-    Html.label [class_ =: "custom-control-label", Html.for_ =: i] $ text t
-
-    return inp
-
-settingsPane :: AppBuilder t m => Text -> m a -> m a
-settingsPane title children = column "v-spacing-2 p-2 border" $ do
-    h5 [] $ text "Interface settings"
-    children
 
 settingsTab :: AppBuilder t m => m ()
-settingsTab = column "h-100 v-spacing-2" $ do
+settingsTab = sidePane $ do
   prefs <- view #preferences
   doc   <- view #document
 
-  settingsPane "Interface settings" $ do
+  groupPane "Interface settings" $ do
 
     instanceCols <- checkboxLabel "instance-cols" "Instance colours" (view #instanceColours <$> prefs)
     prefCommand (SetInstanceColors <$> instanceCols)
@@ -660,14 +610,8 @@ settingsTab = column "h-100 v-spacing-2" $ do
 
     return ()
 
-  settingsPane "Trainer settings" $ do
 
-    labelled "Image order" $ do
-        inp <- selectView [("Mixed", OrderMixed), ("Sequential", OrderSequential), ("Backwards", OrderBackwards)] (view #ordering <$> prefs)
-        prefCommand (SetImageOrder <$> inp)
-
-
-  settingsPane "Image adjustment" $ do
+  groupPane "Image adjustment" $ do
     labelled "Gamma" $ do
         inp <- rangePreview printFloat (0.25, 4.0) 0.01 (view #gamma <$> prefs)
         prefCommand (SetGamma <$> inp)
@@ -680,7 +624,7 @@ settingsTab = column "h-100 v-spacing-2" $ do
         inp <- rangePreview printFloat (0.0, 10.0) 0.01 (view #contrast <$> prefs)
         prefCommand (SetContrast <$> inp)
 
-  settingsPane "Detection settings" $ do
+  groupPane "Detection settings" $ do
 
     labelled "Non maxima suppression" $ do
       inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view (#detection . #nms) <$> prefs)
@@ -694,7 +638,7 @@ settingsTab = column "h-100 v-spacing-2" $ do
       inp <- rangePreview (T.pack . show) (0, 1000) 1 (view (#detection . #detections) <$> prefs)
       prefCommand (SetDetections <$> inp)
 
-  settingsPane "Active detections" $ do
+  groupPane "Active detections" $ do
 
     let showCounts (V2 n total) = showText n <> "/" <> showText total
         counts = detectionSummary <$> doc <*> (view #threshold <$> prefs)
@@ -733,6 +677,7 @@ sidebar = mdo
       [ (classesTab,    tab "tag-multiple"   "Classes")
       , (imagesTab,     tab "folder-multiple-image" "Images")
       , (settingsTab,  tab "settings"  "Settings")
+      , (trainerTab,  tab "brain"  "Trainer")
       ]
 
     return isOpen
@@ -741,7 +686,7 @@ sidebar = mdo
     where
       toggler = mdo
         e <- a_ [class_ =: "toggler p-2"] $
-            icon ((def :: IconConfig t)  & #name .~ Dyn (swapping ("chevron-right", "chevron-left") isOpen))
+          icon ((def :: IconConfig t)  & #name .~ Dyn (swapping ("chevron-right", "chevron-left") isOpen))
         isOpen <- toggle False (domEvent Click e)
         return isOpen
 

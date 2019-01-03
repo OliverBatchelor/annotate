@@ -393,7 +393,7 @@ enumerate :: (Foldable f, Enum k, Num k) => f a -> [(k, a)]
 enumerate = zip [0..] . toList
 
 
-dynList' :: (DomBuilder t m, MonadFix m, MonadHold t m, Foldable f)
+dynList' :: (DomBuilder t m, MonadFix m, MonadHold t m, Foldable f, PostBuild t m)
         => (Map Int (Dynamic t a) -> m b) -> Dynamic t (f a) -> m (Dynamic t b)
 dynList' f d = do
   initial <- enumerateMap <$> sample d
@@ -420,7 +420,6 @@ dynList' f d = do
 dynList :: (PostBuild t m, DomBuilder t m, MonadFix m, MonadHold t m, Foldable f)
         => (Int -> Dynamic t a -> m b) -> Dynamic t (f a) -> m (Event t (Map Int b))
 dynList f d = do
-  initial <- enumerateMap <$> sample d
   resizes <- holdUniqDynBy (\old new -> M.size old /= M.size new) m
 
   dyn (viewList <$> resizes)

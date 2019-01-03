@@ -6,8 +6,13 @@ import Client.Common
 
 import Reflex.Classes
 import Builder.Html hiding (title)
+import qualified Builder.Html as Html
 
+import qualified Data.List as L
 import qualified Data.Text as T
+
+import qualified Data.Map as M
+
 import Data.Default
 import Data.Tuple (swap)
 
@@ -97,6 +102,24 @@ toolButton' :: Builder t m => Text -> IconConfig t -> Text -> m (Event t ())
 toolButton' = toolButton (pure True)
 
 
+preload :: (AppBuilder t m) => Dynamic t Text -> m () 
+preload file = void $ do
+    base <- view #basePath
+    let toAbsolute path = base <> "/images/" <> path
+    img_ [src_ ~: toAbsolute <$> file, hidden_ =: True] 
+
+groupPane :: AppBuilder t m => Text -> m a -> m a
+groupPane title children = column "v-spacing-2 p-2 border" $ do
+    h5 [] $ text title
+    children
+
+pane :: AppBuilder t m => m a -> m a
+pane = column "v-spacing-2 p-2 border"
+    
+
+sidePane :: AppBuilder t m => m a -> m a
+sidePane = column "h-100 v-spacing-2" 
+
 
 buttonGroup :: Builder t m => m a -> m a
 buttonGroup inner = div [class_ =: "btn-group enable-cursor"]  inner
@@ -112,8 +135,8 @@ timeout (down, up) time = do
   switchHold never $  pushAlways (const gateDelay) down
 
 
-selectOption :: (Eq a, Builder t m) => [Property t] -> [(Text, a)] -> a -> Event t a -> m (Dynamic t a)
-selectOption props options initial setter = fmap fromText . _selectElement_value <$>
+selectOption' :: (Eq a, Builder t m) => [Property t] -> [(Text, a)] -> a -> Event t a -> m (Dynamic t a)
+selectOption' props options initial setter = fmap fromText . _selectElement_value <$>
     selectElem_  props config (traverse_ makeOption options)
 
     where
@@ -126,7 +149,107 @@ selectOption props options initial setter = fmap fromText . _selectElement_value
                     & selectElementConfig_setValue .~ (toText <$> setter)
 
 
+selectOption :: (Eq a, Builder t m) =>  [(Text, a)] -> a -> Event t a -> m (Dynamic t a)
+selectOption = selectOption' [class_ =: "custom-select"]
+
+
+-- selectOption :: Builder t m => [Property t] -> [(Text, a)] -> a -> Event t a -> m (Dynamic t a)
+selectView' :: (Builder t m, Eq a) => [Property t]  -> [(Text, a)] -> Dynamic t a -> m (Event t a)
+selectView' props options = toView (selectOption' props options option)
+  where option = snd (L.head options)
+
+selectView :: (Builder t m, Eq a) => [(Text, a)] -> Dynamic t a -> m (Event t a)
+selectView = selectView' [class_ =: "custom-select"]
+
+
+
 labelled :: Builder t m => Text -> m a -> m a
 labelled t inner = row "align-items-stretch " $ do
   label [class_ =: "grow-1 align-self-center"] $ text t
   div [class_ =: "grow-2"] inner
+
+toView :: (Builder t m, Eq a) => (Event t a -> m (Dynamic t a)) -> Dynamic t a -> m (Event t a)
+toView makeWidget value = do
+    postBuild <- getPostBuild
+
+    rec
+      value' <- makeWidget $ leftmost
+        [ (attachPromptlyDynWithMaybe filterEq value' (updated value))
+        , current value `tag` postBuild
+        ]
+
+    return (updated value')
+
+
+filterEq :: (Eq a) => a -> a -> Maybe a
+filterEq x y = if x == y then Nothing else Just y
+
+
+rangeSlider :: (Builder t m, Read a, Show a, Num a) => (a, a) -> a -> a -> Event t a -> m (Dynamic t a)
+rangeSlider (l, u) step initial setter = do
+
+  rec
+    slider <- inputElem
+        [ type_ =: "range", showA "min" =: l, showA "max" =: u
+        , showA "step" =: step, class_ =: "custom-range"] $ def
+
+          & inputElementConfig_setValue      .~ (textValue <$> setter)
+          & inputElementConfig_initialValue  .~ (textValue initial)
+
+  holdDyn initial (read . T.unpack <$> _inputElement_input slider)
+
+    where
+      textValue = T.pack . show
+
+rangeView :: (Builder t m, Read a, Show a, Num a, Eq a) => (a, a) -> a -> Dynamic t a -> m (Event t a)
+rangeView range step = toView (rangeSlider range step (fst range))
+
+
+
+
+grow :: forall t m a. Builder t m => m a -> m a 
+grow = div [class_ =: "grow-1"]
+
+grow2 :: forall t m a. Builder t m => m a -> m a 
+grow2 = div [class_ =: "grow-2"]
+
+grow3 :: forall t m a. Builder t m => m a -> m a 
+grow3 = div [class_ =: "grow-3"]  
+
+rangePreview :: (Builder t m, Read a, Show a, Num a, Eq a) => (a -> Text) -> (a, a) -> a -> Dynamic t a -> m (Event t a)
+rangePreview showValue range step value = row "spacing-3 align-items-center" $ do
+  inp <- rangeView range step value
+  span [] $ dynText $ (showValue <$> value)
+  return inp
+
+printFloat :: Float -> Text
+printFloat = T.pack . printf "%.2f"
+
+printFloat0 :: Float -> Text
+printFloat0 = T.pack . printf "%.0f"
+
+
+checkboxLabel :: Builder t m => Text -> Text -> Dynamic t Bool -> m (Event t Bool)
+checkboxLabel i t value = div [class_ =: "custom-control custom-checkbox"] $ do
+    let attrs = M.fromList [("class", "custom-control-input"), ("id", i)]
+
+    inp <- checkboxView (pure attrs) value
+    Html.label [class_ =: "custom-control-label", Html.for_ =: i] $ text t
+
+    return inp
+
+
+toggleButtonView :: forall t m. Builder t m => (Text, Text) -> Dynamic t Bool -> m (Event t Bool)
+toggleButtonView icons d = do 
+  e <- button_ [class_ =: "btn btn-light"] $
+    icon ( (def :: IconConfig t) & #name .~ Dyn (swapping icons d))
+  return $ not <$> current d `tag` domEvent Click e
+
+toggleButton :: forall t m. Builder t m => (Text, Text) -> m (Dynamic t Bool)
+toggleButton icons = do
+  rec
+    e <- toggleButtonView icons isOpen
+    isOpen <- toggle False e
+
+  return isOpen
+    
