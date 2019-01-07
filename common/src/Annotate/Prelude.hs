@@ -11,7 +11,6 @@ import Control.Arrow as X ((***), (&&&))
 
 import Debug.Trace as X
 
-import Control.Monad.Identity as X (Identity, runIdentity)
 import Control.Monad.Reader.Class as X (MonadReader (..), asks)
 import Control.Monad.State.Class as X (MonadState(..), gets)
 import Control.Monad.Writer.Class as X (MonadWriter (..))
@@ -23,6 +22,8 @@ import Control.Monad.IO.Class as X
 
 import Data.Text as X (Text)
 import Data.Functor as X
+import Data.Functor.Compose as X (Compose(..))
+import Data.Functor.Identity as X (Identity(..))
 import Data.Functor.Contravariant as X
 import Data.Monoid as X (Monoid(..), mempty, First(..), Last(..))
 import Data.Semigroup as X (Semigroup(..), (<>))
@@ -61,6 +62,8 @@ import Data.Map as X (Map)
 
 import Data.Dependent.Map as X (DMap)
 import Data.Dependent.Sum as X (DSum(..))
+
+import Data.GADT.Compare as X (GCompare(..), GEq(..))
 
 import Data.Typeable as X
 

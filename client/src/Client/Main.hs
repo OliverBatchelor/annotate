@@ -19,7 +19,7 @@ import Data.Default
 import Data.FileEmbed
 
 import Control.Monad.Reader
-import Control.Lens (notNullOf, Getting, firstOf)
+import Control.Lens (notNullOf, Getting, firstOf, cons)
 
 import Scene.Viewport
 import Scene.View
@@ -377,20 +377,30 @@ manageDocument hello serverMsg (userNext, userTo) = mdo
       isLatest latest (navId, doc)  = doc <$ guard (navId == latest - 1)
 
 
-navigationCmd :: Reflex t => Event t [AppCommand]
-                          -> ((Event t (), Event t DocName), Event t (Maybe ImageCat))
-navigationCmd cmds = (navigation, save) where
-    (submit, open) = (oneOf _SubmitCmd cmds, oneOf _OpenCmd cmds)
-    save = leftmost [ Just <$> submit, Nothing <$ open ]
-    navigation = (void submit, open)
+data SaveCommand = AutoSave | SubmitSave ImageCat 
+  deriving (Show, Eq, Generic)
 
 
-save :: Preferences -> (UTCTime, Maybe ImageCat) -> EditorDocument -> Document
-save prefs (time, maybeCat) doc = toDocument (prefs ^. #threshold) $ doc
-  &  maybe id (\cat -> #info . #category .~ cat) maybeCat
-  & #history %~ ((time, HistClose) :) 
+navigationCmd :: Reflex t => Event t [AppCommand] -> (Event t (), Event t DocName)
+navigationCmd cmds = (void $ oneOf _SubmitCmd cmds, oneOf _OpenCmd cmds)
 
+  
+saveCmd :: Reflex t => Event t [AppCommand] -> Dynamic t (Maybe EditorDocument) -> Event t SaveCommand
+saveCmd cmds doc = leftmost [submit, autoSave] where
+  submit = SubmitSave <$> oneOf _SubmitCmd cmds
+  autoSave = (maybe False isModified <$> current doc) `gate` (AutoSave <$ oneOf _OpenCmd cmds)
 
+    
+   
+
+save :: Preferences -> (UTCTime, SaveCommand) -> EditorDocument -> Document
+save prefs (time, cmd) doc = toDocument (prefs ^. #threshold) $ doc
+      & setCat cmd
+      & #history %~ cons (time, HistClose)
+
+  where 
+    setCat AutoSave         = id
+    setCat (SubmitSave cat) = #info . #category .~ cat
 
 withTime :: GhcjsBuilder t m => Event t a -> m (Event t (UTCTime, a))
 withTime e = performEvent $ ffor e $ \a -> do
@@ -399,7 +409,7 @@ withTime e = performEvent $ ffor e $ \a -> do
     
 
 saveDocument :: GhcjsBuilder t m => Dynamic t Preferences -> Dynamic t (Maybe EditorDocument)
-                        -> Event t (Maybe ImageCat) -> m (Event t ClientMsg)
+                        -> Event t SaveCommand -> m (Event t ClientMsg)
 saveDocument preferences document submit = do 
   
   submitAt <- withTime submit 
@@ -407,7 +417,6 @@ saveDocument preferences document submit = do
     (f <$> current document <*> current preferences <@> submitAt)
 
   where
-
     f doc prefs cat = save prefs cat <$> doc
 
 
@@ -438,50 +447,40 @@ bodyWidget host = mdo
         , clientSaves
         ]
 
-      (navigations, saves) = navigationCmd cmds
       clientConfig = ClientConfig <$> oneOf _ConfigCmd cmds
 
-  clientSaves <- saveDocument preferences document saves
-  (docSelected, loaded, clientNav) <- manageDocument (void hello) serverMsg navigations
+  clientSaves <- saveDocument preferences document (saveCmd cmds document)
+  (docSelected, loaded, clientNav) <- manageDocument (void hello) serverMsg (navigationCmd cmds)
 
-  collection <- holdCollection serverMsg
+  
+  let classSelected = oneOf _ClassCmd cmds
+      (hello, initPrefs, initConfig, initialStatus)  = split4 (preview _ServerHello <?> serverMsg)
 
-  let shortcut   = fan shortcuts
+      shortcut   = fan shortcuts
       detections = filterDocument document $ preview _ServerDetection <?> serverMsg
- 
-      env = AppEnv
-        { basePath = "http://" <> host
-        , shortcut
-        , selection
-        , document
-        , config
-        , preferences
-        , currentClass
-        , docSelected
-        , collection
-        , loaded
-        , detections
-        }
+
+  trainerStatus <- holdDyn Disconnected $ 
+    leftmost [preview _ServerStatus <?> serverMsg, initialStatus]
+
 
   config <- holdDyn def $ leftmost [initConfig, preview _ServerConfig <?> serverMsg]
   preferences <- foldDyn updatePrefs def $
     mconcat [pure . SetPrefs <$> initPrefs, someOf _PrefCmd cmds]
 
   prefsChanged <- debounce 0.5 (updated preferences)
-
-  let classSelected = oneOf _ClassCmd cmds
-      (hello, initPrefs, initConfig)  = split3 (preview _ServerHello <?> serverMsg)
+  collection <- holdCollection serverMsg
 
   currentClass <- foldDyn ($) 0 $ mergeWith (.)
     [ validClass <$> updated config
     , const . snd <$> classSelected
-    ]
+    ]  
 
+
+  let basePath = "http://" <> host
+      env = AppEnv{..}
 
   setTitle $ ffor docSelected $ \doc ->
     "Annotate - " <> fromMaybe ("no document") doc
-
-
 
   connectingDialog (opened, void closed)
   ((shortcuts, action, document, selection), cmds) <- flip runReaderT env $ runEventWriterT $ do
@@ -575,13 +574,41 @@ holdCollection serverMsg = mdo
       _         -> Just $ over #images (M.insert k info) collection
 
 
+percentage :: (Int, Int) -> Text
+percentage (i, n) = showText t <> "%" where 
+  t = if n == 0 then 0 else 100 * (clamp (0, 100) (fromIntegral i / fromIntegral n))
+
+progressBar :: Builder t m => Dynamic t (Int, Int) -> m ()
+progressBar progress = do
+  div [class_ =: "progress"] $ 
+    div properties $
+      dynText $ progressText <$> progress
+
+  where
+    (current, total) = split progress
+    progressText (i, n) = T.concat [showText i, " of ", showText n]
+    width p = [("width", percentage p)]
+
+    properties = [ class_ =: "progress-bar", role_ =: "progressbar", aria_valuenow_ ~: current
+                 , aria_valuemin_ =: 0, aria_valuemax_ ~: total, style_ ~: width <$> progress ]
 
 
-trainerTab :: AppBuilder t m => m () 
+
+
+trainerTab :: forall t m. AppBuilder t m => m () 
 trainerTab = sidePane $ do
-  groupPane "Status" $ do
-    return ()
 
+  status <- factorDyn' . fmap trainerTag =<< view #trainerStatus
+  groupPane "Status" $ void $ dyn (showStatus <$> status)
+
+  where
+    showStatus :: DSum TrainerTag (Dynamic t) -> m ()
+    showStatus  (DisconnectedTag :=> _) = text "Disconnected"
+    showStatus  (PausedTag       :=> _) = text "Paused"
+    showStatus  (TrainingTag      :=> progress) = do
+      dynText (view #activity <$> progress)
+      progressBar (view #progress <$> progress)
+  
 
 
 settingsTab :: AppBuilder t m => m ()

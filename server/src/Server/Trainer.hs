@@ -13,29 +13,44 @@ import Control.Concurrent.Log
 import qualified Network.WebSockets             as WS
 
 
+
+
 connectTrainer :: Env -> WS.Connection -> IO ()
 connectTrainer env conn = do
   chan <- sendThread conn
 
   atomically $ do
     closeTrainer env
+
     writeLog env "trainer connected"
-    writeTVar (env ^. #trainer) (Just $ Trainer chan)
+    writeTVar (env ^. #trainer) (Just $ Trainer chan Paused)
+    sendTrainerStatus env
 
 closeTrainer :: Env -> STM ()
-closeTrainer env = do
-  sendTrainer' env Nothing
-  writeTVar (env ^. #trainer) Nothing
+closeTrainer env@Env{trainer} = do
+  open <- isJust <$> readTVar trainer
+  when open $ do
+    sendTrainer' env Nothing
+    writeTVar trainer Nothing
+    sendTrainerStatus env
+
 
 trainerState :: Env -> STM TrainerState
 trainerState Env{store} = view #trainer <$> readLog store
 
+
 lookupKey :: Eq k => [(k, a)] -> k -> Maybe (k, a)
 lookupKey xs k = (k,) <$> lookup k xs
 
-isTraining :: Document -> Bool
-isTraining doc = category == Train || category == Test
+isUsed :: Document -> Bool
+isUsed doc = category /= Discard
   where category = doc ^. #info . #category
+
+ 
+sendTrainerStatus :: Env -> STM ()
+sendTrainerStatus env = do 
+  status <- trainerStatus env
+  broadcast env (ServerStatus status)
 
 trainerLoop :: Env -> WS.Connection ->  IO ()
 trainerLoop env@Env{store} conn = do
@@ -43,7 +58,7 @@ trainerLoop env@Env{store} conn = do
     store <- readLog store
     sendTrainer env (TrainerInit (store ^. #config))
 
-    for_ (store ^. #images) $ \doc -> when (isTraining doc) $ 
+    for_ (store ^. #images) $ \doc -> when (isUsed doc) $ 
       void $ sendTrainer env (TrainerUpdate (doc ^. #name) (Just (exportImage doc)))
 
   runLoop
@@ -82,6 +97,11 @@ trainerLoop env@Env{store} conn = do
           updateLog store $ CmdCheckpoint (run, epoch) score best
           -- withClientEnvs env detectNext
 
+        TrainerProgress progress -> do
+
+          modifyTVar (env ^. #trainer) (traverse . #status .~ fromMaybe Paused (Training <$> progress))
+          sendTrainerStatus env
+          
 
 
 trainerServer :: Env -> WS.ServerApp
@@ -93,5 +113,5 @@ trainerServer env pending = do
   finally
     (trainerLoop env conn)
     (atomically $ do
-      writeTVar (env ^. #trainer) Nothing
+      closeTrainer env
       writeLog env ("trainer closed"))

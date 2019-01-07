@@ -373,9 +373,6 @@ drawBoxes scene SceneInputs{..} _ =
       return (Nothing, idle . Just . BoxShape <$> done)
 
 
-
-
-
 drawPolygons :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
 drawPolygons scene SceneInputs{..} finish = void $ workflow idle
 

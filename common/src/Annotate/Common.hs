@@ -26,6 +26,9 @@ import qualified Text.Fuzzy as Fuzzy
 import Data.Ord (comparing)
 import Data.List (sortBy)
 
+import Data.GADT.Compare.TH
+
+
 type AnnotationId = Int
 type ClientId = Int
 type UserId = Int
@@ -46,9 +49,29 @@ data Shape = BoxShape     Box
            | LineShape    WideLine
      deriving (Generic, Show, Eq)
 
+
+data ShapeTag a where
+  BoxTag      :: ShapeTag Box
+  CircleTag   :: ShapeTag Circle
+  PolygonTag  :: ShapeTag Polygon
+  LineTag     :: ShapeTag WideLine
+
+
+deriving instance Eq a => Eq (ShapeTag a)
+
+shapeTag :: Shape -> DSum ShapeTag Identity
+shapeTag (BoxShape b)     = BoxTag      :=> Identity b
+shapeTag (CircleShape c)  = CircleTag   :=> Identity c
+shapeTag (PolygonShape p) = PolygonTag  :=> Identity p
+shapeTag (LineShape l)    = LineTag     :=> Identity l
+
+
+deriveGEq ''ShapeTag
+deriveGCompare ''ShapeTag
+
 data ShapeConfig = CircleConfig | BoxConfig | PolygonConfig | LineConfig
   deriving (Generic, Show, Eq, Ord)
-
+ 
 
 instance HasBounds Shape where
  getBounds (CircleShape s)  = getBounds s
@@ -243,7 +266,7 @@ data ErrCode
 type NavId = Int
 
 data ServerMsg
-  = ServerHello ClientId Preferences Config
+  = ServerHello ClientId Preferences Config TrainerStatus
   | ServerConfig Config
   | ServerCollection Collection
   | ServerUpdateInfo DocName DocInfo
@@ -251,8 +274,41 @@ data ServerMsg
   | ServerOpen (Maybe DocName) ClientId DateTime
   | ServerError ErrCode
   | ServerDetection DocName [Detection]
+  | ServerStatus TrainerStatus
       deriving (Generic, Show, Eq)
 
+ 
+data Progress = Progress { activity :: Text, progress :: (Int, Int) }
+  deriving (Generic, Show, Eq)
+
+data TrainerStatus 
+  = Disconnected
+  | Paused
+  | Training Progress
+  deriving (Generic, Show, Eq)
+
+
+data TrainerTag a where
+  DisconnectedTag :: TrainerTag ()
+  PausedTag       :: TrainerTag ()
+  TrainingTag     :: TrainerTag Progress
+    
+  
+trainerTag :: TrainerStatus -> DSum TrainerTag Identity
+trainerTag Disconnected = DisconnectedTag :=> Identity ()
+trainerTag Paused       = PausedTag   :=> Identity ()
+trainerTag (Training p)   = TrainingTag :=> Identity p
+
+deriveGEq ''TrainerTag
+deriveGCompare ''TrainerTag
+
+
+data TrainerCommand 
+  = PauseTraining
+  | ResumeTraining
+  | ReviewAll
+  | DetectAll
+  deriving (Generic, Show, Eq)
 
 
 data Navigation
@@ -271,6 +327,7 @@ data ClientMsg
   | ClientConfig ConfigUpdate
   | ClientPreferences Preferences
   | ClientCollection
+  | ClientCommand TrainerCommand
       deriving (Generic, Show, Eq)
 
 
@@ -313,6 +370,11 @@ instance FromJSON ServerMsg
 instance FromJSON ClientMsg
 instance FromJSON ErrCode
 
+instance FromJSON Progress
+instance FromJSON TrainerStatus
+instance FromJSON TrainerCommand
+
+
 instance FromJSON SortKey
 instance FromJSON FilterOption
 instance FromJSON SortOptions
@@ -351,6 +413,10 @@ instance ToJSON ErrCode
 instance ToJSON SortKey
 instance ToJSON FilterOption
 instance ToJSON SortOptions
+
+instance ToJSON Progress
+instance ToJSON TrainerStatus
+instance ToJSON TrainerCommand
 
 instance Default Config where
   def = Config

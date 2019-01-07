@@ -220,6 +220,17 @@ instance Ord k => InversePatch (PatchMap k v) where
     where lookupPrev k = const (M.lookup k m)
 
 
+mapSum :: (forall a. f a -> g a) -> DSum k f -> DSum k g
+mapSum f (k :=> v) = (k :=> f v) 
+
+factorDyn' :: (Reflex t, MonadFix m, MonadHold t m, GEq k) 
+    => Dynamic t (DSum k Identity) -> m (Dynamic t (DSum k (Dynamic t)))
+factorDyn' d = do 
+  factored <- factorDyn d 
+  return $ mapSum (fmap runIdentity . getCompose) <$> factored
+
+
+
 patchIncremental :: (Semigroup p, InversePatch p, Reflex t) => Incremental t p -> Dynamic t p -> Incremental t p
 patchIncremental inc d = unsafeBuildIncremental s e
 

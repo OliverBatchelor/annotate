@@ -24,8 +24,11 @@ userPreferences k store = fromMaybe def $ preview (#preferences . ix k) store
 
 sendHello :: ClientEnv ->  STM ()
 sendHello env@ClientEnv{store, clientId, userId} = do
+  
+  status <- trainerStatus (upcast env)
   store <- readLog store
-  sendClient env (ServerHello clientId (userPreferences userId store) (store ^. #config))
+
+  sendClient env (ServerHello clientId (userPreferences userId store) (store ^. #config) status)
 
 connectClient :: Env -> WS.Connection ->  IO ClientId
 connectClient env conn = do

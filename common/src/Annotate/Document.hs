@@ -49,6 +49,8 @@ makePrisms ''DocumentPatch'
 makePrisms ''EditCmd
 makePrisms ''DocumentPatch
 
+isModified :: EditorDocument -> Bool
+isModified = not . null . view #undos
 
 fromDetections :: AnnotationId -> [Detection] -> AnnotationMap
 fromDetections i detections = M.fromList (zip [i..] $ toAnnotation <$> detections) where
@@ -351,7 +353,6 @@ patchInverse doc (PatchAnns e) = do
 
 patchInverse doc (PatchArea b) =
   return (PatchArea (doc ^. #validArea), PatchArea' b)
-
 
 
 patchAnnotations :: AnnotationMap -> AnnotationId -> AnnotationPatch ->  Maybe (AnnotationPatch, Maybe Annotation)

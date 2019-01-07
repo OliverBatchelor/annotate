@@ -68,6 +68,7 @@ type LogMsg = String
 
 data Trainer = Trainer
   { connection :: TChan (Maybe ToTrainer)
+  , status     :: TrainerStatus
   } deriving (Generic)
 
 data Env    = Env
@@ -107,6 +108,7 @@ data ToTrainer
   = TrainerInit Config
   | TrainerUpdate DocName (Maybe TrainImage)
   | TrainerDetect DetectRequest DocName DetectionParams
+  | TrainerCommand TrainerCommand
     deriving (Show, Generic, Eq)
 
 data FromTrainer
@@ -114,6 +116,7 @@ data FromTrainer
   | TrainerReqError DetectRequest DocName Text
   | TrainerError Text
   | TrainerCheckpoint NetworkId Float Bool
+  | TrainerProgress (Maybe Progress)
     deriving (Show, Generic, Eq)
 
 
@@ -212,6 +215,11 @@ sendTrainer' env msg = do
 sendTrainer :: Env -> ToTrainer -> STM Bool
 sendTrainer env = sendTrainer' env . Just
 
+
+trainerStatus :: Env -> STM TrainerStatus
+trainerStatus Env{trainer} = do 
+  trainer <- readTVar trainer
+  return $ fromMaybe Disconnected (view #status <$> trainer)
 
 
 withClient :: ClientEnv -> (Client -> STM a) -> STM (Maybe a)

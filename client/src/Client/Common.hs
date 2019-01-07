@@ -149,6 +149,7 @@ data AppEnv t = AppEnv
 
   , loaded     :: Event t Document
   , detections :: Event t [Detection]
+  , trainerStatus :: Dynamic t TrainerStatus
 
   } deriving Generic
 
