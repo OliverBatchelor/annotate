@@ -7,7 +7,6 @@
     client = ./client;
     stm-persist = ./stm-persist;
     reflex-html = ./reflex-html;
-    generic-lens-labels = ./generic-lens-labels;
     stitch = ./stitch;
   };
 

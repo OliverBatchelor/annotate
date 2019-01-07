@@ -16,6 +16,8 @@ import Data.Functor.Compose
 import Data.Functor.Alt ((<!>))
 import Data.String
 
+import qualified Data.Dependent.Map as DMap
+
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.Functor.Misc
@@ -198,8 +200,6 @@ instance (Reflex t, SwitchHold t a, SwitchHold t b, SwitchHold t c, SwitchHold t
       (switchHold e (view _5 <$> ev))
 
 
-
-
 instance Reflex t => SwitchHold t (Dynamic t a) where
   switchHold d ed = do
 
@@ -218,6 +218,13 @@ class Patch p => InversePatch p where
 instance Ord k => InversePatch (PatchMap k v) where
   inverse m (PatchMap p) = PatchMap (M.mapWithKey lookupPrev p)
     where lookupPrev k = const (M.lookup k m)
+
+instance GCompare k => InversePatch (PatchDMap k f) where
+  inverse m (PatchDMap p) = PatchDMap $ (DMap.mapWithKey lookupPrev p)
+    where 
+      lookupPrev :: forall v. k v -> (ComposeMaybe f) v -> (ComposeMaybe f) v
+      lookupPrev k _ = ComposeMaybe $ DMap.lookup k m
+    
 
 
 mapSum :: (forall a. f a -> g a) -> DSum k f -> DSum k g
