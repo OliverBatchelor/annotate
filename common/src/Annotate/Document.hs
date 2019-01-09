@@ -124,10 +124,10 @@ documentParts = fmap (shapeParts . view #shape) . view #annotations
 
 shapeParts :: Shape -> Set Int
 shapeParts = \case
-    BoxShape _                  -> S.fromList [0..3]
-    CircleShape _               -> S.singleton 0
-    LineShape (WideLine points)   -> S.fromList [0..length points]
-    PolygonShape (Polygon points) -> S.fromList [0..length points]
+    ShapeBox _                  -> S.fromList [0..3]
+    ShapeCircle _               -> S.singleton 0
+    ShapeLine (WideLine points)   -> S.fromList [0..length points]
+    ShapePolygon (Polygon points) -> S.fromList [0..length points]
 
 
 lookupTargets :: EditorDocument -> [AnnotationId] -> Map AnnotationId (Maybe Annotation)
@@ -254,27 +254,27 @@ transformBox (s, t) = over boxExtents
 
 transformShape :: Rigid -> Shape -> Shape
 transformShape rigid = \case
-  CircleShape c      -> CircleShape       $ transformCircle rigid c
-  BoxShape b      -> BoxShape       $ transformBox rigid b
-  PolygonShape poly -> PolygonShape $ poly & over #points (transformVertices rigid)
-  LineShape line -> LineShape       $ line & over #points (fmap (transformCircle rigid))
+  ShapeCircle c      -> ShapeCircle       $ transformCircle rigid c
+  ShapeBox b      -> ShapeBox       $ transformBox rigid b
+  ShapePolygon poly -> ShapePolygon $ poly & over #points (transformVertices rigid)
+  ShapeLine line -> ShapeLine       $ line & over #points (fmap (transformCircle rigid))
 
 
 transformParts :: Rigid -> Set Int -> Shape -> Shape
 transformParts rigid parts = \case
-  CircleShape c      -> CircleShape $ transformCircle rigid c
-  BoxShape b        -> BoxShape     $ transformBoxParts rigid parts b
-  PolygonShape poly -> PolygonShape $ transformPolygonParts rigid parts poly
-  LineShape line    -> LineShape    $ transformLineParts rigid parts line
+  ShapeCircle c      -> ShapeCircle $ transformCircle rigid c
+  ShapeBox b        -> ShapeBox     $ transformBoxParts rigid parts b
+  ShapePolygon poly -> ShapePolygon $ transformPolygonParts rigid parts poly
+  ShapeLine line    -> ShapeLine    $ transformLineParts rigid parts line
 
 
 
 deleteParts :: Set Int -> Shape -> Maybe Shape
 deleteParts parts = \case
-  CircleShape _     -> Nothing
-  BoxShape _        -> Nothing
-  PolygonShape (Polygon points)  -> PolygonShape . Polygon <$> nonEmpty (without parts points)
-  LineShape    (WideLine points) -> LineShape . WideLine   <$> nonEmpty (without parts points)
+  ShapeCircle _     -> Nothing
+  ShapeBox _        -> Nothing
+  ShapePolygon (Polygon points)  -> ShapePolygon . Polygon <$> nonEmpty (without parts points)
+  ShapeLine    (WideLine points) -> ShapeLine . WideLine   <$> nonEmpty (without parts points)
 
 
 
@@ -337,14 +337,14 @@ patchMap patch m = m `diff` patch <> M.mapMaybe id adds where
 
 editPatch :: Edit -> EditorDocument -> DocumentPatch
 editPatch = \case
-  SetClassEdit i ids          -> setClassEdit i ids
-  DeletePartsEdit parts       -> deletePartsEdit parts
-  TransformPartsEdit t parts  -> transformPartsEdit t parts
-  ClearAllEdit                -> clearAllEdit
-  DetectionEdit detections    -> detectionEdit detections
-  AddEdit anns                -> addEdit anns
-  SetAreaEdit area            -> setAreaEdit area
-  ConfirmDetectionEdit ids    -> confirmDetectionEdit ids
+  EditSetClass i ids          -> setClassEdit i ids
+  EditDeleteParts parts       -> deletePartsEdit parts
+  EditTransformParts t parts  -> transformPartsEdit t parts
+  EditClearAll                -> clearAllEdit
+  EditDetection detections    -> detectionEdit detections
+  EditAdd anns                -> addEdit anns
+  EditSetArea area            -> setAreaEdit area
+  EditConfirmDetection ids    -> confirmDetectionEdit ids
 
 patchInverse :: EditorDocument -> DocumentPatch -> Maybe (DocumentPatch, DocumentPatch')
 patchInverse doc (PatchAnns e) = do

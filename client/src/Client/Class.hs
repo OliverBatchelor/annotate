@@ -24,24 +24,24 @@ showClass ClassConfig{shape, colour, name} =
 
 
 shapeIcon :: Reflex t => ShapeConfig -> IconConfig t
-shapeIcon CircleConfig     = "vector-circle"
-shapeIcon BoxConfig     = "vector-rectangle"
-shapeIcon PolygonConfig = "vector-polygon"
-shapeIcon LineConfig    = "vector-line"
+shapeIcon ConfigCircle     = "vector-circle"
+shapeIcon ConfigBox     = "vector-rectangle"
+shapeIcon ConfigPolygon = "vector-polygon"
+shapeIcon ConfigLine    = "vector-line"
 
 shapeDesc :: ShapeConfig -> Text
-shapeDesc BoxConfig = "Box"
-shapeDesc CircleConfig = "Circle"
-shapeDesc PolygonConfig = "Polygon"
-shapeDesc LineConfig = "Line"
+shapeDesc ConfigBox = "Box"
+shapeDesc ConfigCircle = "Circle"
+shapeDesc ConfigPolygon = "Polygon"
+shapeDesc ConfigLine = "Line"
 
 
 shapeTypes :: M.Map Text ShapeConfig
 shapeTypes = M.fromList
-  [ ("Box", BoxConfig)
-  , ("Circle", CircleConfig)
-  , ("Polygon", PolygonConfig)
-  , ("Line", LineConfig)
+  [ ("Box", ConfigBox)
+  , ("Circle", ConfigCircle)
+  , ("Polygon", ConfigPolygon)
+  , ("Line", ConfigLine)
   ]
 
 
@@ -90,23 +90,24 @@ editClass conf = do
 
 
 classesTab :: forall t m. AppBuilder t m => m ()
-classesTab = column "h-100 p-0 v-spacing-2" $ mdo
+classesTab = column "h-100 p-0 v-spacing-2" $ do
   classes  <- askClasses
   selected <- view #currentClass
 
-  command (ClassCmd mempty) $ leftmost [userSelect]
   let selectedClass = M.lookup <$>  selected <*> classes
+
+
+  userSelect <- div [class_ =: "scroll border"] $ do
+    selectTable selected (Dyn (M.toList . fmap showClass <$> classes))
+
+  command (ClassCmd mempty) $ leftmost [userSelect]
 
   (added, removed) <- row "" $ buttonGroup $ do
     add <- toolButton' "Add" "plus-box" "Add new class"
     remove  <- toolButton (isJust <$> selectedClass) "Remove" "minus-box" "Remove selected class"
+    return (nextClass <$> current classes `tag` add, current selected `tag` remove)   
 
-    return (nextClass <$> current classes `tag` add, current selected `tag` remove)
-
-
-  userSelect <- div [class_ =: "scroll-grow border"] $ do
-    selectTable selected (Dyn (M.toList . fmap showClass <$> classes))
-
+  spacer
   (updated :: Event t ClassConfig) <- switchHold never =<< dyn (editClass <$> selectedClass)
 
   command id $ leftmost
@@ -114,6 +115,10 @@ classesTab = column "h-100 p-0 v-spacing-2" $ mdo
     , removeClassCmd <$> removed
     , attachWith updateClassCmd (current selected) updated
     ]
+    
+
+
+
 
 
   return ()

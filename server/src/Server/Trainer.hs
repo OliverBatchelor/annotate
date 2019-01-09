@@ -23,8 +23,9 @@ connectTrainer env conn = do
     closeTrainer env
 
     writeLog env "trainer connected"
-    writeTVar (env ^. #trainer) (Just $ Trainer chan Paused)
+    writeTVar (env ^. #trainer) (Just $ Trainer chan StatusPaused)
     sendTrainerStatus env
+
 
 closeTrainer :: Env -> STM ()
 closeTrainer env@Env{trainer} = do
@@ -43,7 +44,7 @@ lookupKey :: Eq k => [(k, a)] -> k -> Maybe (k, a)
 lookupKey xs k = (k,) <$> lookup k xs
 
 isUsed :: Document -> Bool
-isUsed doc = category /= Discard
+isUsed doc = category /= CatDiscard
   where category = doc ^. #info . #category
 
  
@@ -64,14 +65,15 @@ trainerLoop env@Env{store} conn = do
   runLoop
 
     where
-      runLoop = forever $ do
+      runLoop = forever $ do 
         str <- WS.receiveData conn
         atomically $ case (eitherDecode str) of
           Left err  -> do
-            writeLog env ("trainer <- error decoding " <> show str <> ", " <> show err)
+            writeLog env ("trainer <- error decoding " <> unpackBS str <> ", " <> err)
           Right msg -> do
             writeLog env ("trainer <- " <> show msg)
             processMsg msg
+
 
       processMsg = \case
         TrainerDetections req k detections netId -> do
@@ -99,7 +101,7 @@ trainerLoop env@Env{store} conn = do
 
         TrainerProgress progress -> do
 
-          modifyTVar (env ^. #trainer) (traverse . #status .~ fromMaybe Paused (Training <$> progress))
+          modifyTVar (env ^. #trainer) (traverse . #status .~ maybe StatusPaused StatusTraining progress)
           sendTrainerStatus env
           
 

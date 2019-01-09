@@ -220,6 +220,14 @@ html, body {
   overflow:hidden
 }
 
+.progress-bar {
+  -webkit-transition: none;
+  -moz-transition: none;
+  -ms-transition: none;
+  -o-transition: none;
+  transition: none;
+}​
+
 
 .marginal {
   stroke-dasharray: 5, 5;

@@ -37,6 +37,12 @@ iconText (iconClass, icon) content = row "align-items-center spacing-4" $ do
   span [] $ text content
   return never
 
+iconRow :: Builder t m => (Text, Text) -> m a -> m a
+iconRow (iconClass, icon) content = row "align-items-center spacing-4" $ do
+  i [classes_ =: ["mdi", "mdi-" <> icon, "mdi-48px", iconClass]] blank
+  content
+  
+
 ok :: Builder t m => Text -> m (Event t ()) -> m (Event t ())
 ok title content = modal (pure True) $ sections
   (titleClose title) (never <$ content)

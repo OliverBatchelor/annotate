@@ -11,6 +11,8 @@ import GHC.Conc
 import Control.Concurrent.Log
 
 import Data.ByteString.Lazy (ByteString)
+
+import qualified Data.ByteString.Lazy  as BS
 import qualified Network.WebSockets             as WS
 
 import Server.Document
@@ -67,14 +69,12 @@ clientLoop env conn = do
     str <- WS.receiveData conn
     atomically $ case eitherDecode str of
       Left err  -> do
-        clientLog env (" <- error decoding " <> show str <> ", " <> show err)
+        clientLog env (" <- error decoding " <> unpackBS str <> ", " <> err)
         sendClient env (ServerError (ErrDecode (fromString err)))
 
       Right msg -> do
         clientLog env (" <- " <> show msg)
         processMsg env msg
-
-
 
 processMsg :: ClientEnv -> ClientMsg -> STM ()
 processMsg env@ClientEnv{store, clientId, userId} msg = do
@@ -108,6 +108,9 @@ processMsg env@ClientEnv{store, clientId, userId} msg = do
     ClientCollection -> do
       collection <- getCollection <$> readLog store
       sendClient env (ServerCollection collection)
+
+    ClientCommand cmd -> void $ 
+      sendTrainer (upcast env) (UserCommand cmd)
 
 
 
@@ -155,8 +158,6 @@ nextFrom :: ClientEnv -> Maybe DocName -> STM [DocName]
 nextFrom env k = do
   prefs <- userPreferences (env ^. #userId) <$> readLog (env ^. #store)
   findNext (upcast env) (prefs ^. #sortOptions) k
-
-
 
 
 -- Web clients connect to this server

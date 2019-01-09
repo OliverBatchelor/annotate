@@ -23,6 +23,8 @@ import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as L
 import qualified Network.WebSockets             as WS
 
+import qualified Data.Aeson as Aeson
+
 import Data.Aeson (eitherDecode)
 import Data.Generics.Product.Subtype (upcast)
 
@@ -31,6 +33,9 @@ import Data.Char as Char
 import Text.Megaparsec hiding (some, many)
 import Text.Megaparsec.Char 
 import Text.Megaparsec.Char.Lexer (decimal)
+
+import qualified Data.ByteString.Lazy  as BS
+
 
 data Store = Store
   { config    :: Config
@@ -108,7 +113,7 @@ data ToTrainer
   = TrainerInit Config
   | TrainerUpdate DocName (Maybe TrainImage)
   | TrainerDetect DetectRequest DocName DetectionParams
-  | TrainerCommand TrainerCommand
+  | UserCommand UserCommand
     deriving (Show, Generic, Eq)
 
 data FromTrainer
@@ -118,8 +123,6 @@ data FromTrainer
   | TrainerCheckpoint NetworkId Float Bool
   | TrainerProgress (Maybe Progress)
     deriving (Show, Generic, Eq)
-
-
 
 
 -- Input/export types
@@ -154,18 +157,18 @@ data TrainerState = TrainerState
 bestModel :: TrainerState -> NetworkId
 bestModel TrainerState{best, run} = (run, best ^. #epoch)
 
-instance FromJSON DetectRequest
-instance FromJSON ToTrainer
-instance FromJSON FromTrainer
-instance FromJSON TrainCollection
-instance FromJSON TrainImage
+instance FromJSON DetectRequest where parseJSON = Aeson.genericParseJSON options
+instance FromJSON ToTrainer where parseJSON = Aeson.genericParseJSON options
+instance FromJSON FromTrainer where parseJSON = Aeson.genericParseJSON options
+instance FromJSON TrainCollection where parseJSON = Aeson.genericParseJSON options
+instance FromJSON TrainImage where parseJSON = Aeson.genericParseJSON options
 
-instance ToJSON DetectRequest
-instance ToJSON ToTrainer
-instance ToJSON FromTrainer
-instance ToJSON TrainCollection
-instance ToJSON TrainImage
-
+instance ToJSON DetectRequest where toJSON = Aeson.genericToJSON options
+instance ToJSON ToTrainer where toJSON = Aeson.genericToJSON options
+instance ToJSON FromTrainer where toJSON = Aeson.genericToJSON options
+instance ToJSON TrainCollection where toJSON = Aeson.genericToJSON options
+instance ToJSON TrainImage where toJSON = Aeson.genericToJSON options
+ 
 
 
 -- Collection of miscellaneous utilities / common functions
@@ -216,10 +219,10 @@ sendTrainer :: Env -> ToTrainer -> STM Bool
 sendTrainer env = sendTrainer' env . Just
 
 
-trainerStatus :: Env -> STM TrainerStatus
+trainerStatus :: Env -> STM  TrainerStatus
 trainerStatus Env{trainer} = do 
   trainer <- readTVar trainer
-  return $ fromMaybe Disconnected (view #status <$> trainer)
+  return $ fromMaybe StatusDisconnected $ view #status <$> trainer
 
 
 withClient :: ClientEnv -> (Client -> STM a) -> STM (Maybe a)
@@ -327,7 +330,7 @@ defaultInfo dim filename = DocInfo
   { naturalKey = makeNaturalKey filename
   , hashedName = Hash32 (fromIntegral (hash filename))
   , modified = Nothing
-  , category = New
+  , category = CatNew
   , imageSize = dim
   , numAnnotations = 0
   }
@@ -346,3 +349,6 @@ instance Default ModelState where
     , epoch = 0
     , score = 0.0
     }
+
+unpackBS :: BS.ByteString -> String
+unpackBS = fmap (chr . fromEnum) . BS.unpack

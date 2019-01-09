@@ -293,7 +293,7 @@ data Detection0 = Detection0
 instance Migrate Detection where
   type MigrateFrom Detection = Detection0
   migrate Detection0{..} = Detection{..}
-    where shape = BoxShape bounds
+    where shape = ShapeBox bounds
 
 $(deriveSafeCopy 0 'base ''Detection0)
 
@@ -332,7 +332,7 @@ instance Migrate NaturalKey where
     migrate' (Right t) = Right t
 
 
-$(deriveSafeCopy 0 'base ''Tag)
+$(deriveSafeCopy 0 'base ''ShapeTag)
 $(deriveSafeCopy 0 'base ''BasicAnnotation)
 
 

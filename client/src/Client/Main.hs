@@ -210,32 +210,32 @@ maybePatch maybePatch = fromMaybe mempty (maybePatch >>= annotationsPatch)
 
 historyEntry :: EditCmd -> HistoryEntry
 historyEntry = \case
-      DocUndo   -> HistUndo
-      DocRedo   -> HistRedo
-      DocEdit e -> HistEdit e
+      DocUndo   -> HistoryUndo
+      DocRedo   -> HistoryRedo
+      DocEdit e -> HistoryEdit e
  
 
 setClassCommand :: EditorDocument -> (Set AnnotationId, ClassId) -> Maybe EditCmd
 setClassCommand doc (selection, classId) =
-  guard (S.size selection > 0) $> DocEdit (SetClassEdit classId selection)
+  guard (S.size selection > 0) $> DocEdit (EditSetClass classId selection)
 
 loadDetections :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
 loadDetections time detections doc = doc
-  & #history      %~  mappend [(time, HistDetections detections)]
+  & #history      %~  mappend [(time, HistoryDetections detections)]
   & #annotations  .~ fromDetections 0 detections
  
 loadReview :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
 loadReview time detections doc = doc
-  & #history      %~  mappend [(time, HistReview detections)]
+  & #history      %~  mappend [(time, HistoryReview detections)]
 
 loadOffline :: UTCTime -> EditorDocument -> EditorDocument
 loadOffline time doc = doc
-  & #history      %~  mappend [(time, HistOpen)]
+  & #history      %~  mappend [(time, HistoryOpen)]
 
 loadedDocument :: Document -> UTCTime -> EditorDocument
 loadedDocument doc@Document{info, annotations, detections} time = maybeLoad (editorDocument doc) where
 
-    f = if info ^. #category == New && null annotations
+    f = if info ^. #category == CatNew && null annotations
       then loadDetections time
       else loadReview time
 
@@ -263,7 +263,7 @@ documentEditor input cmds loaded'  = do
 
         clearCmd      = clearAnnotations <$ oneOf _ClearCmd cmds
         setClassCmd   = attachWithMaybe setClassCommand (current document) (oneOf _ClassCmd cmds)
-        detectionsCmd = DocEdit . DetectionEdit <$> env ^. #detections
+        detectionsCmd = DocEdit . EditDetection <$> env ^. #detections
 
         editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd,  detectionsCmd]
 
@@ -396,7 +396,7 @@ saveCmd cmds doc = leftmost [submit, autoSave] where
 save :: Preferences -> (UTCTime, SaveCommand) -> EditorDocument -> Document
 save prefs (time, cmd) doc = toDocument (prefs ^. #threshold) $ doc
       & setCat cmd
-      & #history %~ cons (time, HistClose)
+      & #history %~ cons (time, HistoryClose)
 
   where 
     setCat AutoSave         = id
@@ -436,7 +436,7 @@ filterDocument d = attachWithMaybe f (current d) where
 
 bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m (AppEnv t)
 bodyWidget host = mdo
-
+ 
   (opened, closed, serverMsg, serverErrors) <- network host clientMsg
   let clientMsg = toList <$> mergeList
         [ clientDetect docSelected cmds
@@ -445,6 +445,7 @@ bodyWidget host = mdo
         , ClientCollection <$ hello
         , ClientPreferences <$> prefsChanged
         , clientSaves
+        , ClientCommand <$> oneOf _TrainerCmd cmds
         ]
 
       clientConfig = ClientConfig <$> oneOf _ConfigCmd cmds
@@ -459,7 +460,7 @@ bodyWidget host = mdo
       shortcut   = fan shortcuts
       detections = filterDocument document $ preview _ServerDetection <?> serverMsg
 
-  trainerStatus <- holdDyn Disconnected $ 
+  trainerStatus <- holdDyn StatusDisconnected $ 
     leftmost [preview _ServerStatus <?> serverMsg, initialStatus]
 
 
@@ -592,23 +593,49 @@ progressBar progress = do
     properties = [ class_ =: "progress-bar", role_ =: "progressbar", aria_valuenow_ ~: current
                  , aria_valuemin_ =: 0, aria_valuemax_ ~: total, style_ ~: width <$> progress ]
 
+hasKey :: GEq k => k a -> DSum k v -> Bool
+hasKey k (k' :=> _) = isJust (geq k k')
 
+trainerTab' :: forall t m. AppBuilder t m => DSum StatusKey (Dynamic t) -> m ()
+trainerTab' status = do
+  groupPane "Status" $ do   
+    showStatus status
 
+  spacer
+  buttonGroup $ do
+    if isPaused
+      then do
+        resume <- toolButton  (pure isConnected) "Train" "play" "Start training"
+        trainerCommand (UserResume <$ resume)
+      else do
+        stop    <- toolButton  (pure isConnected) "Pause" "pause" "Pause training"
+        trainerCommand (UserPause <$ stop)    
+
+    review  <- toolButton   (pure isConnected) "Review" "rotate-left" "Review all"
+    detect  <- toolButton   (pure isConnected) "Detect" "auto-fix" "Detect new"
+
+    trainerCommand $ leftmost [UserReview <$ review, UserDetect <$ detect]
+  where
+    isConnected = not (hasKey DisconnectedKey status)
+    isPaused = hasKey PausedKey status
+
+    showStatus :: DSum StatusKey (Dynamic t) -> m ()
+    showStatus  (DisconnectedKey :=> _) = void $ Dialog.iconText ("text-danger", "alert-circle") "Disconnected"
+    showStatus  (PausedKey       :=> _) = void $ Dialog.iconText ("text-warning", "pause-circle") "Paused"
+    showStatus  (TrainingKey     :=> progress) = do
+      void $ Dialog.iconRow ("text-success", "play-circle") $  
+        dynText (showText . view #activity <$> progress)
+        
+      progressBar (view #progress <$> progress)
 
 trainerTab :: forall t m. AppBuilder t m => m () 
-trainerTab = sidePane $ do
+trainerTab = sidePane $ void $ do
 
-  status <- factorDyn' . fmap trainerTag =<< view #trainerStatus
-  groupPane "Status" $ void $ dyn (showStatus <$> status)
+  status <- view #trainerStatus
+  tag <- factorDyn' (trainerKey <$> status)
 
-  where
-    showStatus :: DSum TrainerTag (Dynamic t) -> m ()
-    showStatus  (DisconnectedTag :=> _) = text "Disconnected"
-    showStatus  (PausedTag       :=> _) = text "Paused"
-    showStatus  (TrainingTag      :=> progress) = do
-      dynText (view #activity <$> progress)
-      progressBar (view #progress <$> progress)
-  
+  dyn $ (trainerTab' <$> tag) 
+
 
 
 settingsTab :: AppBuilder t m => m ()
@@ -757,7 +784,7 @@ overlay shortcut document prefs = row "expand  disable-cursor" $ do
         train     <- toolButton docOpen "Train" "book-open-page-variant" "Submit image for training"
 
         command SubmitCmd $
-          leftmost [ Discard <$ discard, Test <$ test, Train <$ train ]
+          leftmost [ CatDiscard <$ discard, CatTest <$ test, CatTrain <$ train ]
 
     buttonRow = row "p-2 spacing-4"
     --nonEmpty label = notNullOf (_Just . label . traverse)

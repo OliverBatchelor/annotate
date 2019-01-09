@@ -57,12 +57,12 @@ showImage d selected = do
 
 allFilters :: [(Text, FilterOption)]
 allFilters =
-  [ ("All",     FilterAll)
-  , ("New",     FilterCat New)
-  , ("Train",   FilterCat Train)
-  , ("Test",    FilterCat Test)
-  , ("Discard", FilterCat Discard)
-  , ("Edited",  FilterEdited)
+  [ ("all",     FilterAll)
+  , ("new",     FilterCat CatNew)
+  , ("train",   FilterCat CatTrain)
+  , ("test",    FilterCat CatTest)
+  , ("discard", FilterCat CatDiscard)
+  , ("edited",  FilterEdited)
   ]
 
 
@@ -71,11 +71,11 @@ allFilters =
 
 allSorts :: [(Text, SortKey)]
 allSorts =
-  [ ("Name",     SortName)
-  , ("Mixed",     SortMixed)
-  , ("Modified",   SortModified)
-  , ("Annotations",    SortNum)
-  , ("Category", SortCat)
+  [ ("name",     SortName)
+  , ("mixed",     SortMixed)
+  , ("modified",   SortModified)
+  , ("annotations",    SortNum)
+  , ("category", SortCat)
   ]
 
 enabled_ :: Attribute Bool
@@ -96,11 +96,12 @@ imagesTab = sidePane $ do
     sortView sortOptions
     imageList 10 selected sorted
 
-    pane $ void $ do   
-      dyn $ ffor (maybeLookup <$> selected <*> images) $ 
-        traverse_ $ \(k, DocInfo{..}) -> do
-          h5 [] $ text k       
-          labelled "Annotations" $ text (showText numAnnotations)
+  spacer
+  pane $ void $ do   
+    dyn $ ffor (maybeLookup <$> selected <*> images) $ 
+      traverse_ $ \(k, DocInfo{..}) -> do
+        h5 [] $ text k       
+        labelled "annotations" $ text (showText numAnnotations)
 
     where 
       maybeLookup selected m = do 

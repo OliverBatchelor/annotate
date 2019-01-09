@@ -92,11 +92,14 @@ iconButton enabled name conf tooltip = fmap (domEvent Click) $
 iconButton' :: Builder t m => Text -> IconConfig t -> Text -> m (Event t ())
 iconButton' = iconButton (pure True)
 
+toolButtonClasses :: Text
+toolButtonClasses = "btn btn-secondary enable-cursor pt-0 pb-0"
 
 toolButton :: Builder t m => Dynamic t Bool -> Text -> IconConfig t -> Text -> m (Event t ())
 toolButton enabled name conf tooltip = fmap (domEvent Click) $
-    button_ [class_ =: "btn btn-secondary enable-cursor pt-0 pb-0", title_ =: tooltip, disabled_ ~: not <$> enabled] $
+    button_ [class_ =: toolButtonClasses, title_ =: tooltip, disabled_ ~: not <$> enabled] $
       iconTextV name conf
+
 
 toolButton' :: Builder t m => Text -> IconConfig t -> Text -> m (Event t ())
 toolButton' = toolButton (pure True)

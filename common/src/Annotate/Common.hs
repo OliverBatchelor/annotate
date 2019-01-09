@@ -20,11 +20,12 @@ import Data.Hashable
 
 import qualified Data.Text as Text
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
 
 import qualified Text.Fuzzy as Fuzzy
 
 import Data.Ord (comparing)
-import Data.List (sortBy)
+import Data.List (sortBy, drop, dropWhile)
 
 import Data.GADT.Compare.TH
 
@@ -43,41 +44,41 @@ type RunId = Int
 
 type NetworkId = (RunId, Epoch)
 
-data Shape = BoxShape     Box
-           | CircleShape  Circle
-           | PolygonShape Polygon
-           | LineShape    WideLine
+data Shape = ShapeBox     Box
+           | ShapeCircle  Circle
+           | ShapePolygon Polygon
+           | ShapeLine    WideLine
      deriving (Generic, Show, Eq)
 
 
-data ShapeTag a where
-  BoxTag      :: ShapeTag Box
-  CircleTag   :: ShapeTag Circle
-  PolygonTag  :: ShapeTag Polygon
-  LineTag     :: ShapeTag WideLine
+data ShapeKey a where
+  BoxKey      :: ShapeKey Box
+  CircleKey   :: ShapeKey Circle
+  PolygonKey  :: ShapeKey Polygon
+  LineKey     :: ShapeKey WideLine
 
 
-deriving instance Eq a => Eq (ShapeTag a)
+deriving instance Eq a => Eq (ShapeKey a)
 
-shapeTag :: Shape -> DSum ShapeTag Identity
-shapeTag (BoxShape b)     = BoxTag      :=> Identity b
-shapeTag (CircleShape c)  = CircleTag   :=> Identity c
-shapeTag (PolygonShape p) = PolygonTag  :=> Identity p
-shapeTag (LineShape l)    = LineTag     :=> Identity l
+shapeKey :: Shape -> DSum ShapeKey Identity
+shapeKey (ShapeBox b)     = BoxKey      :=> Identity b
+shapeKey (ShapeCircle c)  = CircleKey   :=> Identity c
+shapeKey (ShapePolygon p) = PolygonKey  :=> Identity p
+shapeKey (ShapeLine l)    = LineKey    :=> Identity l
 
 
-deriveGEq ''ShapeTag
-deriveGCompare ''ShapeTag
+deriveGEq ''ShapeKey
+deriveGCompare ''ShapeKey
 
-data ShapeConfig = CircleConfig | BoxConfig | PolygonConfig | LineConfig
+data ShapeConfig = ConfigCircle | ConfigBox | ConfigPolygon | ConfigLine
   deriving (Generic, Show, Eq, Ord)
  
 
 instance HasBounds Shape where
- getBounds (CircleShape s)  = getBounds s
- getBounds (BoxShape s)     = getBounds s
- getBounds (PolygonShape s) = getBounds s
- getBounds (LineShape s)    = getBounds s
+ getBounds (ShapeCircle s)  = getBounds s
+ getBounds (ShapeBox s)     = getBounds s
+ getBounds (ShapePolygon s) = getBounds s
+ getBounds (ShapeLine s)    = getBounds s
 
 data Detection = Detection
   { label      :: ClassId
@@ -85,7 +86,7 @@ data Detection = Detection
   , confidence :: Float
   } deriving (Generic, Show, Eq)
 
-data Tag 
+data ShapeTag 
   = Detected
   | Positive
   | Negative 
@@ -96,7 +97,7 @@ data Tag
 data Annotation = Annotation
   { shape :: Shape
   , label :: ClassId
-  , detection :: Maybe (Tag, Detection)
+  , detection :: Maybe (ShapeTag, Detection)
   } deriving (Generic, Show, Eq)
 
 data BasicAnnotation = BasicAnnotation 
@@ -110,14 +111,14 @@ type DocParts = Map AnnotationId (Set Int)
 type Rigid = (Float, Vec)
 
 data Edit
-  = SetClassEdit ClassId (Set AnnotationId)
-  | DeletePartsEdit DocParts
-  | TransformPartsEdit Rigid DocParts
-  | ClearAllEdit
-  | DetectionEdit [Detection]
-  | SetAreaEdit (Maybe Box)
-  | AddEdit [BasicAnnotation]
-  | ConfirmDetectionEdit (Set AnnotationId)
+  = EditSetClass ClassId (Set AnnotationId)
+  | EditDeleteParts DocParts
+  | EditTransformParts Rigid DocParts
+  | EditClearAll
+  | EditDetection [Detection]
+  | EditSetArea (Maybe Box)
+  | EditAdd [BasicAnnotation]
+  | EditConfirmDetection (Set AnnotationId)
 
   deriving (Generic, Show, Eq)
 
@@ -135,14 +136,14 @@ data DocumentPatch
 
 
 data HistoryEntry 
-  = HistOpen 
-  | HistSubmit 
-  | HistEdit Edit 
-  | HistUndo 
-  | HistRedo 
-  | HistClose 
-  | HistDetections [Detection] 
-  | HistReview [Detection] 
+  = HistoryOpen 
+  | HistorySubmit 
+  | HistoryEdit Edit 
+  | HistoryUndo 
+  | HistoryRedo 
+  | HistoryClose 
+  | HistoryDetections [Detection] 
+  | HistoryReview [Detection] 
 
   deriving (Show, Eq, Generic)
 
@@ -167,7 +168,16 @@ data Document = Document
   } deriving (Generic, Show, Eq)
 
 
-data ImageCat = New | Train | Test | Discard deriving (Eq, Ord, Enum, Generic, Show)
+data ImageCat = CatNew | CatTrain | CatTest | CatDiscard 
+  deriving (Eq, Ord, Enum, Generic)
+
+instance Show ImageCat where
+  show CatNew = "new"
+  show CatTest = "test"
+  show CatTrain = "train"
+  show CatDiscard = "discard"
+
+
 newtype Hash32 = Hash32 { unHash :: Word32 }
   deriving (Eq, Ord, Enum, Generic, Show)
 
@@ -204,9 +214,9 @@ data FilterOption = FilterAll | FilterCat ImageCat | FilterEdited
   deriving (Eq, Generic)
 
 instance Show FilterOption where
-  show FilterAll        = "All"
+  show FilterAll        = "all"
   show (FilterCat cat)  = show cat
-  show FilterEdited     = "Edited"
+  show FilterEdited     = "edited"
 
 
 data SortOptions = SortOptions 
@@ -278,36 +288,51 @@ data ServerMsg
       deriving (Generic, Show, Eq)
 
  
-data Progress = Progress { activity :: Text, progress :: (Int, Int) }
+data Progress = Progress { activity :: TrainerActivity, progress :: (Int, Int) }
   deriving (Generic, Show, Eq)
+
+
+data TrainerActivity
+  = ActivityTrain { epoch :: Epoch }
+  | ActivityTest  { epoch :: Epoch }
+  | ActivityReview
+  | ActivityDetect
+  deriving (Generic,  Eq)
+
+
+instance Show TrainerActivity where
+  show (ActivityTrain epoch) = "Train " <> show epoch
+  show (ActivityTest epoch) = "Test " <> show epoch
+
+  show (ActivityReview) = "Review"
+  show (ActivityDetect) = "Review"
 
 data TrainerStatus 
-  = Disconnected
-  | Paused
-  | Training Progress
+  = StatusDisconnected
+  | StatusPaused
+  | StatusTraining Progress
   deriving (Generic, Show, Eq)
 
 
-data TrainerTag a where
-  DisconnectedTag :: TrainerTag ()
-  PausedTag       :: TrainerTag ()
-  TrainingTag     :: TrainerTag Progress
+data StatusKey a where
+  DisconnectedKey :: StatusKey ()
+  PausedKey       :: StatusKey ()
+  TrainingKey    :: StatusKey Progress
     
   
-trainerTag :: TrainerStatus -> DSum TrainerTag Identity
-trainerTag Disconnected = DisconnectedTag :=> Identity ()
-trainerTag Paused       = PausedTag   :=> Identity ()
-trainerTag (Training p)   = TrainingTag :=> Identity p
+trainerKey :: TrainerStatus -> DSum StatusKey Identity
+trainerKey StatusDisconnected = DisconnectedKey :=> Identity ()
+trainerKey StatusPaused       = PausedKey   :=> Identity ()
+trainerKey (StatusTraining p) = TrainingKey :=> Identity p
 
-deriveGEq ''TrainerTag
-deriveGCompare ''TrainerTag
+deriveGEq ''StatusKey
+deriveGCompare ''StatusKey
 
-
-data TrainerCommand 
-  = PauseTraining
-  | ResumeTraining
-  | ReviewAll
-  | DetectAll
+data UserCommand 
+  = UserPause
+  | UserResume
+  | UserReview
+  | UserDetect
   deriving (Generic, Show, Eq)
 
 
@@ -327,9 +352,22 @@ data ClientMsg
   | ClientConfig ConfigUpdate
   | ClientPreferences Preferences
   | ClientCollection
-  | ClientCommand TrainerCommand
+  | ClientCommand UserCommand
       deriving (Generic, Show, Eq)
 
+
+dropCamel :: String -> String
+dropCamel name = case f name of 
+  ""     -> error ("empty JSON constructor after prefix removed: " <> name)
+  result -> result
+  where
+    f = drop 1 . dropWhile (/= '_') . camel 
+
+camel :: String -> String 
+camel = Aeson.camelTo2 '_'
+
+options :: Aeson.Options
+options = Aeson.defaultOptions { Aeson.constructorTagModifier = dropCamel }      
 
 instance FromJSON Hash32 where
   parseJSON (Aeson.String v) = return $ Hash32 $ read (Text.unpack v)
@@ -339,84 +377,94 @@ instance ToJSON Hash32 where
   toJSON (Hash32 v) = Aeson.String (Text.pack (show v))
 
 
-instance FromJSON ShapeConfig
-instance FromJSON ClassConfig
 
-instance FromJSON DetectionParams
+instance FromJSON ShapeConfig where parseJSON = Aeson.genericParseJSON options
+instance FromJSON ClassConfig where parseJSON = Aeson.genericParseJSON options
 
-instance FromJSON Preferences
+instance FromJSON DetectionParams where parseJSON = Aeson.genericParseJSON options
 
-instance FromJSON ImageCat
-instance FromJSON Shape
-instance FromJSON Annotation
-instance FromJSON BasicAnnotation
-instance FromJSON Tag
-instance FromJSON Detection
+instance FromJSON Preferences where parseJSON = Aeson.genericParseJSON options
 
-instance FromJSON AnnotationPatch
-instance FromJSON HistoryEntry
+instance FromJSON ImageCat    where parseJSON = Aeson.genericParseJSON options
+instance FromJSON Shape       where parseJSON = Aeson.genericParseJSON options
+instance FromJSON Annotation      where parseJSON = Aeson.genericParseJSON options
+instance FromJSON BasicAnnotation where parseJSON = Aeson.genericParseJSON options
+instance FromJSON ShapeTag        where parseJSON = Aeson.genericParseJSON options
+instance FromJSON Detection   where parseJSON = Aeson.genericParseJSON options
 
-instance FromJSON Edit
-instance FromJSON EditCmd
+instance FromJSON AnnotationPatch where parseJSON = Aeson.genericParseJSON options
+instance FromJSON HistoryEntry    where parseJSON = Aeson.genericParseJSON options
 
-instance FromJSON Navigation
-instance FromJSON ConfigUpdate
-instance FromJSON NaturalKey
-instance FromJSON Document
-instance FromJSON Config
-instance FromJSON DocInfo
-instance FromJSON Collection
-instance FromJSON ServerMsg
-instance FromJSON ClientMsg
-instance FromJSON ErrCode
+instance FromJSON Edit    where parseJSON = Aeson.genericParseJSON options
+instance FromJSON EditCmd where parseJSON = Aeson.genericParseJSON options
 
-instance FromJSON Progress
-instance FromJSON TrainerStatus
-instance FromJSON TrainerCommand
+instance FromJSON Navigation    where parseJSON = Aeson.genericParseJSON options
+instance FromJSON ConfigUpdate  where parseJSON = Aeson.genericParseJSON options
+instance FromJSON NaturalKey    where parseJSON = Aeson.genericParseJSON options
+
+instance FromJSON Document     where parseJSON = Aeson.genericParseJSON options
+instance FromJSON Config       where parseJSON = Aeson.genericParseJSON options
+instance FromJSON DocInfo      where parseJSON = Aeson.genericParseJSON options
+instance FromJSON Collection   where parseJSON = Aeson.genericParseJSON options
+instance FromJSON ServerMsg    where parseJSON = Aeson.genericParseJSON options
+instance FromJSON ClientMsg    where parseJSON = Aeson.genericParseJSON options
+instance FromJSON ErrCode      where parseJSON = Aeson.genericParseJSON options
+
+instance FromJSON Progress      where parseJSON = Aeson.genericParseJSON options
+instance FromJSON TrainerStatus where parseJSON = Aeson.genericParseJSON options
 
 
-instance FromJSON SortKey
-instance FromJSON FilterOption
-instance FromJSON SortOptions
+instance FromJSON SortKey       where parseJSON = Aeson.genericParseJSON options
+instance FromJSON FilterOption  where parseJSON = Aeson.genericParseJSON options
+instance FromJSON SortOptions   where parseJSON = Aeson.genericParseJSON options
 
-instance ToJSON ShapeConfig
-instance ToJSON ClassConfig
 
-instance ToJSON DetectionParams
-instance ToJSON Preferences
+instance ToJSON ShapeConfig  where toJSON = Aeson.genericToJSON options
+instance ToJSON ClassConfig  where toJSON = Aeson.genericToJSON options
 
-instance ToJSON ImageCat
-instance ToJSON Shape
-instance ToJSON Annotation
-instance ToJSON BasicAnnotation
+instance ToJSON DetectionParams where toJSON = Aeson.genericToJSON options
+instance ToJSON Preferences     where toJSON = Aeson.genericToJSON options
 
-instance ToJSON Tag
-instance ToJSON Detection
+instance ToJSON ImageCat    where toJSON = Aeson.genericToJSON options
+instance ToJSON Shape       where toJSON = Aeson.genericToJSON options  
+instance ToJSON Annotation  where toJSON = Aeson.genericToJSON options
+instance ToJSON BasicAnnotation where toJSON = Aeson.genericToJSON options
 
-instance ToJSON AnnotationPatch
-instance ToJSON HistoryEntry
+instance ToJSON ShapeTag  where toJSON = Aeson.genericToJSON options
+instance ToJSON Detection where toJSON = Aeson.genericToJSON options
 
-instance ToJSON Edit
-instance ToJSON EditCmd
+instance ToJSON AnnotationPatch where toJSON = Aeson.genericToJSON options
+instance ToJSON HistoryEntry    where toJSON = Aeson.genericToJSON options
 
-instance ToJSON Navigation
-instance ToJSON ConfigUpdate
-instance ToJSON NaturalKey
-instance ToJSON Document
-instance ToJSON Config
-instance ToJSON DocInfo
-instance ToJSON Collection
-instance ToJSON ServerMsg
-instance ToJSON ClientMsg
-instance ToJSON ErrCode
+instance ToJSON Edit    where toJSON = Aeson.genericToJSON options
+instance ToJSON EditCmd where toJSON = Aeson.genericToJSON options
 
-instance ToJSON SortKey
-instance ToJSON FilterOption
-instance ToJSON SortOptions
+instance ToJSON Navigation    where toJSON = Aeson.genericToJSON options
+instance ToJSON ConfigUpdate  where toJSON = Aeson.genericToJSON options
+instance ToJSON NaturalKey    where toJSON = Aeson.genericToJSON options
+instance ToJSON Document  where toJSON = Aeson.genericToJSON options
+instance ToJSON Config    where toJSON = Aeson.genericToJSON options
+instance ToJSON DocInfo   where toJSON = Aeson.genericToJSON options
+instance ToJSON Collection  where toJSON = Aeson.genericToJSON options
+instance ToJSON ServerMsg   where toJSON = Aeson.genericToJSON options
+instance ToJSON ClientMsg   where toJSON = Aeson.genericToJSON options
+instance ToJSON ErrCode     where toJSON = Aeson.genericToJSON options
 
-instance ToJSON Progress
-instance ToJSON TrainerStatus
-instance ToJSON TrainerCommand
+instance ToJSON SortKey  where toJSON = Aeson.genericToJSON options
+instance ToJSON FilterOption where toJSON = Aeson.genericToJSON options
+instance ToJSON SortOptions  where toJSON = Aeson.genericToJSON options
+
+instance ToJSON Progress      where toJSON = Aeson.genericToJSON options
+instance ToJSON TrainerStatus where toJSON = Aeson.genericToJSON options
+
+
+instance ToJSON TrainerActivity   where toJSON = Aeson.genericToJSON options
+instance ToJSON UserCommand       where toJSON = Aeson.genericToJSON options
+
+instance FromJSON TrainerActivity where parseJSON = Aeson.genericParseJSON options
+instance FromJSON UserCommand where parseJSON = Aeson.genericParseJSON options
+  
+
 
 instance Default Config where
   def = Config
@@ -468,7 +516,7 @@ newClass :: ClassId -> ClassConfig
 newClass k = ClassConfig
   { name    = "unnamed-" <> fromString (show k)
   , colour  = fromMaybe 0xFFFF00 $ preview (ix k) defaultColours
-  , shape   = BoxConfig
+  , shape   = ConfigBox
   }
 
 fromBasic :: BasicAnnotation -> Annotation
@@ -545,8 +593,8 @@ emptyCollection = Collection mempty
 
 filterImage :: FilterOption -> (DocName, DocInfo) -> Bool
 filterImage opt (_, DocInfo{category}) = case opt of
-  FilterAll     -> category /= Discard
-  FilterEdited  -> category == Train || category == Test
+  FilterAll     -> category /= CatDiscard
+  FilterEdited  -> category == CatTrain || category == CatTest
   FilterCat cat -> category == cat
 
 

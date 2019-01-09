@@ -95,6 +95,7 @@ data AppCommand
   | DialogCmd Dialog
   | ClassCmd (Set AnnotationId) ClassId
   | PrefCmd PrefCommand
+  | TrainerCmd UserCommand
 
   deriving (Generic, Show)
 
@@ -194,6 +195,9 @@ sortCommand = command (PrefCmd . SetSort)
 prefCommand :: AppBuilder t m => Event t PrefCommand -> m ()
 prefCommand = command PrefCmd
 
+trainerCommand :: AppBuilder t m => Event t UserCommand -> m ()
+trainerCommand = command TrainerCmd
+
 
 editCommand :: AppBuilder t m => Event t Edit -> m ()
 editCommand  = docCommand DocEdit
@@ -219,7 +223,7 @@ showText :: Show a => a -> Text
 showText = T.pack . show
 
 clearAnnotations :: EditCmd
-clearAnnotations = DocEdit ClearAllEdit
+clearAnnotations = DocEdit EditClearAll
 
 makePrisms ''AppCommand
 makePrisms ''SceneEvent

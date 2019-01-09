@@ -217,7 +217,7 @@ lineElem elemId props line = do
 
       maskId = "mask_" <> elemId
 
-lineShape :: Builder t m => Text -> [Dynamic t Circle] -> m ()
+lineShape  :: Builder t m => Text -> [Dynamic t Circle] -> m ()
 lineShape maskId points = do
   defs [] $ void $ do
     clipPath [id_ =: maskId] $ shapes []
@@ -275,10 +275,10 @@ shapeAttributes shapeType ShapeProperties{selected, hidden, colour, marginal} =
 
 shapeView :: forall t m. (Builder t m) => ShapeProperties t -> Updated t Annotation -> m (Event t (Maybe Int, SceneEvent))
 shapeView props obj  = case view #shape <$> obj of
-  Updated (CircleShape s)  e  -> circleView props   =<< holdDyn s (_CircleShape ?> e)
-  Updated (BoxShape s)     e  -> boxView props      =<< holdDyn s (_BoxShape ?> e)
-  Updated (PolygonShape s) e  -> polygonView props  =<< holdDyn s (_PolygonShape ?> e)
-  Updated (LineShape s)    e  -> lineView props     =<< holdDyn s (_LineShape ?> e)
+  Updated (ShapeCircle s)  e  -> circleView props   =<< holdDyn s (_ShapeCircle ?> e)
+  Updated (ShapeBox s)     e  -> boxView props      =<< holdDyn s (_ShapeBox ?> e)
+  Updated (ShapePolygon s) e  -> polygonView props  =<< holdDyn s (_ShapePolygon ?> e)
+  Updated (ShapeLine s)    e  -> lineView props     =<< holdDyn s (_ShapeLine ?> e)
 
 
 holdHover :: (MonadHold t m, Reflex t) => Event t SceneEvent -> m (Dynamic t Bool)
@@ -370,7 +370,7 @@ drawBoxes scene SceneInputs{..} _ =
           done = current box <@ click LeftButton
 
       boxElem  [class_ =: "outline"] box
-      return (Nothing, idle . Just . BoxShape <$> done)
+      return (Nothing, idle . Just . ShapeBox <$> done)
 
 
 drawPolygons :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
@@ -382,7 +382,7 @@ drawPolygons scene SceneInputs{..} finish = void $ workflow idle
 
     drawing points = workflow' $ do
       let points'  = (`NE.cons` points) <$> mouse
-          shape     = PolygonShape (Polygon points)
+          shape     = ShapePolygon (Polygon points)
           next     = current points' `tag` click LeftButton
 
       polygonElem  [class_ =: "outline"] (Polygon <$> points')
@@ -396,7 +396,7 @@ drawCircles scene SceneInputs{..} finish = do
   prefCommand (ZoomBrush <$> wheel)
   circleElem [class_ =: "outline"] cursor
 
-  addShapes scene (CircleShape <$> current cursor `tag` click LeftButton)
+  addShapes scene (ShapeCircle <$> current cursor `tag` click LeftButton)
 
   where
     brushSize = view #brushSize <$> (scene ^. #preferences)
@@ -418,7 +418,7 @@ drawLines scene SceneInputs{..} finish = void $ do
 
     drawing points = workflow' $ do
       let points'  = (`NE.cons` points) <$> cursor
-          shape    = LineShape (WideLine points)
+          shape    = ShapeLine (WideLine points)
           next     = current points' `tag` click LeftButton
 
       lineElem "draw" [class_ =: "outline"] (WideLine <$> points')
@@ -428,7 +428,7 @@ drawLines scene SceneInputs{..} finish = void $ do
 
 
 addAnnotation :: AppBuilder t m => Event t BasicAnnotation -> m ()
-addAnnotation add = editCommand (AddEdit . pure <$> add)
+addAnnotation add = editCommand (EditAdd . pure <$> add)
 
 addShapes :: AppBuilder t m => Scene t -> Event t Shape -> m ()
 addShapes scene e = addAnnotation (makeAnnotation e)
@@ -495,10 +495,10 @@ boxQuery EditorDocument{annotations} box = M.mapMaybe (queryShape . view #shape)
   queryShape shape | getBounds shape `intersectBoxBox` box = queryParts shape
                    | otherwise = Nothing
 
-  queryParts (CircleShape c) =  defaults (Just (S.singleton 0)) (intersectBoxCircle box c)
-  queryParts (BoxShape b) =  maybeParts (intersectBoxPoint box <$> boxVertices' b)
-  queryParts (PolygonShape p) = Nothing
-  queryParts (LineShape p)    = Nothing
+  queryParts (ShapeCircle c) =  defaults (Just (S.singleton 0)) (intersectBoxCircle box c)
+  queryParts (ShapeBox b) =  maybeParts (intersectBoxPoint box <$> boxVertices' b)
+  queryParts (ShapePolygon p) = Nothing
+  queryParts (ShapeLine p)    = Nothing
 
   maybeParts bs = case catMaybes (imap f bs) of
     []    -> Nothing
@@ -550,8 +550,8 @@ actions scene@Scene{..} = holdWorkflow $
     command SelectCmd $ leftmost [selectAll, selectionClick]
 
     let deleteSelection = ffilter (not . null) (current selection <@ select shortcut ShortDelete)
-    editCommand $ DeletePartsEdit <$> deleteSelection 
-    editCommand $ fmap (ConfirmDetectionEdit . S.singleton) <?> confirmAnnotation scene
+    editCommand $ EditDeleteParts <$> deleteSelection 
+    editCommand $ fmap (EditConfirmDetection . S.singleton) <?> confirmAnnotation scene
 
     docCommand (const DocUndo) (select shortcut ShortUndo)
     docCommand (const DocRedo) (select shortcut ShortRedo)
@@ -569,7 +569,7 @@ actions scene@Scene{..} = holdWorkflow $
 
     let maybeEdit s t = do
           guard $ abs (s - 1.0) > eps || norm t > eps
-          return $ TransformPartsEdit (s, t) target 
+          return $ EditTransformParts (s, t) target 
         edit = maybeEdit <$> scale <*> offset
 
         pointer e = if isJust e then "pointer" else "default"
@@ -583,10 +583,10 @@ actions scene@Scene{..} = holdWorkflow $
 
     for_ (M.lookup k (config ^. #classes)) $ \classConfig ->
       case classConfig ^. #shape of
-        BoxConfig     -> drawBoxes scene input finish
-        CircleConfig     -> drawCircles scene input finish
-        PolygonConfig -> drawPolygons scene input finish
-        LineConfig    -> drawLines scene input finish
+        ConfigBox     -> drawBoxes scene input finish
+        ConfigCircle     -> drawCircles scene input finish
+        ConfigPolygon -> drawPolygons scene input finish
+        ConfigLine    -> drawLines scene input finish
 
     -- finish' <- performEvent (return <$> finish)
 
@@ -604,7 +604,7 @@ actions scene@Scene{..} = holdWorkflow $
       (maybeIntersection . makeBox p1 <$> mouse)
 
     let doneEdit      = current selectedEdit `tag` mouseUp LeftButton
-        selectedEdit = (Just . SetAreaEdit) <$> selectedArea
+        selectedEdit = (Just . EditSetArea) <$> selectedArea
 
     editCommand (filterMaybe doneEdit)
     return ("crosshair", selectedEdit, base <$ doneEdit)
