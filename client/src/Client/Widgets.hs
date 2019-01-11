@@ -240,7 +240,7 @@ checkboxLabel i t value = div [class_ =: "custom-control custom-checkbox"] $ do
     Html.label [class_ =: "custom-control-label", Html.for_ =: i] $ text t
 
     return inp
-
+ 
 
 toggleButtonView :: forall t m. Builder t m => (Text, Text) -> Dynamic t Bool -> m (Event t Bool)
 toggleButtonView icons d = do 

@@ -219,27 +219,27 @@ setClassCommand :: EditorDocument -> (Set AnnotationId, ClassId) -> Maybe EditCm
 setClassCommand doc (selection, classId) =
   guard (S.size selection > 0) $> DocEdit (EditSetClass classId selection)
 
-loadDetections :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
-loadDetections time detections doc = doc
-  & #history      %~  mappend [(time, HistoryDetections detections)]
+openNew :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
+openNew time detections doc = doc
+  & #history      %~  mappend [(time, HistoryOpenNew detections)]
   & #annotations  .~ fromDetections 0 detections
  
-loadReview :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
-loadReview time detections doc = doc
-  & #history      %~  mappend [(time, HistoryReview detections)]
+openReview :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
+openReview time detections doc = doc
+  & #history      %~  mappend [(time, HistoryOpenReview detections)]
 
-loadOffline :: UTCTime -> EditorDocument -> EditorDocument
-loadOffline time doc = doc
+openDocument :: UTCTime -> EditorDocument -> EditorDocument
+openDocument time doc = doc
   & #history      %~  mappend [(time, HistoryOpen)]
 
 loadedDocument :: Document -> UTCTime -> EditorDocument
-loadedDocument doc@Document{info, annotations, detections} time = maybeLoad (editorDocument doc) where
+loadedDocument doc@Document{info, annotations, detections} time = maybeOpen (editorDocument doc) where
 
     f = if info ^. #category == CatNew && null annotations
-      then loadDetections time
-      else loadReview time
+      then openNew time
+      else openReview time
 
-    maybeLoad = fromMaybe (loadOffline time) (f . fst <$> detections)
+    maybeOpen = fromMaybe (openDocument time) (f . view #detections <$> detections)
     
 
 
@@ -458,7 +458,7 @@ bodyWidget host = mdo
       (hello, initPrefs, initConfig, initialStatus)  = split4 (preview _ServerHello <?> serverMsg)
 
       shortcut   = fan shortcuts
-      detections = filterDocument document $ preview _ServerDetection <?> serverMsg
+      detections = view #detections <$> (filterDocument document $ preview _ServerDetection <?> serverMsg)
 
   trainerStatus <- holdDyn StatusDisconnected $ 
     leftmost [preview _ServerStatus <?> serverMsg, initialStatus]
@@ -625,7 +625,7 @@ trainerTab' status = do
     showStatus  (TrainingKey     :=> progress) = do
       void $ Dialog.iconRow ("text-success", "play-circle") $  
         dynText (showText . view #activity <$> progress)
-        
+
       progressBar (view #progress <$> progress)
 
 trainerTab :: forall t m. AppBuilder t m => m () 

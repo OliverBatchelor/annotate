@@ -138,7 +138,9 @@ sortView opts = do
   labelled "Order by" $ row "p-2" $ do
       key <- grow $ selectView allSorts (view #sortKey <$> opts)
       rev <- toggleButtonView ("sort-descending", "sort-ascending") (view #reversed <$> opts)
+
       sortCommand (SetSortKey <$> key)
+      sortCommand (SetReverse <$> rev)
 
 
 imageList :: forall t m. AppBuilder t m => Int -> Dynamic t (Maybe DocName) -> Dynamic t [(DocName, DocInfo)] -> m ()
@@ -169,7 +171,6 @@ imageList size selected images = do
       hasPrev i = (i > 0)
       hasNext i images = (i + size < length images)
 
-      --searchImages t  = simpleFilter t
 
       showPage i images = showText (pageNum i) <> " of " <> showText (pageNum (length images))
       pageNum i = i `Real.div` size + 1

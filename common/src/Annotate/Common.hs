@@ -142,9 +142,8 @@ data HistoryEntry
   | HistoryUndo 
   | HistoryRedo 
   | HistoryClose 
-  | HistoryDetections [Detection] 
-  | HistoryReview [Detection] 
-
+  | HistoryOpenNew [Detection]
+  | HistoryOpenReview [Detection]
   deriving (Show, Eq, Generic)
 
 data EditCmd = DocEdit Edit | DocUndo | DocRedo
@@ -155,6 +154,11 @@ newtype NaturalKey = NaturalKey [Either (Int, Text) Text]
   deriving (Ord, Eq, Generic, Show)
 
 
+data Detections = Detections 
+  { detections :: [Detection]
+  , networkId :: NetworkId
+  } deriving (Show, Eq, Generic)
+
 
 data Document = Document
   { name  :: DocName
@@ -163,8 +167,7 @@ data Document = Document
   , validArea   :: Maybe Box
 
   , history :: [(UTCTime, HistoryEntry)]
-  , detections :: Maybe ([Detection], NetworkId)
-
+  , detections :: Maybe Detections
   } deriving (Generic, Show, Eq)
 
 
@@ -283,7 +286,7 @@ data ServerMsg
   | ServerDocument NavId Document
   | ServerOpen (Maybe DocName) ClientId DateTime
   | ServerError ErrCode
-  | ServerDetection DocName [Detection]
+  | ServerDetection DocName Detections
   | ServerStatus TrainerStatus
       deriving (Generic, Show, Eq)
 
@@ -391,6 +394,7 @@ instance FromJSON Annotation      where parseJSON = Aeson.genericParseJSON optio
 instance FromJSON BasicAnnotation where parseJSON = Aeson.genericParseJSON options
 instance FromJSON ShapeTag        where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Detection   where parseJSON = Aeson.genericParseJSON options
+instance FromJSON Detections   where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON AnnotationPatch where parseJSON = Aeson.genericParseJSON options
 instance FromJSON HistoryEntry    where parseJSON = Aeson.genericParseJSON options
@@ -432,6 +436,8 @@ instance ToJSON BasicAnnotation where toJSON = Aeson.genericToJSON options
 
 instance ToJSON ShapeTag  where toJSON = Aeson.genericToJSON options
 instance ToJSON Detection where toJSON = Aeson.genericToJSON options
+instance ToJSON Detections where toJSON = Aeson.genericToJSON options
+
 
 instance ToJSON AnnotationPatch where toJSON = Aeson.genericToJSON options
 instance ToJSON HistoryEntry    where toJSON = Aeson.genericToJSON options

@@ -44,17 +44,26 @@ data Store = Store
   , preferences :: Map UserId Preferences
   } deriving (Show, Eq, Generic)
 
+
+data Checkpoint = Checkpoint 
+  { networkId :: NetworkId
+  , score     :: Float
+  , isBest    :: Bool
+  } deriving (Show, Eq, Generic)
+
+
 data Command where
-  CmdCategory :: DocName -> ImageCat -> Command
-  CmdSubmit :: Document -> UTCTime  -> Command
-  CmdModified :: DocName -> UTCTime -> Command
-  CmdImages :: [(DocName, DocInfo)] -> Command
-  CmdClass :: ClassId -> Maybe ClassConfig -> Command
-  CmdSetRoot  :: Text -> Command
-  CmdCheckpoint :: NetworkId -> Float -> Bool -> Command
-  CmdPreferences :: UserId -> Preferences -> Command
-  CmdDetections  :: [(DocName, [Detection])] -> NetworkId -> Command
+  CmdCategory     :: DocName -> ImageCat -> Command
+  CmdSubmit       :: Document -> UTCTime  -> Command
+  CmdModified     :: DocName -> UTCTime -> Command
+  CmdImages       :: [(DocName, DocInfo)] -> Command
+  CmdClass        :: ClassId -> Maybe ClassConfig -> Command
+  CmdSetRoot      :: Text -> Command
+  CmdCheckpoint   :: Checkpoint -> Command
+  CmdPreferences  :: UserId -> Preferences -> Command
+  CmdDetections   :: Map DocName Detections -> Command
     deriving (Show, Eq, Generic)
+
 
 
 data Client  = Client
@@ -117,7 +126,8 @@ data ToTrainer
     deriving (Show, Generic, Eq)
 
 data FromTrainer
-  =  TrainerDetections DetectRequest DocName [Detection] NetworkId
+  =  TrainerDetections DetectRequest DocName Detections
+  | TrainerDetectionsMany (Map DocName Detections)
   | TrainerReqError DetectRequest DocName Text
   | TrainerError Text
   | TrainerCheckpoint NetworkId Float Bool
@@ -132,6 +142,7 @@ data TrainImage = TrainImage
     imageSize   :: (Int, Int),
     category    :: ImageCat,
     validArea   :: Maybe Box,
+    evaluated   :: Maybe NetworkId,
     history     :: [(UTCTime, HistoryEntry)]
   } deriving (Show, Eq, Generic)
 

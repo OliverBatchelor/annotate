@@ -53,6 +53,9 @@ sendTrainerStatus env = do
   status <- trainerStatus env
   broadcast env (ServerStatus status)
 
+updateDetections :: Env -> Map DocName Detections -> STM ()
+updateDetections Env{store} m = updateLog store $ CmdDetections m
+
 trainerLoop :: Env -> WS.Connection ->  IO ()
 trainerLoop env@Env{store} conn = do
   atomically $ do
@@ -74,16 +77,20 @@ trainerLoop env@Env{store} conn = do
             writeLog env ("trainer <- " <> show msg)
             processMsg msg
 
-
+      processMsg :: FromTrainer -> STM ()
       processMsg = \case
-        TrainerDetections req k detections netId -> do
-          updateLog store $ CmdDetections [(k, detections)] netId
+        TrainerDetections req k detections -> do
+          updateDetections env $ M.singleton k detections 
+
           case req of
             DetectClient clientId ->
                 sendClient' env clientId (ServerDetection k detections)
             DetectLoad navId clientId -> withDocument env k $ \doc ->
                 sendClient' env clientId (ServerDocument navId doc)
             DetectPre -> return()
+
+        TrainerDetectionsMany m -> updateDetections env m
+          
 
         TrainerReqError req k err ->
           case req of
@@ -96,7 +103,7 @@ trainerLoop env@Env{store} conn = do
           writeLog env ("trainer error: " <> show err)
 
         TrainerCheckpoint (run, epoch) score best ->
-          updateLog store $ CmdCheckpoint (run, epoch) score best
+          updateLog store $ CmdCheckpoint $ Checkpoint (run, epoch) score best
           -- withClientEnvs env detectNext
 
         TrainerProgress progress -> do

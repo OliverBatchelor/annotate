@@ -10,7 +10,7 @@ echo "Building server.."
 ./cabal new-build server
 
 echo "Copying files.."
-mkdir "distribution"
+mkdir -p "distribution"
 
 cp `find ./dist-newstyle -type f -name server` distribution/
 cp -r html distribution/

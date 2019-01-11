@@ -266,7 +266,7 @@ html, body {
 
 .sidebar {
   position: relative;
-  width:800px;
+  width:900px;
   overflow: visible;
 
   transition-duration: .3s;
@@ -277,7 +277,7 @@ html, body {
 }
 
 .sidebar.closed {
-  margin-left: -760px;
+  margin-left: -860px;
 }
 
 .toggler {

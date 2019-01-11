@@ -117,7 +117,7 @@ processMsg env@ClientEnv{store, clientId, userId} msg = do
 needsDetect :: Store -> DocName -> Bool
 needsDetect store k = isJust $ do
     Document{detections} <- M.lookup k (store ^. #images)
-    guard ((snd <$> detections) /= Just netId)
+    guard ((view #networkId <$> detections) /= Just netId)
 
   where netId = bestModel (store ^.  #trainer)
 
