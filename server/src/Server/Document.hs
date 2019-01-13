@@ -95,8 +95,10 @@ clientDocument clientId = ix clientId . #document . traverse
 broadcastUpdate :: ClientEnv -> DocName -> STM ()
 broadcastUpdate env@ClientEnv{..} k = do
   mDoc <- lookupDoc k <$> readLog store
-  forM_ mDoc $ broadcast (upcast env) . ServerUpdateInfo k . view #info
+  forM_ mDoc $ broadcastInfo env k . view #info
 
+broadcastInfo :: ClientEnv -> DocName -> DocInfo -> STM ()
+broadcastInfo env k = broadcast (upcast env) . ServerUpdateInfo k 
 
 closeDocument :: ClientEnv -> STM ()
 closeDocument env@ClientEnv{..}  = preview (clientDocument clientId) <$> readTVar clients >>= traverse_ withDoc

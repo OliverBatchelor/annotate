@@ -40,6 +40,30 @@ data DocInfo2 = DocInfo2
   , imageSize   :: (Int, Int)
   } deriving (Generic, Show, Eq)
 
+data DocInfo3 = DocInfo3
+  { hashedName :: Hash32
+  , naturalKey :: NaturalKey
+  , modified    :: Maybe DateTime
+  , numAnnotations :: Int
+  , category    :: ImageCat
+  , imageSize   :: (Int, Int)
+  } deriving (Generic, Show, Eq)
+
+
+data Detections0 = Detections0
+  { detections :: [Detection]
+  , networkId :: NetworkId
+  } deriving (Show,  Generic)
+
+
+data Document11 = Document11
+  { name  :: DocName
+  , info  :: DocInfo
+  , annotations :: Map AnnotationId BasicAnnotation
+  , validArea   :: Maybe Box
+  , history :: [(UTCTime, HistoryEntry)]
+  , detections :: Maybe Detections
+  } deriving (Generic, Show)  
 
 data Document10 = Document10
   { name  :: DocName
@@ -49,7 +73,7 @@ data Document10 = Document10
 
   , history :: [(UTCTime, HistoryEntry)]
   , detections :: Maybe ([Detection], NetworkId)
-  } deriving (Generic, Show, Eq)  
+  } deriving (Generic, Show)  
 
 data Document9 = Document9
   { name  :: DocName
@@ -59,7 +83,7 @@ data Document9 = Document9
   , history :: [(UTCTime, HistoryEntry)]
   , detections :: Maybe ([Detection], NetworkId)
 
-  } deriving (Generic, Show, Eq)
+  } deriving (Generic, Show)
 
 data Document8 = Document8
   { name  :: DocName
@@ -69,7 +93,7 @@ data Document8 = Document8
   , history :: [(UTCTime, HistoryEntry)]
   , detections :: Maybe ([Detection], NetworkId)
 
-  } deriving (Generic, Show, Eq)
+  } deriving (Generic, Show)
 
 
 data Document7 = Document7
@@ -80,7 +104,7 @@ data Document7 = Document7
   , history :: [(UTCTime, OldHistoryEntry)]
   , detections :: Maybe ([Detection], NetworkId)
 
-  } deriving (Generic, Show, Eq)
+  } deriving (Generic, Show)
 
 
 data Document6 = Document6
@@ -89,7 +113,7 @@ data Document6 = Document6
   , annotations :: AnnotationMap
   , validArea   :: Maybe Box
   , history :: [(UTCTime, OldHistoryEntry)]
-  } deriving (Generic, Show, Eq)
+  } deriving (Generic, Show)
 
 
 data Document5 = Document5
@@ -98,7 +122,7 @@ data Document5 = Document5
   , annotations :: AnnotationMap
   , validArea   :: Maybe Box
   , history :: [(UTCTime, OldHistoryEntry)]
-  } deriving (Generic, Show, Eq)
+  } deriving (Generic, Show)
 
 data Document4 = Document4
   { name  :: DocName
@@ -106,7 +130,7 @@ data Document4 = Document4
   , annotations :: AnnotationMap
   , validArea   :: Maybe Box
   , history :: [(UTCTime, OldHistoryEntry)]
-  } deriving (Generic, Show, Eq)
+  } deriving (Generic, Show)
 
 
 data Document3 = Document3
@@ -114,24 +138,24 @@ data Document3 = Document3
   , info  :: DocInfo
   , annotations :: AnnotationMap
   , validArea   :: Maybe Box
-  } deriving (Generic, Show, Eq)
+  } deriving (Generic, Show)
 
 data Document2 = Document2
   { name  :: DocName
   , info  :: DocInfo
   , annotations :: AnnotationMap
-  } deriving (Generic, Show, Eq)
+  } deriving (Generic, Show)
 
 data Document1 = Document1
   { name  :: DocName
   , info  :: DocInfo
   , annotations :: AnnotationMap
-  } deriving (Generic, Show, Eq)
+  } deriving (Generic, Show)
 
 
 data Command0 where
   CmdCategory0 :: DocName -> ImageCat -> Command0
-  CmdSubmit0 :: Document -> UTCTime  -> Command0
+  CmdUpdate0 :: Document -> UTCTime  -> Command0
   CmdModified0 :: DocName -> UTCTime -> Command0
   CmdImages0 :: [(DocName, DocInfo)] -> Command0
   CmdClass0 :: ClassId -> Maybe ClassConfig -> Command0
@@ -139,19 +163,19 @@ data Command0 where
   CmdCheckpoint0 :: NetworkId -> Float -> Bool -> Command0
   CmdPreferences0 :: UserId -> Preferences -> Command0
   CmdDetections0  :: [(DocName, [Detection])] -> NetworkId -> Command0
-    deriving (Show, Eq, Generic)
+    deriving (Show,  Generic)
 
 instance Migrate Command where
   type MigrateFrom Command = Command0
   migrate (CmdCategory0 k c) = CmdCategory k c
-  migrate (CmdSubmit0 k c) = CmdSubmit k c
+  migrate (CmdUpdate0 k c) = CmdUpdate k c
   migrate (CmdModified0 k c) = CmdModified k c
   migrate (CmdImages0 m) = CmdImages m
   migrate (CmdSetRoot0 r) = CmdSetRoot r
   migrate (CmdCheckpoint0 k f b) = CmdCheckpoint $ Checkpoint k f b
   migrate (CmdPreferences0 k p) = CmdPreferences k p
   migrate (CmdDetections0 ds netId)   = CmdDetections $ f <$> M.fromList ds
-    where f dets = Detections dets netId
+    where f dets = Detections dets netId def
 
 data ImageOrdering = OrderSequential | OrderMixed | OrderBackwards
   deriving (Show, Eq, Ord, Enum, Generic)
@@ -207,13 +231,13 @@ data Preferences1 = Preferences1
 data Store0 = Store0
   { config    :: Config
   , images :: Map DocName Document
-  } deriving (Show, Eq, Generic)
+  } deriving (Show,  Generic)
 
 data Store1 = Store1
   { config    :: Config
   , images :: Map DocName Document
   , trainer :: TrainerState
-  } deriving (Show, Eq, Generic)
+  } deriving (Show,  Generic)
 
 instance Migrate Store1 where
   type MigrateFrom Store1 = Store0
@@ -241,13 +265,18 @@ instance Migrate Preferences where
 
 
 instance Migrate Document where
-  type MigrateFrom Document = Document10
-  migrate Document10{..} = Document
+  type MigrateFrom Document = Document11
+  migrate Document11{..} = Document{..} where
+    trainingLoss = []
+
+instance Migrate Document11 where
+  type MigrateFrom Document11 = Document10
+  migrate Document10{..} = Document11
     {name, history, validArea, detections = update <$> detections 
     , info, annotations}
 
     where
-      update (detections, netId) = Detections detections netId
+      update (detections, netId) = Detections detections netId def
 
 instance Migrate Document10 where
   type MigrateFrom Document10 = Document9
@@ -283,24 +312,6 @@ instance Migrate Document5 where
   type MigrateFrom Document5 = Document4
   migrate Document4{..} = Document5{..}
 
-instance Migrate DocInfo2 where
-  type MigrateFrom DocInfo2 = DocInfo1
-  migrate DocInfo1{..} = DocInfo2
-    { naturalKey, modified, numAnnotations
-    , category, imageSize, hashedName = fromIntegral hashedName}
-
-instance Migrate DocInfo where
-  type MigrateFrom DocInfo = DocInfo2
-  migrate DocInfo2{..} = DocInfo
-    { naturalKey, modified, numAnnotations
-    , category, imageSize, hashedName = Hash32 (fromIntegral hashedName)}
-
-instance Migrate DocInfo1 where
-  type MigrateFrom DocInfo1 = DocInfo0
-  migrate DocInfo0{..} = DocInfo1 {..}
-    where naturalKey = NaturalKey []
-          hashedName = 0
-
 
 instance Migrate Document4 where
   type MigrateFrom Document4 = Document3
@@ -314,8 +325,40 @@ instance Migrate Document3 where
 
 instance Migrate Document2 where
   type MigrateFrom Document2 = Document1
-  migrate Document1{..} = Document2{..}
+  migrate Document1{..} = Document2{..}  
 
+
+instance Migrate DocInfo1 where
+  type MigrateFrom DocInfo1 = DocInfo0
+  migrate DocInfo0{..} = DocInfo1 {..}
+    where naturalKey = NaturalKey []
+          hashedName = 0
+  
+
+instance Migrate DocInfo2 where
+  type MigrateFrom DocInfo2 = DocInfo1
+  migrate DocInfo1{..} = DocInfo2
+    { naturalKey, modified, numAnnotations
+    , category, imageSize, hashedName = fromIntegral hashedName}
+
+instance Migrate DocInfo3 where
+  type MigrateFrom DocInfo3 = DocInfo2
+  migrate DocInfo2{..} = DocInfo3
+    { naturalKey, modified, numAnnotations
+    , category, imageSize, hashedName = Hash32 (fromIntegral hashedName)}
+    
+instance Migrate DocInfo where
+  type MigrateFrom DocInfo = DocInfo3
+  migrate DocInfo3{..} = DocInfo{..} where 
+    detections = def
+    lossMax       = 0
+    lossMean  = 0    
+
+
+instance Migrate Detections where
+  type MigrateFrom Detections = Detections0
+  migrate Detections0{..} = Detections{..} where 
+    stats = def 
 
 
 $(deriveSafeCopy 0 'base ''DocInfo0)
@@ -398,12 +441,15 @@ $(deriveSafeCopy 0 'base ''Extents)
 $(deriveSafeCopy 0 'base ''Shape)
 $(deriveSafeCopy 1 'extension ''Detection)
 
-$(deriveSafeCopy 0 'base ''Detections)
+$(deriveSafeCopy 0 'base ''Detections0)
+$(deriveSafeCopy 1 'extension ''Detections)
+
+$(deriveSafeCopy 0 'base ''DetectionStats)
+
 $(deriveSafeCopy 0 'base ''Checkpoint)
 
-
 $(deriveSafeCopy 0 'base ''ImageCat)
-
+$(deriveSafeCopy 0 'base ''Submission)
 
 $(deriveSafeCopy 1 'base ''Document1)
 $(deriveSafeCopy 2 'extension ''Document2)
@@ -416,14 +462,19 @@ $(deriveSafeCopy 8 'extension ''Document8)
 $(deriveSafeCopy 9 'extension ''Document9)
 $(deriveSafeCopy 10 'extension ''Document10)
 
-$(deriveSafeCopy 11 'extension ''Document)
+$(deriveSafeCopy 11 'extension ''Document11)
+$(deriveSafeCopy 12 'extension ''Document)
 
 
 $(deriveSafeCopy 0 'base ''NaturalKey0)
 $(deriveSafeCopy 1 'extension ''NaturalKey)
 
 
-$(deriveSafeCopy 3 'extension ''DocInfo)
+$(deriveSafeCopy 3 'extension ''DocInfo3)
+$(deriveSafeCopy 4 'extension ''DocInfo)
+
+
+
 $(deriveSafeCopy 0 'base ''Config)
 $(deriveSafeCopy 0 'base ''ClassConfig)
 $(deriveSafeCopy 0 'base ''ShapeConfig)
@@ -467,16 +518,38 @@ updateDocument :: Document -> (Store -> Store)
 updateDocument doc = #images . at (doc ^. #name) .~ Just doc
 
 updateDetections :: (DocName, Detections) -> Map DocName Document -> Map DocName Document
-updateDetections (k, detections) = ix k . #detections .~ Just detections
+updateDetections (k, detections) = over (ix k) $ \doc -> doc 
+  & #detections         .~ Just detections
+  & #info . #detections .~ Just (detections ^. #stats)
 
 emptyDoc :: DocName -> DocInfo -> Document
-emptyDoc k info = Document k info mempty Nothing [] Nothing
+emptyDoc k info = Document 
+  { name = k
+  , info = info 
+  , annotations = mempty 
+  , validArea = Nothing 
+  , history = [] 
+  , detections = Nothing
+  , trainingLoss = []
+  }
+
+
+submitDocument :: UTCTime -> Submission -> (Store -> Store)
+submitDocument time Submission{..} = over (#images . ix name) $ \doc -> doc 
+  & #annotations .~ annotations
+  & #validArea .~ validArea
+  & #history %~ (history <>)
+
+  & #info %~ \info -> info 
+    & #category %~ maybe id const category
+    & #modified .~ Just time
+    & #numAnnotations .~ length annotations
 
 
 instance Persistable Store where
   type Update Store = Command
 
-  update (CmdSubmit doc time) = updateInfo doc time . updateDocument doc
+  update (CmdUpdate doc time) = updateInfo doc time . updateDocument doc
   update (CmdImages new)        = over #images (M.union new') where
     new' = M.mapWithKey emptyDoc (M.fromList new)
 
@@ -490,6 +563,9 @@ instance Persistable Store where
   update (CmdPreferences user preferences) = over #preferences (M.insert user preferences)
   update (CmdDetections detections) = over #images $
     foldr (.) id (updateDetections <$> M.toList detections)
+
+  update (CmdSubmit submission time) = submitDocument time submission 
+
 
 applyWhen :: Bool -> (a -> a) -> a -> a
 applyWhen True f = f

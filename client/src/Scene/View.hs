@@ -23,7 +23,7 @@ import Scene.Viewport
 
 import Annotate.Geometry
 import Annotate.Common
-import Annotate.Document
+import Annotate.Editor
 
 import Debug.Trace
 
@@ -441,7 +441,7 @@ alterPart k f = M.alter f' k where
     where result = f (fromMaybe mempty p)
 
 
-togglePart :: EditorDocument -> DocPart -> DocParts -> DocParts
+togglePart :: Editor -> DocPart -> DocParts -> DocParts
 togglePart doc (k, sub) = alterPart k $ \existing ->
   case sub of
     Nothing -> if existing == allParts then S.empty else allParts
@@ -451,23 +451,23 @@ togglePart doc (k, sub) = alterPart k $ \existing ->
     allParts = subParts doc k
     toggleSet i s = if S.member i s then S.delete i s else S.insert i s
 
-addPart :: EditorDocument -> DocPart -> DocParts -> DocParts
+addPart :: Editor -> DocPart -> DocParts -> DocParts
 addPart doc part = mergeParts (toParts doc part)
 
-toParts :: EditorDocument -> DocPart -> DocParts
+toParts :: Editor -> DocPart -> DocParts
 toParts doc (k, p) = case p of
   Nothing -> M.singleton k (subParts doc k)
   Just i  -> M.singleton k (S.singleton i)
 
-selectChange :: Set Key -> EditorDocument -> DocParts -> Maybe DocPart -> DocParts
+selectChange :: Set Key -> Editor -> DocParts -> Maybe DocPart -> DocParts
 selectChange keys doc existing target
   | S.member Key.Shift keys = fromMaybe existing (flip (addPart doc) existing <$> target)
   | otherwise               = fromMaybe mempty (toParts doc <$> target)
 
 
 selectParts :: Reflex t => Scene t -> Event t DocParts
-selectParts Scene{document, selection, input, shortcut} =
-  selectChange <$> current keyboard <*> current document <*> current selection <@> partsClicked where
+selectParts Scene{editor, selection, input, shortcut} =
+  selectChange <$> current keyboard <*> current editor <*> current selection <@> partsClicked where
 
     partsClicked = leftmost
       [ Just <$> mouseDownOn
@@ -477,8 +477,8 @@ selectParts Scene{document, selection, input, shortcut} =
 
 
 confirmAnnotation :: Reflex t => Scene t -> Event t (Maybe AnnotationId)
-confirmAnnotation Scene{document, input} = confirm <$> current document <@> clicked where
-  confirm EditorDocument{annotations} (i, _) = do 
+confirmAnnotation Scene{editor, input} = confirm <$> current editor <@> clicked where
+  confirm Editor{annotations} (i, _) = do 
     ann <- M.lookup i annotations
     (t, _) <- ann ^. #detection
     guard (canConfirm t)
@@ -490,8 +490,8 @@ confirmAnnotation Scene{document, input} = confirm <$> current document <@> clic
   canConfirm _        = False
 
 
-boxQuery :: EditorDocument -> Box -> DocParts
-boxQuery EditorDocument{annotations} box = M.mapMaybe (queryShape . view #shape) annotations where
+boxQuery :: Editor -> Box -> DocParts
+boxQuery Editor{annotations} box = M.mapMaybe (queryShape . view #shape) annotations where
   queryShape shape | getBounds shape `intersectBoxBox` box = queryParts shape
                    | otherwise = Nothing
 
@@ -544,7 +544,7 @@ actions scene@Scene{..} = holdWorkflow $
         beginSelectRect = rectSelect <$> gate (current holdingShift) mouseDownAt
 
         beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` keyDown drawKey
-        beginDragSelection   = filterMaybe $ drag <$> current mouse <*> current document <@> selectionClick
+        beginDragSelection   = filterMaybe $ drag <$> current mouse <*> current editor <@> selectionClick
 
     viewCommand zoomCmd
     command SelectCmd $ leftmost [selectAll, selectionClick]
@@ -614,7 +614,7 @@ actions scene@Scene{..} = holdWorkflow $
     let box = makeBox p1 <$> mouse
         done = current box <@ click LeftButton
 
-        parts  = boxQuery <$> current document <*> current box
+        parts  = boxQuery <$> current editor <*> current box
         parts' = mergeParts <$> current selection <*> parts
 
     command SelectCmd (parts' `tag` done)
@@ -637,7 +637,7 @@ actions scene@Scene{..} = holdWorkflow $
 
   SceneInputs{..} = input
 
-  selectAll        = documentParts <$> current document `tag` select shortcut ShortSelectAll
+  selectAll        = documentParts <$> current editor `tag` select shortcut ShortSelectAll
   selectionClick   = selectParts scene
 
   mouseDownAt = current mouse <@ mouseDown LeftButton

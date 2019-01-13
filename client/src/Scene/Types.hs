@@ -8,7 +8,7 @@ import Data.Default
 
 import Annotate.Geometry
 import Annotate.Common
-import Annotate.Document
+import Annotate.Editor
 
 import Input.Events
 
@@ -63,8 +63,8 @@ data Scene t = Scene
   { image    :: !Image
   , input    :: !(SceneInputs t)
 
-  , document :: !(Dynamic t EditorDocument)
-  , currentEdit :: !(Dynamic t EditorDocument)
+  , editor      :: !(Dynamic t Editor)
+  , currentEdit :: !(Dynamic t Editor)
 
   , selection :: !(Dynamic t DocParts)
   , annotations  :: !(Incremental t (PatchMap AnnotationId Annotation))

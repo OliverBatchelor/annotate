@@ -37,12 +37,14 @@ import Text.Megaparsec.Char.Lexer (decimal)
 import qualified Data.ByteString.Lazy  as BS
 
 
+
+
 data Store = Store
   { config    :: Config
   , images :: Map DocName Document
   , trainer :: TrainerState
   , preferences :: Map UserId Preferences
-  } deriving (Show, Eq, Generic)
+  } deriving (Show,  Generic)
 
 
 data Checkpoint = Checkpoint 
@@ -54,7 +56,7 @@ data Checkpoint = Checkpoint
 
 data Command where
   CmdCategory     :: DocName -> ImageCat -> Command
-  CmdSubmit       :: Document -> UTCTime  -> Command
+  CmdUpdate       :: Document -> UTCTime  -> Command
   CmdModified     :: DocName -> UTCTime -> Command
   CmdImages       :: [(DocName, DocInfo)] -> Command
   CmdClass        :: ClassId -> Maybe ClassConfig -> Command
@@ -62,7 +64,8 @@ data Command where
   CmdCheckpoint   :: Checkpoint -> Command
   CmdPreferences  :: UserId -> Preferences -> Command
   CmdDetections   :: Map DocName Detections -> Command
-    deriving (Show, Eq, Generic)
+  CmdSubmit       :: Submission -> UTCTime  -> Command
+    deriving (Show, Generic)
 
 
 
@@ -123,7 +126,7 @@ data ToTrainer
   | TrainerUpdate DocName (Maybe TrainImage)
   | TrainerDetect DetectRequest DocName DetectionParams
   | UserCommand UserCommand
-    deriving (Show, Generic, Eq)
+    deriving (Show, Generic)
 
 data FromTrainer
   =  TrainerDetections DetectRequest DocName Detections
@@ -132,7 +135,7 @@ data FromTrainer
   | TrainerError Text
   | TrainerCheckpoint NetworkId Float Bool
   | TrainerProgress (Maybe Progress)
-    deriving (Show, Generic, Eq)
+    deriving (Show, Generic)
 
 
 -- Input/export types
@@ -144,13 +147,13 @@ data TrainImage = TrainImage
     validArea   :: Maybe Box,
     evaluated   :: Maybe NetworkId,
     history     :: [(UTCTime, HistoryEntry)]
-  } deriving (Show, Eq, Generic)
+  } deriving (Show,  Generic)
 
 
 data TrainCollection = TrainCollection
   { config :: Config
   , images :: [TrainImage]
-  } deriving (Show, Eq, Generic)
+  } deriving (Show,  Generic)
 
 
 data ModelState = ModelState
@@ -344,6 +347,9 @@ defaultInfo dim filename = DocInfo
   , category = CatNew
   , imageSize = dim
   , numAnnotations = 0
+  , detections = def
+  , lossMax = 0
+  , lossMean = 0
   }
 
 instance Default TrainerState where

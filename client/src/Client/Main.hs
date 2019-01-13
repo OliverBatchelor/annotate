@@ -49,7 +49,7 @@ import Client.Select
 import qualified Client.Dialog as Dialog
 
 import Annotate.Common
-import Annotate.Document
+import Annotate.Editor
 
 import Language.Javascript.JSaddle
 import qualified Reflex.Dom.Main as Main
@@ -178,7 +178,7 @@ sceneWidget :: forall t m. (GhcjsAppBuilder t m)
             => Event t [AppCommand]
             -> Event t Document
             -> m (Event t (DMap Shortcut Identity), Dynamic t Action
-                 , Dynamic t (Maybe EditorDocument), Dynamic t DocParts)
+                 , Dynamic t (Maybe Editor), Dynamic t DocParts)
 
 sceneWidget cmds loaded = do
 
@@ -215,25 +215,25 @@ historyEntry = \case
       DocEdit e -> HistoryEdit e
  
 
-setClassCommand :: EditorDocument -> (Set AnnotationId, ClassId) -> Maybe EditCmd
+setClassCommand :: Editor -> (Set AnnotationId, ClassId) -> Maybe EditCmd
 setClassCommand doc (selection, classId) =
   guard (S.size selection > 0) $> DocEdit (EditSetClass classId selection)
 
-openNew :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
+openNew :: UTCTime -> [Detection] -> Editor -> Editor
 openNew time detections doc = doc
-  & #history      %~  mappend [(time, HistoryOpenNew detections)]
+  & #history      .~  [(time, HistoryOpenNew detections)]
   & #annotations  .~ fromDetections 0 detections
  
-openReview :: UTCTime -> [Detection] -> EditorDocument -> EditorDocument
+openReview :: UTCTime -> [Detection] -> Editor -> Editor
 openReview time detections doc = doc
-  & #history      %~  mappend [(time, HistoryOpenReview detections)]
+  & #history      .~  [(time, HistoryOpenReview detections)]
 
-openDocument :: UTCTime -> EditorDocument -> EditorDocument
+openDocument :: UTCTime -> Editor -> Editor
 openDocument time doc = doc
-  & #history      %~  mappend [(time, HistoryOpen)]
+  & #history      .~  [(time, HistoryOpen)]
 
-loadedDocument :: Document -> UTCTime -> EditorDocument
-loadedDocument doc@Document{info, annotations, detections} time = maybeOpen (editorDocument doc) where
+loadedDocument :: Document -> UTCTime -> Editor
+loadedDocument doc@Document{info, annotations, detections} time = maybeOpen (editDocument doc) where
 
     f = if info ^. #category == CatNew && null annotations
       then openNew time
@@ -247,25 +247,24 @@ documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => SceneInputs t
             -> Event t [AppCommand]
             -> Document
-            -> m (Dynamic t Action, Dynamic t (Maybe EditorDocument)
+            -> m (Dynamic t Action, Dynamic t (Maybe Editor)
                  , Event t (DocPart, SceneEvent), Dynamic t DocParts)
 
-documentEditor input cmds loaded'  = do
+documentEditor input cmds document  = do
+
+  loadTime <- liftIO getCurrentTime
+  let editor0 = loadedDocument document loadTime
 
   rec
-    document <- holdDyn loaded edited
-    env <- ask
-    time <- liftIO getCurrentTime
-
-        
-    let (patch, edited) = split (attachWithMaybe (flip applyCmd') (current document) editCmd)
-        loaded = loadedDocument loaded' time
+    editor <- holdDyn editor0 edited
+    env   <- ask
+           
+    let (patch, edited) = split (attachWithMaybe (flip applyCmd') (current editor) editCmd)      
 
         clearCmd      = clearAnnotations <$ oneOf _ClearCmd cmds
-        setClassCmd   = attachWithMaybe setClassCommand (current document) (oneOf _ClassCmd cmds)
-        detectionsCmd = DocEdit . EditDetection <$> env ^. #detections
-
+        setClassCmd   = attachWithMaybe setClassCommand (current editor) (oneOf _ClassCmd cmds)
         editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd,  detectionsCmd]
+        detectionsCmd = DocEdit . EditDetection <$> view #detections env
 
   -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $ oneOf _SelectCmd cmds
@@ -274,18 +273,18 @@ documentEditor input cmds loaded'  = do
   history <- foldDyn (:) [] entry
 
   rec
-    annotations  <- holdIncremental (loaded ^. #annotations) (annotationsPatch <?> patch)
+    annotations  <- holdIncremental (editor0 ^. #annotations) (annotationsPatch <?> patch)
     let patched = patchIncremental annotations (maybePatch <$> pending)
-        pending = pendingEdit <$> document <*> action
+        pending = pendingEdit <$> editor <*> action
 
     -- logEvent (updated (pending <$> document <*> action))
 
     (action, sceneEvents) <- sceneView $ Scene
-      { image    = (loaded ^. #name, loaded ^. #info . #imageSize)
+      { image    = (document ^. #name, document ^. #info . #imageSize)
       -- , viewport = viewport
       , input       = input
-      , document    = document
-      , currentEdit = maybePatchDocument <$> pending <*> document
+      , editor      = editor
+      , currentEdit = maybePatchDocument <$> pending <*> editor
 
       , selection   = selection
       , annotations = patched
@@ -296,13 +295,13 @@ documentEditor input cmds loaded'  = do
       , preferences  = view #preferences env
       }
 
-  return (action, (withHistory <$> document <*> history), sceneEvents, selection)
+  return (action, (withHistory <$> editor <*> history), sceneEvents, selection)
     where 
-      withHistory doc entries = Just (doc & over #history (entries <>))
+      withHistory editor entries = Just (editor & #history .~ entries)
 
 
 
-pendingEdit :: EditorDocument -> Action -> Maybe DocumentPatch'
+pendingEdit :: Editor -> Action -> Maybe DocumentPatch'
 pendingEdit doc action = do
   edit <- action ^. #edit
   fst <$> applyEdit edit doc
@@ -385,22 +384,26 @@ navigationCmd :: Reflex t => Event t [AppCommand] -> (Event t (), Event t DocNam
 navigationCmd cmds = (void $ oneOf _SubmitCmd cmds, oneOf _OpenCmd cmds)
 
   
-saveCmd :: Reflex t => Event t [AppCommand] -> Dynamic t (Maybe EditorDocument) -> Event t SaveCommand
+saveCmd :: Reflex t => Event t [AppCommand] -> Dynamic t (Maybe Editor) -> Event t SaveCommand
 saveCmd cmds doc = leftmost [submit, autoSave] where
   submit = SubmitSave <$> oneOf _SubmitCmd cmds
   autoSave = (maybe False isModified <$> current doc) `gate` (AutoSave <$ oneOf _OpenCmd cmds)
 
-    
-   
 
-save :: Preferences -> (UTCTime, SaveCommand) -> EditorDocument -> Document
-save prefs (time, cmd) doc = toDocument (prefs ^. #threshold) $ doc
-      & setCat cmd
-      & #history %~ cons (time, HistoryClose)
+submission :: Preferences -> (UTCTime, SaveCommand) -> Editor -> Submission
+submission prefs (time, cmd) Editor{..} = Submission
+  { name
+  , history  = (time, HistoryClose) : history
+  , annotations = anns
+  , validArea
+  , category = case cmd of 
+      AutoSave         -> Nothing
+      (SubmitSave cat) -> Just cat
+  } 
 
   where 
-    setCat AutoSave         = id
-    setCat (SubmitSave cat) = #info . #category .~ cat
+    anns = toBasic <$> M.filter (thresholdDetection t) annotations
+    t = prefs ^. #detection . #threshold 
 
 withTime :: GhcjsBuilder t m => Event t a -> m (Event t (UTCTime, a))
 withTime e = performEvent $ ffor e $ \a -> do
@@ -408,16 +411,16 @@ withTime e = performEvent $ ffor e $ \a -> do
   return (time, a) 
     
 
-saveDocument :: GhcjsBuilder t m => Dynamic t Preferences -> Dynamic t (Maybe EditorDocument)
+saveDocument :: GhcjsBuilder t m => Dynamic t Preferences -> Dynamic t (Maybe Editor)
                         -> Event t SaveCommand -> m (Event t ClientMsg)
-saveDocument preferences document submit = do 
+saveDocument preferences editor submit = do 
   
   submitAt <- withTime submit 
   return $ fmap ClientSubmit <?> 
-    (f <$> current document <*> current preferences <@> submitAt)
+    (f <$> current editor <*> current preferences <@> submitAt)
 
   where
-    f doc prefs cat = save prefs cat <$> doc
+    f doc prefs cat = submission prefs cat <$> doc
 
 
 connectingDialog :: Builder t m => (Event t (), Event t ()) -> m ()
@@ -429,7 +432,7 @@ clientDetect :: Reflex t => Dynamic t (Maybe DocName) -> Event t [AppCommand] ->
 clientDetect docSelected cmds = fmap ClientDetect <?> (current docSelected `tag` oneOf _DetectCmd cmds)
 
 
-filterDocument :: Reflex t => Dynamic t (Maybe EditorDocument) -> Event t (DocName, a) -> Event t a
+filterDocument :: Reflex t => Dynamic t (Maybe Document) -> Event t (DocName, a) -> Event t a
 filterDocument d = attachWithMaybe f (current d) where
   f doc (k, a) = a <$ guard (fmap (view #name) doc == Just k)
 
@@ -450,9 +453,10 @@ bodyWidget host = mdo
 
       clientConfig = ClientConfig <$> oneOf _ConfigCmd cmds
 
-  clientSaves <- saveDocument preferences document (saveCmd cmds document)
+  clientSaves <- saveDocument preferences editor (saveCmd cmds editor)
   (docSelected, loaded, clientNav) <- manageDocument (void hello) serverMsg (navigationCmd cmds)
 
+  document <- holdDyn Nothing (Just <$> loaded)
   
   let classSelected = oneOf _ClassCmd cmds
       (hello, initPrefs, initConfig, initialStatus)  = split4 (preview _ServerHello <?> serverMsg)
@@ -481,10 +485,10 @@ bodyWidget host = mdo
       env = AppEnv{..}
 
   setTitle $ ffor docSelected $ \doc ->
-    "Annotate - " <> fromMaybe ("no document") doc
+    "Annotate - " <> fromMaybe ("no editor") doc
 
   connectingDialog (opened, void closed)
-  ((shortcuts, action, document, selection), cmds) <- flip runReaderT env $ runEventWriterT $ do
+  ((shortcuts, action, editor, selection), cmds) <- flip runReaderT env $ runEventWriterT $ do
 
     runWithClose $ leftmost
       [ runDialog <$> oneOf _DialogCmd cmds
@@ -495,7 +499,7 @@ bodyWidget host = mdo
     cursorLock action $ do
       div [class_ =: "scene expand"] $
         const <$> sceneWidget cmds loaded
-              <*> overlay shortcut document preferences
+              <*> overlay shortcut editor preferences
   return env
 
 runDialog :: AppBuilder t m => Dialog -> m (Event t ())
@@ -641,7 +645,7 @@ trainerTab = sidePane $ void $ do
 settingsTab :: AppBuilder t m => m ()
 settingsTab = sidePane $ do
   prefs <- view #preferences
-  doc   <- view #document
+  doc   <- view #editor
 
   groupPane "Interface settings" $ do
 
@@ -710,7 +714,7 @@ settingsTab = sidePane $ do
   spacer
 
 
-detectionSummary :: Maybe EditorDocument -> Float -> V2 Int
+detectionSummary :: Maybe Editor -> Float -> V2 Int
 detectionSummary Nothing    _         = V2 0 0
 detectionSummary (Just doc) threshold = sum $ summary <$> detections where
   summary Detection{..} = V2 (if confidence > threshold then 1 else 0) 1
@@ -750,8 +754,8 @@ sidebar = mdo
 selectedClass :: Reflex t => AppEnv t -> Dynamic t (Maybe ClassConfig)
 selectedClass AppEnv{config, currentClass} = M.lookup <$> currentClass <*> fmap (view #classes) config
 
-overlay :: forall t m. AppBuilder t m => EventSelector t Shortcut -> Dynamic t (Maybe EditorDocument) -> Dynamic t Preferences -> m ()
-overlay shortcut document prefs = row "expand  disable-cursor" $ do
+overlay :: forall t m. AppBuilder t m => EventSelector t Shortcut -> Dynamic t (Maybe Editor) -> Dynamic t Preferences -> m ()
+overlay shortcut editor prefs = row "expand  disable-cursor" $ do
   sidebar
   column "expand" $
     sequence_ [header, spacer, footer]
@@ -788,5 +792,5 @@ overlay shortcut document prefs = row "expand  disable-cursor" $ do
 
     buttonRow = row "p-2 spacing-4"
     --nonEmpty label = notNullOf (_Just . label . traverse)
-    fromDocument a f = fromMaybe a . fmap f <$> document
-    docOpen = isJust <$> document
+    fromDocument a f = fromMaybe a . fmap f <$> editor
+    docOpen = isJust <$> editor

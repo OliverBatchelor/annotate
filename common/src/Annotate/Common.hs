@@ -154,10 +154,25 @@ newtype NaturalKey = NaturalKey [Either (Int, Text) Text]
   deriving (Ord, Eq, Generic, Show)
 
 
+data DetectionStats = DetectionStats 
+  { score       :: Float
+  , classScore  :: Map ClassId Float
+  } deriving (Generic, Eq, Show)  
+
 data Detections = Detections 
   { detections :: [Detection]
   , networkId :: NetworkId
-  } deriving (Show, Eq, Generic)
+  , stats     :: DetectionStats
+  } deriving (Show,  Generic)
+
+
+data Submission = Submission 
+  { name        :: DocName
+  , annotations :: Map AnnotationId BasicAnnotation
+  , validArea   :: Maybe Box
+  , history :: [(UTCTime, HistoryEntry)]
+  , category :: Maybe ImageCat
+  } deriving (Generic, Show)
 
 
 data Document = Document
@@ -165,10 +180,10 @@ data Document = Document
   , info  :: DocInfo
   , annotations :: Map AnnotationId BasicAnnotation
   , validArea   :: Maybe Box
-
   , history :: [(UTCTime, HistoryEntry)]
   , detections :: Maybe Detections
-  } deriving (Generic, Show, Eq)
+  , trainingLoss   :: [Float]
+  } deriving (Generic, Show)
 
 
 data ImageCat = CatNew | CatTrain | CatTest | CatDiscard 
@@ -184,6 +199,8 @@ instance Show ImageCat where
 newtype Hash32 = Hash32 { unHash :: Word32 }
   deriving (Eq, Ord, Enum, Generic, Show)
 
+
+
 data DocInfo = DocInfo
   { hashedName :: Hash32
   , naturalKey :: NaturalKey
@@ -191,7 +208,12 @@ data DocInfo = DocInfo
   , numAnnotations :: Int
   , category    :: ImageCat
   , imageSize   :: (Int, Int)
-  } deriving (Generic, Show, Eq)
+
+  , detections :: Maybe DetectionStats
+  , lossMean   :: Float
+  , lossMax    :: Float
+
+  } deriving (Generic, Eq, Show)
 
 
 data ClassConfig = ClassConfig
@@ -265,7 +287,7 @@ data DetectionParams = DetectionParams
 
 data Collection = Collection
   { images :: Map DocName DocInfo
-  } deriving (Generic, Show, Eq)
+  } deriving (Generic, Show)
 
 
 data ErrCode
@@ -288,7 +310,7 @@ data ServerMsg
   | ServerError ErrCode
   | ServerDetection DocName Detections
   | ServerStatus TrainerStatus
-      deriving (Generic, Show, Eq)
+      deriving (Generic, Show)
 
  
 data Progress = Progress { activity :: TrainerActivity, progress :: (Int, Int) }
@@ -350,13 +372,13 @@ data ConfigUpdate
 
 data ClientMsg
   = ClientNav NavId Navigation
-  | ClientSubmit Document
+  | ClientSubmit Submission
   | ClientDetect DocName
   | ClientConfig ConfigUpdate
   | ClientPreferences Preferences
   | ClientCollection
   | ClientCommand UserCommand
-      deriving (Generic, Show, Eq)
+      deriving (Generic, Show)
 
 
 dropCamel :: String -> String
@@ -396,6 +418,7 @@ instance FromJSON ShapeTag        where parseJSON = Aeson.genericParseJSON optio
 instance FromJSON Detection   where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Detections   where parseJSON = Aeson.genericParseJSON options
 
+
 instance FromJSON AnnotationPatch where parseJSON = Aeson.genericParseJSON options
 instance FromJSON HistoryEntry    where parseJSON = Aeson.genericParseJSON options
 
@@ -407,12 +430,17 @@ instance FromJSON ConfigUpdate  where parseJSON = Aeson.genericParseJSON options
 instance FromJSON NaturalKey    where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON Document     where parseJSON = Aeson.genericParseJSON options
+instance FromJSON Submission     where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Config       where parseJSON = Aeson.genericParseJSON options
+
+instance FromJSON DetectionStats      where parseJSON = Aeson.genericParseJSON options
+
 instance FromJSON DocInfo      where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Collection   where parseJSON = Aeson.genericParseJSON options
 instance FromJSON ServerMsg    where parseJSON = Aeson.genericParseJSON options
 instance FromJSON ClientMsg    where parseJSON = Aeson.genericParseJSON options
 instance FromJSON ErrCode      where parseJSON = Aeson.genericParseJSON options
+
 
 instance FromJSON Progress      where parseJSON = Aeson.genericParseJSON options
 instance FromJSON TrainerStatus where parseJSON = Aeson.genericParseJSON options
@@ -449,7 +477,12 @@ instance ToJSON Navigation    where toJSON = Aeson.genericToJSON options
 instance ToJSON ConfigUpdate  where toJSON = Aeson.genericToJSON options
 instance ToJSON NaturalKey    where toJSON = Aeson.genericToJSON options
 instance ToJSON Document  where toJSON = Aeson.genericToJSON options
+instance ToJSON Submission  where toJSON = Aeson.genericToJSON options
+
 instance ToJSON Config    where toJSON = Aeson.genericToJSON options
+
+instance ToJSON DetectionStats   where toJSON = Aeson.genericToJSON options
+
 instance ToJSON DocInfo   where toJSON = Aeson.genericToJSON options
 instance ToJSON Collection  where toJSON = Aeson.genericToJSON options
 instance ToJSON ServerMsg   where toJSON = Aeson.genericToJSON options
@@ -516,6 +549,12 @@ instance Default DetectionParams where
     { nms = 0.5
     , threshold = 0.05
     , detections = 100
+    }
+
+instance Default DetectionStats where
+  def = DetectionStats 
+    { score      = 0
+    , classScore = mempty
     }
 
 newClass :: ClassId -> ClassConfig

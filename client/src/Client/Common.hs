@@ -1,13 +1,13 @@
 module Client.Common
   ( module Client.Common
-  , module Annotate.Document
+  , module Annotate.Editor
   , module Reflex.Classes
   , Key
   ) where
 
 import Annotate.Prelude hiding ((<>))
 import Annotate.Common
-import Annotate.Document
+import Annotate.Editor
 import Annotate.Colour
 
 import Control.Monad.Reader
@@ -138,16 +138,15 @@ instance Default Action where
 
 data AppEnv t = AppEnv
   { basePath :: Text
-  , document :: (Dynamic t (Maybe EditorDocument))
+  , document :: (Dynamic t (Maybe Document))
+  , editor :: (Dynamic t (Maybe Editor))
   , config :: (Dynamic t Config)
   , preferences :: (Dynamic t Preferences)
   , currentClass :: (Dynamic t ClassId)
   , docSelected  :: (Dynamic t (Maybe DocName))
   , shortcut     :: (EventSelector t Shortcut)
   , selection    ::  (Dynamic t DocParts)
-
   , collection :: (Dynamic t Collection)
-
   , loaded     :: Event t Document
   , detections :: Event t [Detection]
   , trainerStatus :: Dynamic t TrainerStatus

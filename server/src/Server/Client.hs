@@ -76,6 +76,12 @@ clientLoop env conn = do
         clientLog env (" <- " <> show msg)
         processMsg env msg
 
+lookupDocument :: ClientEnv -> DocName -> STM (Maybe Document)
+lookupDocument env k = do
+  store <- readLog (env ^. #store)
+  return $ M.lookup k (store ^. #images)
+
+
 processMsg :: ClientEnv -> ClientMsg -> STM ()
 processMsg env@ClientEnv{store, clientId, userId} msg = do
   time <- getCurrentTime'
@@ -85,11 +91,13 @@ processMsg env@ClientEnv{store, clientId, userId} msg = do
         NavTo k  -> navTo   env navId k
         NavNext  -> navNext env navId
 
-
-    ClientSubmit doc -> void $ do
-      updateLog store (CmdSubmit doc time)
-      broadcastUpdate env (doc ^. #name)
-      sendTrainer (upcast env) (TrainerUpdate (doc ^. #name) (Just (exportImage doc)))
+    ClientSubmit submission -> void $ do
+      updateLog store (CmdSubmit submission time)
+      mDoc <- lookupDocument env (submission ^. #name)   
+      
+      for_ mDoc $ \doc -> do
+        sendTrainer (upcast env) (TrainerUpdate (submission ^. #name) (Just (exportImage doc)))
+        broadcastInfo env (submission ^. #name) (doc ^. #info)
 
     ClientDetect k -> do
       prefs <- userPreferences userId <$> readLog store
