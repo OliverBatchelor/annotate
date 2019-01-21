@@ -45,7 +45,13 @@ html, body {
   position: absolute;
 } */
 
+.view:focus {
+  border: black 2px solid;
+}
 
+.view:not(:focus) {
+  border: darkgray 2px solid;
+}
 
 .disable-cursor {
   pointer-events:none;
@@ -200,9 +206,16 @@ html, body {
 
 
 .selected {
-  fill-opacity: 0.3;
+  fill-opacity: 0.3 !important;
+  fill: black !important;
   z-index: 1;
 }
+
+
+.marginal {
+  stroke-dasharray: 5, 5;
+}
+
 
 .shape {
   vector-effect: non-scaling-stroke;
@@ -228,10 +241,6 @@ html, body {
   transition: none;
 }​
 
-
-.marginal {
-  stroke-dasharray: 5, 5;
-}
 
 
 .shadow {

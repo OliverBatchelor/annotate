@@ -65,6 +65,7 @@ data Command where
   CmdPreferences  :: UserId -> Preferences -> Command
   CmdDetections   :: Map DocName Detections -> Command
   CmdSubmit       :: Submission -> UTCTime  -> Command
+  CmdTraining     :: Map DocName [TrainSummary] -> Command
     deriving (Show, Generic)
 
 
@@ -129,12 +130,13 @@ data ToTrainer
     deriving (Show, Generic)
 
 data FromTrainer
-  =  TrainerDetections DetectRequest DocName Detections
-  | TrainerDetectionsMany (Map DocName Detections)
+  = TrainerDetectRequest DetectRequest DocName Detections
   | TrainerReqError DetectRequest DocName Text
   | TrainerError Text
   | TrainerCheckpoint NetworkId Float Bool
   | TrainerProgress (Maybe Progress)
+  | TrainerDetections (Map DocName Detections)
+  | TrainerTraining (Map DocName [TrainSummary])
     deriving (Show, Generic)
 
 
@@ -182,7 +184,7 @@ instance ToJSON ToTrainer where toJSON = Aeson.genericToJSON options
 instance ToJSON FromTrainer where toJSON = Aeson.genericToJSON options
 instance ToJSON TrainCollection where toJSON = Aeson.genericToJSON options
 instance ToJSON TrainImage where toJSON = Aeson.genericToJSON options
- 
+
 
 
 -- Collection of miscellaneous utilities / common functions
@@ -220,11 +222,16 @@ trainerConnected :: ClientEnv -> STM Bool
 trainerConnected env = isJust <$> readTVar (env ^. #trainer)
 
 
+truncate :: String -> String
+truncate str = if length str > 460
+  then take 460 str <> "..."
+  else str
+
 sendTrainer' :: Env -> Maybe ToTrainer -> STM Bool
 sendTrainer' env msg = do
   mt <- readTVar (env ^. #trainer)
   for_ mt $ \trainer -> do
-    writeLog env ("trainer -> " <> show msg)
+    writeLog env ("trainer -> " <> truncate (show msg))
     writeTChan (trainer ^. #connection) msg
   return (isJust mt)
 
@@ -252,11 +259,10 @@ withClient_ ClientEnv{clients, clientId}  f = do
 
 sendClient :: ClientEnv -> ServerMsg -> STM ()
 sendClient env msg = void $ do
-  clientLog env (" -> " <> show msg)
+  clientLog env (" -> " <> truncate (show msg))
 
   withClient env $ \Client {..} ->
     writeTChan connection (Just msg)
-
 
 
 
@@ -268,7 +274,7 @@ withClient' Env{clients} clientId  f = do
 
 sendClient' :: Env -> ClientId -> ServerMsg -> STM ()
 sendClient' env clientId msg = void $ do
-  writeLog env (show clientId <> " -> " <> show msg)
+  writeLog env (show clientId <> " -> " <> truncate (show msg))
 
   withClient' env clientId $ \Client{connection} ->
     writeTChan connection (Just msg)
@@ -277,7 +283,7 @@ sendClient' env clientId msg = void $ do
 
 broadcast :: Env -> ServerMsg -> STM ()
 broadcast env msg = do
-  writeLog env ("* -> " <> show msg)
+  writeLog env ("* -> " <> truncate (show msg))
 
   clients <- readTVar (env ^. #clients)
   for_ clients $ \Client {..} ->
@@ -304,9 +310,21 @@ withClientEnv env clientId f = do
 
 
 
+withImages :: Env -> (Map DocName Document -> a) -> STM a
+withImages env f = f . view #images <$> readLog (env ^. #store)
 
-lookupDoc :: DocName -> Store -> Maybe Document
-lookupDoc k Store{..} = M.lookup k images
+
+lookupDocument :: Env -> DocName -> STM (Maybe Document)
+lookupDocument env k = withImages env (M.lookup k)
+
+documentMap :: [Document] -> Map DocName Document
+documentMap = M.fromList . fmap toKey where
+  toKey doc = (doc ^. #name, doc)
+
+lookupDocuments :: Env -> [DocName] -> STM (Map DocName Document)
+lookupDocuments env ks = withImages env (documentMap . findImages) where
+  findImages images = catMaybes $ flip M.lookup images <$> ks    
+
 
 getCollection :: Store -> Collection
 getCollection Store{..} = Collection $ view #info <$> images
@@ -319,8 +337,6 @@ getCurrentTime' = unsafeIOToSTM getCurrentTime
 makeNaturalKey :: DocName -> NaturalKey
 makeNaturalKey filename = fromMaybe
   (error "failed to parse sort key!") (parseMaybe parseNaturalKey (Text.unpack filename))
-
-
 
 
 
@@ -340,17 +356,11 @@ type Parser = Parsec Void String
 
 
 defaultInfo :: Dim -> DocName -> DocInfo
-defaultInfo dim filename = DocInfo
-  { naturalKey = makeNaturalKey filename
-  , hashedName = Hash32 (fromIntegral (hash filename))
-  , modified = Nothing
-  , category = CatNew
-  , imageSize = dim
-  , numAnnotations = 0
-  , detections = def
-  , lossMax = 0
-  , lossMean = 0
-  }
+defaultInfo dim filename = def 
+    & #naturalKey .~ makeNaturalKey filename
+    & #hashedName .~ Hash32 (fromIntegral (hash filename))
+    & #imageSize  .~ dim
+
 
 instance Default TrainerState where
   def =  TrainerState

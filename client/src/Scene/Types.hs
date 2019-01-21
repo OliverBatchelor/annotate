@@ -31,6 +31,8 @@ data SceneInputs t = SceneInputs
   , keyDown :: !(Key -> Event t ())
   , keyPress :: !(Key -> Event t ())
 
+  , localKey :: !(Key -> Event t ())
+
   , keysDown    :: !(Event t Key)
   , keysUp      :: !(Event t Key)
   , keysPressed :: !(Event t Key)

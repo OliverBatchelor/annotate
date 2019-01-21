@@ -39,7 +39,6 @@ import Server.Common
 
 import Image
 
-
 -- Initialisation and servant server configuration
 type Api =
   "clients" :> Raw
@@ -50,8 +49,8 @@ type Api =
 server :: FilePath -> Env -> Server Api
 server root env =
   withDefault (clientServer env)
-    :<|> serveDirectoryWebApp root
-    :<|> serveDirectoryWebApp "html"
+    :<|> serveDirectoryFileServer root
+    :<|> serveDirectoryFileServer "html"
 
 
 withDefault :: WS.ServerApp -> Server Raw

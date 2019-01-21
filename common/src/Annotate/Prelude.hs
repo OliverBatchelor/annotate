@@ -36,7 +36,7 @@ import Control.Lens as X
   , Lens, Lens', Traversal, Traversal'
   , at, ix, _1, _2, _3, _4
   , _Just, _Nothing, _Left, _Right
-
+  , cons, _head
   , imap, ifor, itraverse, ifor_, itraverse_
   )
 import Data.Aeson as X

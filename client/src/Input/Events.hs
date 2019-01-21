@@ -40,6 +40,9 @@ data Inputs t = Inputs
 
   , wheel     :: Event t Float
   , focus     :: Event t Bool
+
+
+  , localKey  :: Event t Key
   , keyDown   :: Event t Key
   , keyUp   :: Event t Key
   , keyPress :: Event t Key
@@ -88,12 +91,20 @@ pollBoundingBox e = do
   holdUniqDyn =<< holdDyn initial updates
 
 
+onCapturing :: (DOM.IsEventTarget t, DOM.IsEvent e) => t -> DOM.EventName t e -> DOM.EventM t e () -> DOM.JSM (DOM.JSM ())
+onCapturing target eventName callback = do
+    l <- DOM.newListener callback
+    DOM.addListener target eventName l True
+    return $ do
+      DOM.removeListener target eventName l True
+      DOM.releaseListener l
+
     
 
 windowInputs :: (GhcjsBuilder t m) => ElemType t m -> m (Inputs t)
 windowInputs scene = do
   
-  window <- DOM.currentWindowUnchecked
+  window <- DOM.currentDocumentUnchecked
   raw <- rawElement scene
 
   -- Mouse down events on the element
@@ -116,13 +127,16 @@ windowInputs scene = do
   focusOut <- wrapDomEvent window   (`DOM.on` DOM.blur) (return False)
 
 
-  keyDown <- wrapDomEvent window    (`DOM.on` DOM.keyDown)
+  localKey <- wrapDomEvent raw    (`DOM.on` DOM.keyDown)
       (keyCodeLookup . fromIntegral <$> getKeyEvent)
 
-  keyUp <- wrapDomEvent window    (`DOM.on` DOM.keyUp)
+  keyDown <- wrapDomEvent raw    (`onCapturing` DOM.keyDown)
+    (keyCodeLookup . fromIntegral <$> getKeyEvent)
+
+  keyUp <- wrapDomEvent window    (`onCapturing` DOM.keyUp)
       (keyCodeLookup . fromIntegral <$> getKeyEvent)
  
-  keyPress <- wrapDomEvent window    (`DOM.on` DOM.keyPress)
+  keyPress <- wrapDomEvent window    (`onCapturing` DOM.keyPress)
           (keyCodeLookup . fromIntegral <$> getKeyEvent)
 
 

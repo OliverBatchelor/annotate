@@ -54,7 +54,11 @@ sendTrainerStatus env = do
   broadcast env (ServerStatus status)
 
 updateDetections :: Env -> Map DocName Detections -> STM ()
-updateDetections Env{store} m = updateLog store $ CmdDetections m
+updateDetections env@Env{store} m = do 
+  updateLog store $ CmdDetections m
+  docs <- lookupDocuments env (M.keys m)
+  broadcast env $
+    ServerUpdateDetections (M.mapMaybe (view (#info . #detections)) docs)
 
 trainerLoop :: Env -> WS.Connection ->  IO ()
 trainerLoop env@Env{store} conn = do
@@ -74,12 +78,12 @@ trainerLoop env@Env{store} conn = do
           Left err  -> do
             writeLog env ("trainer <- error decoding " <> unpackBS str <> ", " <> err)
           Right msg -> do
-            writeLog env ("trainer <- " <> show msg)
+            writeLog env ("trainer <- " <> truncate (show msg))
             processMsg msg
 
       processMsg :: FromTrainer -> STM ()
       processMsg = \case
-        TrainerDetections req k detections -> do
+        TrainerDetectRequest req k detections -> do
           updateDetections env $ M.singleton k detections 
 
           case req of
@@ -88,11 +92,9 @@ trainerLoop env@Env{store} conn = do
             DetectLoad navId clientId -> withDocument env k $ \doc ->
                 sendClient' env clientId (ServerDocument navId doc)
             DetectPre -> return()
+      
 
-        TrainerDetectionsMany m -> updateDetections env m
-          
-
-        TrainerReqError req k err ->
+        TrainerReqError req k err -> 
           case req of
             DetectClient clientId -> sendClient' env clientId (ServerError (ErrTrainer err))
             DetectLoad navId clientId -> withDocument env k $ \doc ->
@@ -105,6 +107,15 @@ trainerLoop env@Env{store} conn = do
         TrainerCheckpoint (run, epoch) score best ->
           updateLog store $ CmdCheckpoint $ Checkpoint (run, epoch) score best
           -- withClientEnvs env detectNext
+
+        TrainerDetections m -> updateDetections env m          
+
+        TrainerTraining summary -> do
+          updateLog store $ CmdTraining summary
+          docs <- lookupDocuments env (M.keys summary)
+
+          broadcast env $
+            ServerUpdateTraining (view (#info . #training) <$> docs)
 
         TrainerProgress progress -> do
 

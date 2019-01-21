@@ -264,7 +264,12 @@ data ShapeProperties t = ShapeProperties
 
 shapeAttributes :: Reflex t => Text -> ShapeProperties t -> [Property t]
 shapeAttributes shapeType ShapeProperties{selected, hidden, colour, marginal} =
-    [ classList [pure shapeType, "shape", defaults "selected" . isJust <$> selected, "marginal" `gated` marginal]
+    [ classList 
+      [ pure shapeType
+      , "shape"
+      , defaults "selected" . isJust <$> selected
+      , "marginal" `gated` marginal
+      ]
     , style_ ~: style <$> colour
     , pointer_events_ =: "visiblePainted"]
   where
@@ -543,7 +548,7 @@ actions scene@Scene{..} = holdWorkflow $
     let beginPan    = pan <$> mouseDownAt
         beginSelectRect = rectSelect <$> gate (current holdingShift) mouseDownAt
 
-        beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` keyDown drawKey
+        beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` localKey drawKey
         beginDragSelection   = filterMaybe $ drag <$> current mouse <*> current editor <@> selectionClick
 
     viewCommand zoomCmd

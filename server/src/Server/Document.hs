@@ -11,7 +11,7 @@ import Control.Concurrent.Log
 
 import Control.Lens
 
-import Data.List (splitAt, elemIndex)
+import Data.List (splitAt, elemIndex, takeWhile, dropWhile)
 
 
 minSet :: Ord a => Set a -> Maybe a
@@ -50,25 +50,41 @@ rotateFrom current ks = fromMaybe ks $ do
   return (drop 1 (rotate i ks))
 
 
-sortAll :: SortOptions ->  Set DocName ->  Map DocName Document  -> [DocName]
-sortAll sortOptions openDocs = filter inUse . fmap fst . sortImages sortOptions . M.toList . M.map (view #info)
-   where inUse k = S.notMember k openDocs
+selectionKey :: ImageSelection -> (Bool, SortKey)
+selectionKey = \case 
+    SelSequential rev -> (not rev, SortName)
+    SelRandom         -> (True, SortRandom)
+    SelDetections rev -> (not rev, SortDetections)
+    SelLoss           -> (True, SortLossMax)
 
+selectingMax :: ImageSelection -> Bool
+selectingMax = \case
+  SelRandom       -> False
+  SelSequential _ -> False
+  _             -> True
+
+sortSelection :: SortOptions -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
+sortSelection SortOptions{..} = sortImagesBy (negFilter, filtering) search (selectionKey selection)
   
+
+sortAll :: SortOptions ->  Map DocName Document  -> [DocName]
+sortAll sortOptions = fmap fst . sortSelection sortOptions . M.toList . M.map (view #info)
+         
+
 findNext :: Env -> SortOptions -> Maybe DocName ->  STM [DocName]
 findNext Env{..} sortOptions current = do
   images <- view #images <$> readLog store
   openDocs  <- readTVar documents
 
-  return $ rotateFrom current (sortAll sortOptions (usedSet openDocs) images)
+  return $ filter (inUse openDocs) $ nextFrom (sortAll sortOptions images)
     where
-      usedSet m = fromMaybe id (S.delete <$> current) $ M.keysSet m
+      nextFrom = if selectingMax (sortOptions ^. #selection) 
+          then dropWhile ((== current) . Just) else rotateFrom current
 
+      inUse openDocs k = not (M.member k openDocs)
 
 withDocument :: Env -> DocName -> (Document -> STM ()) -> STM ()
-withDocument env k f = do
-  store <- readLog (env ^. #store)
-  traverse_ f (lookupDoc k store)
+withDocument env k f = lookupDocument env k >>= traverse_ f
 
 
 openDocument :: ClientEnv -> DocName -> STM ()
@@ -92,13 +108,12 @@ clientDocument :: ClientId -> Traversal' (Map ClientId Client) DocName
 clientDocument clientId = ix clientId . #document . traverse
 
 
-broadcastUpdate :: ClientEnv -> DocName -> STM ()
-broadcastUpdate env@ClientEnv{..} k = do
-  mDoc <- lookupDoc k <$> readLog store
-  forM_ mDoc $ broadcastInfo env k . view #info
+broadcastUpdate :: Env -> DocName -> STM ()
+broadcastUpdate env k = withDocument env k $ 
+  broadcastInfo env k . view #info
 
-broadcastInfo :: ClientEnv -> DocName -> DocInfo -> STM ()
-broadcastInfo env k = broadcast (upcast env) . ServerUpdateInfo k 
+broadcastInfo :: Env -> DocName -> DocInfo -> STM ()
+broadcastInfo env k = broadcast env . ServerUpdateInfo k 
 
 closeDocument :: ClientEnv -> STM ()
 closeDocument env@ClientEnv{..}  = preview (clientDocument clientId) <$> readTVar clients >>= traverse_ withDoc

@@ -29,6 +29,7 @@ row_ :: Builder t m => Text -> m a -> m (ElemType t m)
 row_ classes children = div_ [classes_ =: ["d-flex flex-row", classes]] (void children)
 
 
+
 spacer :: Builder t m => m ()
 spacer = void $ div_ [class_ =: "m-auto"] blank
 
@@ -66,8 +67,23 @@ icon IconConfig{..} = i [ classes_ ~: activeList ["mdi", (mappend "mdi-") <$> na
       IconMed   -> "mdi-36px"
       IconLarge -> "mdi-48px"
 
+tinyIcon ::  Builder t m => Active t Text -> m ()
+tinyIcon name = icon $ IconConfig name IconTiny
+      
+
+smallIcon ::  Builder t m => Active t Text -> m ()
+smallIcon name = icon $ IconConfig name IconSmall
+
+medIcon ::  Builder t m => Active t Text -> m ()
+medIcon name = icon $ IconConfig name IconMed
+
+centreRow :: Builder t m => m a -> m a
+centreRow = row "align-items-center spacing-2"
+
+
+
 iconTextH :: Builder t m => Text -> IconConfig t -> m ()
-iconTextH t conf = row "align-items-center spacing-2" $ do
+iconTextH t conf = centreRow $ do
   icon conf
   span [] $ text t
 
@@ -138,13 +154,13 @@ timeout (down, up) time = do
   switchHold never $  pushAlways (const gateDelay) down
 
 
-selectOption' :: (Eq a, Builder t m) => [Property t] -> [(Text, a)] -> a -> Event t a -> m (Dynamic t a)
+selectOption' :: (Eq a, Builder t m, Show a) => [Property t] -> [(Text, a)] -> a -> Event t a -> m (Dynamic t a)
 selectOption' props options initial setter = fmap fromText . _selectElement_value <$>
     selectElem_  props config (traverse_ makeOption options)
 
     where
       fromText t = fromMaybe initial (lookup t options)
-      toText a   = fromMaybe (error "selectOption: missing value") $
+      toText a   = fromMaybe (error $ "selectOption, missing value: " <> show a) $
         lookup a (swap <$> options)
 
       makeOption (t, _) = option [value_ =: t] $ text t
@@ -152,23 +168,23 @@ selectOption' props options initial setter = fmap fromText . _selectElement_valu
                     & selectElementConfig_setValue .~ (toText <$> setter)
 
 
-selectOption :: (Eq a, Builder t m) =>  [(Text, a)] -> a -> Event t a -> m (Dynamic t a)
+selectOption :: (Eq a, Builder t m, Show a) =>  [(Text, a)] -> a -> Event t a -> m (Dynamic t a)
 selectOption = selectOption' [class_ =: "custom-select"]
 
 
 -- selectOption :: Builder t m => [Property t] -> [(Text, a)] -> a -> Event t a -> m (Dynamic t a)
-selectView' :: (Builder t m, Eq a) => [Property t]  -> [(Text, a)] -> Dynamic t a -> m (Event t a)
+selectView' :: (Builder t m, Eq a, Show a) => [Property t]  -> [(Text, a)] -> Dynamic t a -> m (Event t a)
 selectView' props options = toView (selectOption' props options option)
   where option = snd (L.head options)
 
-selectView :: (Builder t m, Eq a) => [(Text, a)] -> Dynamic t a -> m (Event t a)
+selectView :: (Builder t m, Eq a, Show a) => [(Text, a)] -> Dynamic t a -> m (Event t a)
 selectView = selectView' [class_ =: "custom-select"]
 
 
 
 labelled :: Builder t m => Text -> m a -> m a
 labelled t inner = row "align-items-stretch " $ do
-  label [class_ =: "grow-1 align-self-center"] $ text t
+  label [class_ =: "grow-1 align-self-center m-0"] $ text t
   div [class_ =: "grow-2"] inner
 
 toView :: (Builder t m, Eq a) => (Event t a -> m (Dynamic t a)) -> Dynamic t a -> m (Event t a)

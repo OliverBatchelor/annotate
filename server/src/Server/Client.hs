@@ -73,14 +73,9 @@ clientLoop env conn = do
         sendClient env (ServerError (ErrDecode (fromString err)))
 
       Right msg -> do
-        clientLog env (" <- " <> show msg)
+        clientLog env (" <- " <> truncate (show msg))
         processMsg env msg
-
-lookupDocument :: ClientEnv -> DocName -> STM (Maybe Document)
-lookupDocument env k = do
-  store <- readLog (env ^. #store)
-  return $ M.lookup k (store ^. #images)
-
+  
 
 processMsg :: ClientEnv -> ClientMsg -> STM ()
 processMsg env@ClientEnv{store, clientId, userId} msg = do
@@ -93,11 +88,11 @@ processMsg env@ClientEnv{store, clientId, userId} msg = do
 
     ClientSubmit submission -> void $ do
       updateLog store (CmdSubmit submission time)
-      mDoc <- lookupDocument env (submission ^. #name)   
+      mDoc <- lookupDocument (upcast env) (submission ^. #name)   
       
       for_ mDoc $ \doc -> do
         sendTrainer (upcast env) (TrainerUpdate (submission ^. #name) (Just (exportImage doc)))
-        broadcastInfo env (submission ^. #name) (doc ^. #info)
+        broadcastInfo (upcast env) (submission ^. #name) (doc ^. #info)
 
     ClientDetect k -> do
       prefs <- userPreferences userId <$> readLog store
@@ -121,17 +116,10 @@ processMsg env@ClientEnv{store, clientId, userId} msg = do
       sendTrainer (upcast env) (UserCommand cmd)
 
 
+bestNetwork :: Env -> STM NetworkId
+bestNetwork Env{store} = bestModel . view #trainer <$> readLog store
 
-needsDetect :: Store -> DocName -> Bool
-needsDetect store k = isJust $ do
-    Document{detections} <- M.lookup k (store ^. #images)
-    guard ((view #networkId <$> detections) /= Just netId)
 
-  where netId = bestModel (store ^.  #trainer)
-
--- detectNext :: ClientEnv -> STM ()
--- detectNext env = void $ withNav env $ \prefs doc next ->
---   detectRequest env (prefs ^. #detection) (maybeToList doc <> take 2 next)
 
 detectRequest :: ClientEnv -> DetectRequest -> DocName -> STM Bool
 detectRequest env@ClientEnv{userId, store} req k = do
@@ -141,16 +129,19 @@ detectRequest env@ClientEnv{userId, store} req k = do
 
 navTo :: ClientEnv -> NavId -> DocName -> STM ()
 navTo env navId k = do
-  store <- readLog (env ^. #store)
-  case lookupDoc k store of
+  net <- bestNetwork (upcast env)
+
+  lookupDocument (upcast env) k >>= \case 
     Nothing  -> sendClient env (ServerError (ErrNotFound navId k))
     Just doc -> do
       openDocument env k
       hasTrainer <- trainerConnected env
-      if needsDetect store k && hasTrainer
+      if latestDetect doc /= Just net && hasTrainer
         then void $ detectRequest env (DetectLoad navId (env ^. #clientId)) k
         else sendClient env (ServerDocument navId doc)
 
+latestDetect :: Document -> Maybe NetworkId
+latestDetect = preview (#detections . traverse . #networkId)
 
 navNext :: ClientEnv -> NavId -> STM ()
 navNext env navId = do

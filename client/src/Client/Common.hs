@@ -67,6 +67,7 @@ data PrefCommand
 
   | SetPrefs Preferences
   | SetSort SortCommand
+
   | SetAutoDetect Bool
 
   deriving (Generic, Show)
@@ -74,8 +75,10 @@ data PrefCommand
 
 data SortCommand
   = SetSortKey SortKey
+  | SetImageSelection ImageSelection
   | SetReverse Bool
   | SetFilter FilterOption
+  | SetNegFilter Bool
   | SetSearch Text
   deriving (Generic, Show)
 
@@ -97,6 +100,8 @@ data AppCommand
   | PrefCmd PrefCommand
   | TrainerCmd UserCommand
 
+  | NavCmd Navigation 
+
   deriving (Generic, Show)
 
 
@@ -116,9 +121,9 @@ data Shortcut a where
   ShortRedo   :: Shortcut ()
   ShortDelete :: Shortcut ()
   ShortSelect :: Shortcut Bool
-  ShortArea   :: Shortcut ()
+  ShortArea      :: Shortcut ()
   ShortSelectAll :: Shortcut ()
-  ShortClass  :: Shortcut ()
+  ShortClass     :: Shortcut ()
 
 type Cursor = Text
 
@@ -140,16 +145,20 @@ data AppEnv t = AppEnv
   { basePath :: Text
   , document :: (Dynamic t (Maybe Document))
   , editor :: (Dynamic t (Maybe Editor))
+
+  , modified :: Dynamic t Bool
   , config :: (Dynamic t Config)
   , preferences :: (Dynamic t Preferences)
   , currentClass :: (Dynamic t ClassId)
   , docSelected  :: (Dynamic t (Maybe DocName))
   , shortcut     :: (EventSelector t Shortcut)
   , selection    ::  (Dynamic t DocParts)
-  , collection :: (Dynamic t Collection)
+  , collection :: (Dynamic t Collection) 
   , loaded     :: Event t Document
   , detections :: Event t [Detection]
   , trainerStatus :: Dynamic t TrainerStatus
+
+  , clock        :: Dynamic t UTCTime
 
   } deriving Generic
 

@@ -181,16 +181,16 @@ sceneWidget :: forall t m. (GhcjsAppBuilder t m)
                  , Dynamic t (Maybe Editor), Dynamic t DocParts)
 
 sceneWidget cmds loaded = do
-
+  
   dim <- holdDyn (800, 600) (view (#info . #imageSize) <$> loaded)
   viewport <- viewControls cmds dim
 
-  rec
+ 
+  rec 
     input <- holdInputs (current viewport) sceneEvents =<< windowInputs element
     let (action, maybeDoc, sceneEvents, selection) = r
-
-
-    (element, r) <- Svg.svg' [class_ =: "expand enable-cursor", version_ =: "2.0"] $ do
+ 
+    (element, r) <- Svg.svg' [class_ =: "expand enable-cursor view", tabindex_ =: 0, version_ =: "2.0"] $ do
         sceneDefines viewport =<< view #preferences
 
         inViewport viewport $ replaceHold'
@@ -198,9 +198,7 @@ sceneWidget cmds loaded = do
 
   return (matchShortcuts input, action, maybeDoc, selection)
 
-
-
-
+ 
 annotationsPatch :: DocumentPatch' -> Maybe (PatchMap AnnotationId Annotation)
 annotationsPatch = fmap PatchMap . preview _PatchAnns'
 
@@ -241,7 +239,8 @@ loadedDocument doc@Document{info, annotations, detections} time = maybeOpen (edi
 
     maybeOpen = fromMaybe (openDocument time) (f . view #detections <$> detections)
     
-
+delayEvent :: Builder t m => Event t a -> m (Event t a)
+delayEvent e = performEvent (return <$> e)
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => SceneInputs t
@@ -294,12 +293,14 @@ documentEditor input cmds document  = do
       , shortcut     = view #shortcut env
       , preferences  = view #preferences env
       }
+    
+
 
   return (action, (withHistory <$> editor <*> history), sceneEvents, selection)
     where 
       withHistory editor entries = Just (editor & #history .~ entries)
 
-
+ 
 
 pendingEdit :: Editor -> Action -> Maybe DocumentPatch'
 pendingEdit doc action = do
@@ -383,11 +384,12 @@ data SaveCommand = AutoSave | SubmitSave ImageCat
 navigationCmd :: Reflex t => Event t [AppCommand] -> (Event t (), Event t DocName)
 navigationCmd cmds = (void $ oneOf _SubmitCmd cmds, oneOf _OpenCmd cmds)
 
+
   
-saveCmd :: Reflex t => Event t [AppCommand] -> Dynamic t (Maybe Editor) -> Event t SaveCommand
-saveCmd cmds doc = leftmost [submit, autoSave] where
+saveCmd :: Reflex t => Event t [AppCommand] -> Dynamic t Bool -> Event t SaveCommand
+saveCmd cmds modified = leftmost [submit, autoSave] where
   submit = SubmitSave <$> oneOf _SubmitCmd cmds
-  autoSave = (maybe False isModified <$> current doc) `gate` (AutoSave <$ oneOf _OpenCmd cmds)
+  autoSave = current modified `gate` (AutoSave <$ oneOf _OpenCmd cmds)
 
 
 submission :: Preferences -> (UTCTime, SaveCommand) -> Editor -> Submission
@@ -399,11 +401,9 @@ submission prefs (time, cmd) Editor{..} = Submission
   , category = case cmd of 
       AutoSave         -> Nothing
       (SubmitSave cat) -> Just cat
-  } 
+  } where 
+    anns = toBasic <$> M.filter (thresholdDetection (prefs ^. #threshold)) annotations
 
-  where 
-    anns = toBasic <$> M.filter (thresholdDetection t) annotations
-    t = prefs ^. #detection . #threshold 
 
 withTime :: GhcjsBuilder t m => Event t a -> m (Event t (UTCTime, a))
 withTime e = performEvent $ ffor e $ \a -> do
@@ -437,6 +437,21 @@ filterDocument d = attachWithMaybe f (current d) where
   f doc (k, a) = a <$ guard (fmap (view #name) doc == Just k)
 
 
+makeTitle :: Maybe Document -> Bool -> Text
+makeTitle maybeDoc modified = "Annotate - " <> fromMaybe "no document" (titleText <$> maybeDoc) where
+  titleText Document{name, info} = T.concat 
+    [ name
+    , "(", showText (info ^. #category), ") "
+    ,  if modified then " - modified" else ""
+    ]
+
+makeClock :: forall t m. Builder t m => m (Dynamic t UTCTime)
+makeClock = do
+  time <- liftIO getCurrentTime 
+  clock <- clockLossy 10 time
+  return (_tickInfo_lastUTC <$> clock)
+
+
 bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m (AppEnv t)
 bodyWidget host = mdo
  
@@ -453,7 +468,7 @@ bodyWidget host = mdo
 
       clientConfig = ClientConfig <$> oneOf _ConfigCmd cmds
 
-  clientSaves <- saveDocument preferences editor (saveCmd cmds editor)
+  clientSaves <- saveDocument preferences editor (saveCmd cmds modified)
   (docSelected, loaded, clientNav) <- manageDocument (void hello) serverMsg (navigationCmd cmds)
 
   document <- holdDyn Nothing (Just <$> loaded)
@@ -463,6 +478,8 @@ bodyWidget host = mdo
 
       shortcut   = fan shortcuts
       detections = view #detections <$> (filterDocument document $ preview _ServerDetection <?> serverMsg)
+
+      modified = maybe False isModified <$> editor
 
   trainerStatus <- holdDyn StatusDisconnected $ 
     leftmost [preview _ServerStatus <?> serverMsg, initialStatus]
@@ -479,13 +496,14 @@ bodyWidget host = mdo
     [ validClass <$> updated config
     , const . snd <$> classSelected
     ]  
-
+  clock <- makeClock
 
   let basePath = "http://" <> host
       env = AppEnv{..}
 
-  setTitle $ ffor docSelected $ \doc ->
-    "Annotate - " <> fromMaybe ("no editor") doc
+  setTitle $ makeTitle <$> document <*> modified
+    
+  -- cmds <- delayEvent cmds'
 
   connectingDialog (opened, void closed)
   ((shortcuts, action, editor, selection), cmds) <- flip runReaderT env $ runEventWriterT $ do
@@ -495,11 +513,10 @@ bodyWidget host = mdo
       , errorDialog <$> serverErrors
       ]
 
-
     cursorLock action $ do
       div [class_ =: "scene expand"] $
         const <$> sceneWidget cmds loaded
-              <*> overlay shortcut editor preferences
+              <*> overlay env
   return env
 
 runDialog :: AppBuilder t m => Dialog -> m (Event t ())
@@ -536,11 +553,15 @@ updatePrefs cmds = flip (foldr updatePref) cmds where
   updatePref (SetAutoDetect b)  = #autoDetect .~ b
 
 
+
 updateSort :: SortCommand -> SortOptions -> SortOptions
 updateSort (SetSortKey k)  = #sortKey .~ k
 updateSort (SetReverse b)  = #reversed .~ b
 updateSort (SetFilter opt) = #filtering .~ opt
+updateSort (SetNegFilter opt) = #negFilter .~ opt
+
 updateSort (SetSearch t)   = #search .~ t
+updateSort (SetImageSelection s)   = #selection .~ s
 
   --updatePref _ = id
 
@@ -560,23 +581,26 @@ cursorLock action child =
     cursorStyle Action{..} = [("cursor", cursor)]
     lockClass Action{..} = ["expand"] <> ["cursor-lock" | lock]
 
-
-
-holdCollection :: (Reflex t, MonadHold t m, MonadFix m) => Event t ServerMsg -> m (Dynamic t Collection)
+--holdCollection :: (Reflex t, MonadHold t m, MonadFix m) => Event t ServerMsg -> m (Dynamic t Collection)
+holdCollection :: Builder t m => Event t ServerMsg -> m (Dynamic t Collection)
 holdCollection serverMsg = mdo
   collection <- holdDyn emptyCollection $ leftmost
-    [ full
-    , attachWithMaybe applyUpdate (current collection) update
-    ]
+    [full, attachWith updateImages (current collection) update]
+
   return collection
 
   where
     full = preview _ServerCollection <?> serverMsg
-    update = preview _ServerUpdateInfo <?> serverMsg
 
-    applyUpdate collection (k, info) = case (== info) <$> M.lookup k (collection ^. #images) of
-      Just True -> Nothing
-      _         -> Just $ over #images (M.insert k info) collection
+    update = leftmost 
+      [ uncurry M.insert <$> (preview _ServerUpdateInfo <?> serverMsg)
+      , updateWith (set #training)   <$> (preview _ServerUpdateTraining <?> serverMsg) 
+      , updateWith (set #detections . Just) <$> 
+        (preview _ServerUpdateDetections <?> serverMsg)
+      ]
+
+    updateImages = flip (over #images)
+    updateWith f updates m = M.union (M.intersectionWith f updates m) m
 
 
 percentage :: (Int, Int) -> Text
@@ -633,12 +657,12 @@ trainerTab' status = do
       progressBar (view #progress <$> progress)
 
 trainerTab :: forall t m. AppBuilder t m => m () 
-trainerTab = sidePane $ void $ do
+trainerTab = sidePane $ do
 
   status <- view #trainerStatus
   tag <- factorDyn' (trainerKey <$> status)
 
-  dyn $ (trainerTab' <$> tag) 
+  dyn_ $ (trainerTab' <$> tag) 
 
 
 
@@ -754,8 +778,55 @@ sidebar = mdo
 selectedClass :: Reflex t => AppEnv t -> Dynamic t (Maybe ClassConfig)
 selectedClass AppEnv{config, currentClass} = M.lookup <$> currentClass <*> fmap (view #classes) config
 
-overlay :: forall t m. AppBuilder t m => EventSelector t Shortcut -> Dynamic t (Maybe Editor) -> Dynamic t Preferences -> m ()
-overlay shortcut editor prefs = row "expand  disable-cursor" $ do
+
+fileInfo :: forall t m. AppBuilder t m => Dynamic t Bool -> Document ->  m ()
+fileInfo isModified Document{name, info} = do 
+  centreRow $ do
+    div [ hidden_ ~: not <$>  isModified ] $ tinyIcon "lead-pencil"
+    h6 [ class_ =: "text-white font-weight-bold m-1 mt-1 " ] $ text name
+    
+  
+  centreRow $ do
+    feild [tinyIcon $ Static (categoryIcon' category), text (showText category)]
+    feild [tinyIcon "shape", text (showText numAnnotations)]
+
+    forM_ detections $ \dets -> 
+      feild [tinyIcon "auto-fix", text (printFloat (dets ^. #score))]
+
+    div [ hidden_ =: isNothing modified ] $
+      fixed "200px" [tinyIcon "lead-pencil", showModified (pure info)]
+    
+    -- feild $ do
+
+  where
+    DocInfo{..} = info
+    feild = fixed "75px"
+
+    fixed width = div [class_ =: "text-light", style_ =: [("width", width)]] . sequence_
+
+submitButtons :: forall t m. AppBuilder t m => ImageCat ->  m ()
+submitButtons cat =  buttonGroup $ if isNew then new else confirm
+  where
+    isNew = cat == CatNew || cat == CatDiscard
+
+    new = do
+      discard  <- toolButton' "Discard" (categoryIcon CatDiscard)  "Mark image as discarded"
+      val      <- toolButton' "Validate" (categoryIcon CatValidate) "Submit image for validation"
+      train    <- toolButton' "Train" (categoryIcon CatTrain) "Submit image for training"
+
+      command SubmitCmd $
+        leftmost [ CatDiscard <$ discard, CatValidate <$ val, CatTrain <$ train ]
+
+    confirm = do
+      discard  <- toolButton' "Discard" (categoryIcon CatDiscard)  "Mark image as discarded"
+      confirm  <- toolButton' "Confirm" "check" "Confirm review"      
+
+      command SubmitCmd $ 
+        leftmost [ CatDiscard <$ discard, cat <$ confirm ]              
+
+
+overlay :: forall t m. AppBuilder t m => AppEnv t -> m ()
+overlay AppEnv{shortcut, document, editor, modified} = row "expand  disable-cursor" $ do
   sidebar
   column "expand" $
     sequence_ [header, spacer, footer]
@@ -777,20 +848,32 @@ overlay shortcut editor prefs = row "expand  disable-cursor" $ do
         docCommand  (const DocRedo)  =<< toolButton canRedo "Redo" "redo" "Re-do last undo"
         command     (const ClearCmd) =<< toolButton' "Clear" "eraser" "Clear all annotations"
 
+
+    fromDocument a f = fromMaybe a . fmap f <$> editor
+
     canUndo = fromDocument False (not . null . view #undos)
     canRedo = fromDocument False (not . null . view #redos)
 
     footer = buttonRow $ do
-      spacer
       buttonGroup $ do
-        discard   <- toolButton docOpen "Discard" "delete-empty" "Discard image from the collection"
-        test      <- toolButton docOpen "Test" "teach" "Submit image for testing"
-        train     <- toolButton docOpen "Train" "book-open-page-variant" "Submit image for training"
 
-        command SubmitCmd $
-          leftmost [ CatDiscard <$ discard, CatTest <$ test, CatTrain <$ train ]
+        prev   <- toolButton' "Prev" "chevron-left" "View previous frame"
+        next   <- toolButton' "Next" "chevron-right" "View next frame"
 
-    buttonRow = row "p-2 spacing-4"
-    --nonEmpty label = notNullOf (_Just . label . traverse)
-    fromDocument a f = fromMaybe a . fmap f <$> editor
+        command NavCmd $ leftmost [ NavBackward <$ prev, NavForward <$ next ]
+
+        return ()
+
+      dyn_ (traverse_ footer' <$> document)
+       
+
+    footer' document = do 
+      div [ class_ =: "grow" ] $  
+        fileInfo modified document 
+
+      submitButtons (document ^. #info . #category)
+
+    buttonRow = row "p-0 spacing-4"
     docOpen = isJust <$> editor
+
+

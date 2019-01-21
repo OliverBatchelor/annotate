@@ -61,6 +61,7 @@ holdInputs viewport sceneEvents inp = do
         uniqueKey s (k :: Key) = if S.member k s then Nothing else Just k
 
 
+      
   let mouseDown = selectEq (E.mouseDown inp)
 
   return
@@ -77,15 +78,15 @@ holdInputs viewport sceneEvents inp = do
 
     , mouseDoubleClickOn = sceneEvent SceneDoubleClick
 
-
     , keysDown = E.keyDown inp
     , keysUp = E.keyUp inp
     , keysPressed = E.keyPress inp
 
-
     , keyDown = selectEq (E.keyDown inp)
     , keyUp = selectEq (E.keyUp inp)
     , keyPress = selectEq (E.keyPress inp)
+
+    , localKey = selectEq (E.localKey inp)
 
     , wheel = E.wheel inp
     , focus = E.focus inp
@@ -94,7 +95,7 @@ holdInputs viewport sceneEvents inp = do
     , hover = hover
 
     , keyCombo = \k held -> testCombo k (S.fromList held) <?>
-        (current keys `attach` E.keyDown inp)
+        (current keys `attach` E.localKey inp)
   }
 
 
@@ -102,9 +103,9 @@ matchShortcuts :: Reflex t => SceneInputs t -> Event t (DMap Shortcut Identity)
 matchShortcuts SceneInputs{..} = merge $ DM.fromList
     [ (ShortUndo :=> keyCombo Key.KeyZ [Key.Control])
     , (ShortRedo :=> keyCombo Key.KeyZ [Key.Control, Key.Shift])
-    , (ShortDelete :=> leftmost [keyDown Key.Delete, keyDown Key.Backspace, keyDown Key.KeyX])
+    , (ShortDelete :=> leftmost [localKey Key.Delete, localKey Key.Backspace, localKey Key.KeyX])
     , (ShortCancel :=> keyDown Key.Escape)
-    , (ShortSelect :=> (S.member Key.Shift <$> current keyboard) `tag` keyDown Key.KeyR)
+    , (ShortSelect :=> (S.member Key.Shift <$> current keyboard) `tag` localKey Key.KeyR)
     , (ShortSelectAll :=> keyCombo Key.KeyA [Key.Control])
     , (ShortArea :=> keyCombo Key.KeyA [Key.Alt])
     , (ShortClass :=> keyCombo Key.KeyC [Key.Alt])

@@ -147,6 +147,6 @@ showClass' mConfig = do
 classToolButton :: forall t m. Builder t m => Dynamic t (Maybe ClassConfig) -> m (Event t ())
 classToolButton selected = do
   e <- button_ [class_ =: "btn btn-secondary enable-cursor", title_ =: "Select class to annotate"] $
-    void $ dyn (showClass' <$> selected)
+    dyn_ (showClass' <$> selected)
 
   return (domEvent Click e)

@@ -10,6 +10,7 @@ import Data.SafeCopy
 import Control.Concurrent.Log
 import qualified Data.Text as Text
 
+
 data OldHistoryEntry = HistOpen | HistSubmit | HistEdit DocumentPatch | HistUndo | HistRedo
   deriving (Show, Eq, Generic)
 
@@ -49,11 +50,44 @@ data DocInfo3 = DocInfo3
   , imageSize   :: (Int, Int)
   } deriving (Generic, Show, Eq)
 
+data DocInfo4 = DocInfo4
+  { hashedName :: Hash32
+  , naturalKey :: NaturalKey
+  , modified    :: Maybe DateTime
+  , numAnnotations :: Int
+  , category    :: ImageCat
+  , imageSize   :: (Int, Int)
+  , detections  :: Maybe DetectionStats
+  , lossMean     :: Float
+  , lossMax     :: Float
+  } deriving (Generic, Show, Eq)
+
+data DocInfo5 = DocInfo5
+  { hashedName :: Hash32
+  , naturalKey :: NaturalKey
+  , modified    :: Maybe DateTime
+  , numAnnotations :: Int
+  , category    :: ImageCat
+  , imageSize   :: (Int, Int)
+  , detections  :: Maybe DetectionStats
+  , training   :: TrainStats
+  } deriving (Generic, Show, Eq)  
+
 
 data Detections0 = Detections0
   { detections :: [Detection]
   , networkId :: NetworkId
   } deriving (Show,  Generic)
+
+data Document12 = Document12
+  { name  :: DocName
+  , info  :: DocInfo
+  , annotations :: Map AnnotationId BasicAnnotation
+  , validArea   :: Maybe Box
+  , history :: [(UTCTime, HistoryEntry)]
+  , detections :: Maybe Detections
+  , trainingLoss   :: [Float]
+  } deriving (Generic, Show)  
 
 
 data Document11 = Document11
@@ -180,53 +214,95 @@ instance Migrate Command where
 data ImageOrdering = OrderSequential | OrderMixed | OrderBackwards
   deriving (Show, Eq, Ord, Enum, Generic)
 
+data SortOptions0 = SortOptions0 
+  { sortKey   :: SortKey
+  , reversed :: Bool 
+  , filtering :: FilterOption
+  , search   :: Text
+  } deriving (Show, Generic, Eq)
 
-data Preferences0 = Preferences0
+data SortOptions1 = SortOptions1 
+  { sortKey   :: SortKey
+  , reversed :: Bool 
+  , filtering :: FilterOption
+  , search   :: Text
+  , restrictClass :: Maybe ClassId
+  } deriving (Show, Generic, Eq)  
+
+data SortOptions2 = SortOptions2 
+  { sortKey   :: SortKey
+  , selection :: ImageSelection
+  , reversed  :: Bool 
+  , filtering :: FilterOption
+  , search    :: Text
+  , restrictClass :: Maybe ClassId
+  } deriving (Show, Generic, Eq)
+
+data Preferences3 = Preferences3
   { controlSize       :: Float
   , brushSize         :: Float
-
   , instanceColours   :: Bool
-
   , opacity           :: Float
-
+  , border            :: Float
   , hiddenClasses     :: Set Int
-
   , gamma             :: Float
   , brightness        :: Float
   , contrast          :: Float
-
   , detection    :: DetectionParams
-
   , threshold    :: Float
-  , ordering    :: ImageOrdering
+  , margin       :: Float
+  , sortOptions :: SortOptions
+  , autoDetect  :: Bool
+  , infoFields  :: [SortKey]
   } deriving (Generic, Show, Eq)
 
+data Preferences2 = Preferences2
+  { controlSize       :: Float
+  , brushSize         :: Float
+  , instanceColours   :: Bool
+  , opacity           :: Float
+  , border            :: Float
+  , hiddenClasses     :: Set Int
+  , gamma             :: Float
+  , brightness        :: Float
+  , contrast          :: Float
+  , detection    :: DetectionParams
+  , threshold    :: Float
+  , margin       :: Float
+  , sortOptions :: SortOptions
+  , autoDetect  :: Bool
+  } deriving (Generic, Show, Eq)
 
 
 data Preferences1 = Preferences1
   { controlSize       :: Float
   , brushSize         :: Float
-
   , instanceColours   :: Bool
-
   , opacity           :: Float
   , border            :: Float
-
   , hiddenClasses     :: Set Int
-
   , gamma             :: Float
   , brightness        :: Float
   , contrast          :: Float
-
   , detection    :: DetectionParams
-
   , threshold    :: Float
   , margin       :: Float
-
   , ordering    :: ImageOrdering
-
   } deriving (Generic, Show, Eq)
 
+data Preferences0 = Preferences0
+  { controlSize       :: Float
+  , brushSize         :: Float
+  , instanceColours   :: Bool
+  , opacity           :: Float
+  , hiddenClasses     :: Set Int
+  , gamma             :: Float
+  , brightness        :: Float
+  , contrast          :: Float
+  , detection    :: DetectionParams
+  , threshold    :: Float
+  , ordering    :: ImageOrdering
+  } deriving (Generic, Show, Eq)
 
 data Store0 = Store0
   { config    :: Config
@@ -249,6 +325,37 @@ instance Migrate Store where
   migrate Store1{..} = Store{..}
     where preferences = mempty
 
+instance Migrate SortOptions where
+  type MigrateFrom SortOptions = SortOptions2
+  migrate SortOptions2{..} = SortOptions{..} where 
+    negFilter = False
+
+instance Migrate SortOptions2 where
+  type MigrateFrom SortOptions2 = SortOptions1
+  migrate SortOptions1{..} = SortOptions2{..} where 
+    selection = SelSequential False
+        
+
+instance Migrate SortOptions1 where
+  type MigrateFrom SortOptions1 = SortOptions0
+  migrate SortOptions0{..} = SortOptions1{..} where 
+    restrictClass = Nothing
+
+    
+instance Migrate Preferences where
+  type MigrateFrom Preferences = Preferences3
+  migrate Preferences3{..} = Preferences{..} 
+
+instance Migrate Preferences3 where
+  type MigrateFrom Preferences3 = Preferences2
+  migrate Preferences2{..} = Preferences3{..} where 
+    infoFields = [SortAnnotations]
+
+instance Migrate Preferences2 where
+  type MigrateFrom Preferences2 = Preferences1
+  migrate Preferences1{..} = Preferences2{..} where 
+    sortOptions = def
+    autoDetect = True
 
 instance Migrate Preferences1 where
   type MigrateFrom Preferences1 = Preferences0
@@ -257,16 +364,16 @@ instance Migrate Preferences1 where
       margin = 0.1
       border = 1
    
-instance Migrate Preferences where
-  type MigrateFrom Preferences = Preferences1
-  migrate Preferences1{..} = Preferences{..} where 
-    sortOptions = def
-    autoDetect = True
 
 
 instance Migrate Document where
-  type MigrateFrom Document = Document11
-  migrate Document11{..} = Document{..} where
+  type MigrateFrom Document = Document12
+  migrate Document12{..} = Document{..} where
+    training = TrainSummary <$> trainingLoss
+
+instance Migrate Document12 where
+  type MigrateFrom Document12 = Document11
+  migrate Document11{..} = Document12{..} where
     trainingLoss = []
 
 instance Migrate Document11 where
@@ -347,19 +454,30 @@ instance Migrate DocInfo3 where
     { naturalKey, modified, numAnnotations
     , category, imageSize, hashedName = Hash32 (fromIntegral hashedName)}
     
-instance Migrate DocInfo where
-  type MigrateFrom DocInfo = DocInfo3
-  migrate DocInfo3{..} = DocInfo{..} where 
+instance Migrate DocInfo4 where
+  type MigrateFrom DocInfo4 = DocInfo3
+  migrate DocInfo3{..} = DocInfo4{..} where 
     detections = def
-    lossMax       = 0
+    lossMax   = 0
     lossMean  = 0    
 
+instance Migrate DocInfo5 where
+  type MigrateFrom DocInfo5 = DocInfo4
+  migrate DocInfo4{..} = DocInfo5{..} where 
+    training = TrainStats {..}
+
+instance Migrate DocInfo where
+  type MigrateFrom DocInfo = DocInfo5
+  migrate DocInfo5{..} = DocInfo{..} where 
+    reviews = 0
+        
 
 instance Migrate Detections where
   type MigrateFrom Detections = Detections0
   migrate Detections0{..} = Detections{..} where 
     stats = def 
 
+$(deriveSafeCopy 0 'base ''TrainStats)
 
 $(deriveSafeCopy 0 'base ''DocInfo0)
 $(deriveSafeCopy 1 'extension ''DocInfo1)
@@ -441,6 +559,9 @@ $(deriveSafeCopy 0 'base ''Extents)
 $(deriveSafeCopy 0 'base ''Shape)
 $(deriveSafeCopy 1 'extension ''Detection)
 
+$(deriveSafeCopy 0 'base ''TrainSummary)
+
+
 $(deriveSafeCopy 0 'base ''Detections0)
 $(deriveSafeCopy 1 'extension ''Detections)
 
@@ -461,9 +582,10 @@ $(deriveSafeCopy 7 'extension ''Document7)
 $(deriveSafeCopy 8 'extension ''Document8)
 $(deriveSafeCopy 9 'extension ''Document9)
 $(deriveSafeCopy 10 'extension ''Document10)
-
 $(deriveSafeCopy 11 'extension ''Document11)
-$(deriveSafeCopy 12 'extension ''Document)
+$(deriveSafeCopy 12 'extension ''Document12)
+
+$(deriveSafeCopy 13 'extension ''Document)
 
 
 $(deriveSafeCopy 0 'base ''NaturalKey0)
@@ -471,7 +593,9 @@ $(deriveSafeCopy 1 'extension ''NaturalKey)
 
 
 $(deriveSafeCopy 3 'extension ''DocInfo3)
-$(deriveSafeCopy 4 'extension ''DocInfo)
+$(deriveSafeCopy 4 'extension ''DocInfo4)
+$(deriveSafeCopy 5 'extension ''DocInfo5)
+$(deriveSafeCopy 6 'extension ''DocInfo)
 
 
 
@@ -496,14 +620,23 @@ $(deriveSafeCopy 0 'base ''ModelState)
 
 $(deriveSafeCopy 0 'base ''Preferences0)
 $(deriveSafeCopy 1 'extension ''Preferences1)
-$(deriveSafeCopy 2 'extension ''Preferences)
+$(deriveSafeCopy 2 'extension ''Preferences2)
+$(deriveSafeCopy 3 'extension ''Preferences3)
+$(deriveSafeCopy 4 'extension ''Preferences)
+
 
 $(deriveSafeCopy 0 'base ''DetectionParams)
 $(deriveSafeCopy 0 'base ''ImageOrdering)
 
 $(deriveSafeCopy 0 'base ''SortKey)
 $(deriveSafeCopy 0 'base ''FilterOption)
-$(deriveSafeCopy 0 'base ''SortOptions)
+$(deriveSafeCopy 0 'base ''SortOptions0)
+$(deriveSafeCopy 1 'extension ''SortOptions1)
+$(deriveSafeCopy 2 'extension ''SortOptions2)
+$(deriveSafeCopy 3 'extension ''SortOptions)
+
+$(deriveSafeCopy 0 'base ''ImageSelection)
+
 
 
 docInfo :: DocName -> Traversal' Store DocInfo
@@ -522,6 +655,21 @@ updateDetections (k, detections) = over (ix k) $ \doc -> doc
   & #detections         .~ Just detections
   & #info . #detections .~ Just (detections ^. #stats)
 
+trainingStats :: [TrainSummary] -> TrainStats 
+trainingStats training = TrainStats 
+  { lossMean = sum losses / fromIntegral (length losses)
+  , lossMax = maximum losses
+  } where losses = view #loss <$> training
+
+addTraining :: (DocName, [TrainSummary]) ->  Map DocName Document -> Map DocName Document
+addTraining (k, summary) = over (ix k) addSummary where
+  addSummary doc = doc 
+    & #training .~ training 
+    & #info . #training  .~ trainingStats training
+      where training = take 20 (summary <> doc ^. #training)
+        
+
+
 emptyDoc :: DocName -> DocInfo -> Document
 emptyDoc k info = Document 
   { name = k
@@ -530,7 +678,7 @@ emptyDoc k info = Document
   , validArea = Nothing 
   , history = [] 
   , detections = Nothing
-  , trainingLoss = []
+  , training = []
   }
 
 
@@ -562,9 +710,12 @@ instance Persistable Store where
 
   update (CmdPreferences user preferences) = over #preferences (M.insert user preferences)
   update (CmdDetections detections) = over #images $
-    foldr (.) id (updateDetections <$> M.toList detections)
+    (flip (foldr updateDetections)) (M.toList detections)
 
   update (CmdSubmit submission time) = submitDocument time submission 
+  update (CmdTraining summaries) = over #images $ 
+    (flip (foldr addTraining)) (M.toList summaries)
+
 
 
 applyWhen :: Bool -> (a -> a) -> a -> a

@@ -156,7 +156,7 @@ newtype NaturalKey = NaturalKey [Either (Int, Text) Text]
 
 data DetectionStats = DetectionStats 
   { score       :: Float
-  , classScore  :: Map ClassId Float
+  , classes  :: Map ClassId Float
   } deriving (Generic, Eq, Show)  
 
 data Detections = Detections 
@@ -174,24 +174,27 @@ data Submission = Submission
   , category :: Maybe ImageCat
   } deriving (Generic, Show)
 
+data TrainSummary = TrainSummary 
+  { loss  :: Float
+  } deriving (Show, Eq, Generic)  
 
 data Document = Document
   { name  :: DocName
   , info  :: DocInfo
-  , annotations :: Map AnnotationId BasicAnnotation
-  , validArea   :: Maybe Box
-  , history :: [(UTCTime, HistoryEntry)]
-  , detections :: Maybe Detections
-  , trainingLoss   :: [Float]
+  , annotations    :: Map AnnotationId BasicAnnotation
+  , validArea      :: Maybe Box
+  , history        :: [(UTCTime, HistoryEntry)]
+  , detections     :: Maybe Detections
+  , training       :: [TrainSummary]
   } deriving (Generic, Show)
 
 
-data ImageCat = CatNew | CatTrain | CatTest | CatDiscard 
+data ImageCat = CatNew | CatTrain | CatValidate | CatDiscard 
   deriving (Eq, Ord, Enum, Generic)
 
 instance Show ImageCat where
   show CatNew = "new"
-  show CatTest = "test"
+  show CatValidate = "validate"
   show CatTrain = "train"
   show CatDiscard = "discard"
 
@@ -199,6 +202,11 @@ instance Show ImageCat where
 newtype Hash32 = Hash32 { unHash :: Word32 }
   deriving (Eq, Ord, Enum, Generic, Show)
 
+
+data TrainStats = TrainStats 
+  { lossMean   :: Float
+  , lossMax    :: Float
+  } deriving (Generic, Eq, Show)
 
 
 data DocInfo = DocInfo
@@ -210,8 +218,8 @@ data DocInfo = DocInfo
   , imageSize   :: (Int, Int)
 
   , detections :: Maybe DetectionStats
-  , lossMean   :: Float
-  , lossMax    :: Float
+  , training   :: TrainStats
+  , reviews    :: Int
 
   } deriving (Generic, Eq, Show)
 
@@ -230,12 +238,32 @@ data Config = Config
   } deriving (Generic, Show, Eq)
 
 
-
-
-data SortKey = SortCat | SortNum | SortName | SortModified | SortMixed
+data SortKey 
+  = SortCategory
+  | SortAnnotations 
+  | SortName 
+  | SortModified 
+  | SortRandom 
+  | SortDetections
+  | SortLossMean
+  | SortLossMax
   deriving (Eq, Show, Generic)
 
-data FilterOption = FilterAll | FilterCat ImageCat | FilterEdited
+
+data ImageSelection 
+  = SelSequential Bool
+  | SelRandom
+  | SelDetections Bool
+  | SelLoss
+  deriving (Eq, Show, Generic)
+
+
+data FilterOption 
+  = FilterAll 
+  | FilterCat ImageCat 
+  | FilterEdited 
+  | FilterReviewed 
+  | Filter FilterOption
   deriving (Eq, Generic)
 
 instance Show FilterOption where
@@ -246,37 +274,35 @@ instance Show FilterOption where
 
 data SortOptions = SortOptions 
   { sortKey   :: SortKey
-  , reversed :: Bool 
+  , selection :: ImageSelection
+  , reversed  :: Bool 
   , filtering :: FilterOption
-  , search   :: Text
+  , negFilter :: Bool
+  , search    :: Text
+  , restrictClass :: Maybe ClassId
   } deriving (Show, Generic, Eq)
+
   
 
 
 data Preferences = Preferences
   { controlSize       :: Float
   , brushSize         :: Float
-
   , instanceColours   :: Bool
-
   , opacity           :: Float
   , border            :: Float
-
   , hiddenClasses     :: Set Int
-
   , gamma             :: Float
   , brightness        :: Float
   , contrast          :: Float
-
   , detection    :: DetectionParams
-
   , threshold    :: Float
   , margin       :: Float
-
   , sortOptions :: SortOptions
   , autoDetect  :: Bool
-
   } deriving (Generic, Show, Eq)
+
+  
 
 data DetectionParams = DetectionParams
   {   nms            :: Float
@@ -305,6 +331,9 @@ data ServerMsg
   | ServerConfig Config
   | ServerCollection Collection
   | ServerUpdateInfo DocName DocInfo
+  | ServerUpdateTraining (Map DocName TrainStats)
+  | ServerUpdateDetections (Map DocName DetectionStats)
+
   | ServerDocument NavId Document
   | ServerOpen (Maybe DocName) ClientId DateTime
   | ServerError ErrCode
@@ -319,6 +348,7 @@ data Progress = Progress { activity :: TrainerActivity, progress :: (Int, Int) }
 
 data TrainerActivity
   = ActivityTrain { epoch :: Epoch }
+  | ActivityValidate  { epoch :: Epoch }
   | ActivityTest  { epoch :: Epoch }
   | ActivityReview
   | ActivityDetect
@@ -328,9 +358,10 @@ data TrainerActivity
 instance Show TrainerActivity where
   show (ActivityTrain epoch) = "Train " <> show epoch
   show (ActivityTest epoch) = "Test " <> show epoch
+  show (ActivityValidate epoch) = "Validate " <> show epoch
 
   show (ActivityReview) = "Review"
-  show (ActivityDetect) = "Review"
+  show (ActivityDetect) = "Detect"
 
 data TrainerStatus 
   = StatusDisconnected
@@ -364,6 +395,8 @@ data UserCommand
 data Navigation
   = NavNext
   | NavTo DocName
+  | NavForward
+  | NavBackward
     deriving (Generic, Show, Eq)
 
 data ConfigUpdate
@@ -436,6 +469,8 @@ instance FromJSON Config       where parseJSON = Aeson.genericParseJSON options
 instance FromJSON DetectionStats      where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON DocInfo      where parseJSON = Aeson.genericParseJSON options
+
+instance FromJSON TrainStats      where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Collection   where parseJSON = Aeson.genericParseJSON options
 instance FromJSON ServerMsg    where parseJSON = Aeson.genericParseJSON options
 instance FromJSON ClientMsg    where parseJSON = Aeson.genericParseJSON options
@@ -449,6 +484,13 @@ instance FromJSON TrainerStatus where parseJSON = Aeson.genericParseJSON options
 instance FromJSON SortKey       where parseJSON = Aeson.genericParseJSON options
 instance FromJSON FilterOption  where parseJSON = Aeson.genericParseJSON options
 instance FromJSON SortOptions   where parseJSON = Aeson.genericParseJSON options
+instance FromJSON ImageSelection   where parseJSON = Aeson.genericParseJSON options
+
+
+instance FromJSON TrainerActivity where parseJSON = Aeson.genericParseJSON options
+instance FromJSON UserCommand where parseJSON = Aeson.genericParseJSON options
+instance FromJSON TrainSummary where parseJSON = Aeson.genericParseJSON options
+
 
 
 instance ToJSON ShapeConfig  where toJSON = Aeson.genericToJSON options
@@ -483,6 +525,8 @@ instance ToJSON Config    where toJSON = Aeson.genericToJSON options
 
 instance ToJSON DetectionStats   where toJSON = Aeson.genericToJSON options
 
+instance ToJSON TrainStats   where toJSON = Aeson.genericToJSON options
+
 instance ToJSON DocInfo   where toJSON = Aeson.genericToJSON options
 instance ToJSON Collection  where toJSON = Aeson.genericToJSON options
 instance ToJSON ServerMsg   where toJSON = Aeson.genericToJSON options
@@ -492,6 +536,7 @@ instance ToJSON ErrCode     where toJSON = Aeson.genericToJSON options
 instance ToJSON SortKey  where toJSON = Aeson.genericToJSON options
 instance ToJSON FilterOption where toJSON = Aeson.genericToJSON options
 instance ToJSON SortOptions  where toJSON = Aeson.genericToJSON options
+instance ToJSON ImageSelection  where toJSON = Aeson.genericToJSON options
 
 instance ToJSON Progress      where toJSON = Aeson.genericToJSON options
 instance ToJSON TrainerStatus where toJSON = Aeson.genericToJSON options
@@ -499,11 +544,30 @@ instance ToJSON TrainerStatus where toJSON = Aeson.genericToJSON options
 
 instance ToJSON TrainerActivity   where toJSON = Aeson.genericToJSON options
 instance ToJSON UserCommand       where toJSON = Aeson.genericToJSON options
+instance ToJSON TrainSummary where toJSON = Aeson.genericToJSON options
 
-instance FromJSON TrainerActivity where parseJSON = Aeson.genericParseJSON options
-instance FromJSON UserCommand where parseJSON = Aeson.genericParseJSON options
-  
 
+instance Default NaturalKey where
+  def = NaturalKey []
+
+instance Default TrainStats where
+  def = TrainStats 0 0 
+
+instance Default Text where
+  def = ""
+
+instance Default DocInfo where
+  def  = DocInfo
+    { naturalKey = def
+    , hashedName = Hash32 0
+    , modified = Nothing
+    , category = CatNew
+    , imageSize = (0, 0)
+    , numAnnotations = 0
+    , detections = def
+    , training = def
+    , reviews = 0
+    }
 
 instance Default Config where
   def = Config
@@ -519,27 +583,26 @@ instance Default Preferences where
     , instanceColours = False
     , opacity = 0.4
     , border = 1
-
-
     , hiddenClasses = mempty
     , gamma = 1.0
     , brightness = 0.0
     , contrast = 1.0
-
     , detection = def
     , threshold = 0.5
     , margin = 0.1
-
     , sortOptions = def
     , autoDetect = True
     }
 
 instance Default SortOptions where
   def = SortOptions 
-    { sortKey = SortMixed
+    { sortKey = SortRandom
     , reversed = False
+    , selection = SelSequential False
     , filtering = FilterAll
+    , negFilter = False
     , search = ""
+    , restrictClass = Nothing
     }
 
 
@@ -554,7 +617,7 @@ instance Default DetectionParams where
 instance Default DetectionStats where
   def = DetectionStats 
     { score      = 0
-    , classScore = mempty
+    , classes = mempty
     }
 
 newClass :: ClassId -> ClassConfig
@@ -639,9 +702,13 @@ emptyCollection = Collection mempty
 filterImage :: FilterOption -> (DocName, DocInfo) -> Bool
 filterImage opt (_, DocInfo{category}) = case opt of
   FilterAll     -> category /= CatDiscard
-  FilterEdited  -> category == CatTrain || category == CatTest
+  FilterEdited  -> category == CatTrain || category == CatValidate
   FilterCat cat -> category == cat
 
+xor :: Bool -> Bool -> Bool
+xor True False = True
+xor False True = True
+xor _ _        = False
 
 reverseComparing :: Ord b => (a -> b) -> a -> a -> Ordering
 reverseComparing f x y = reverseOrdering $ compare (f x) (f y)
@@ -651,21 +718,37 @@ reverseOrdering LT = GT
 reverseOrdering GT = LT
 reverseOrdering EQ = EQ
 
+detectionScore :: DocInfo -> Maybe Float
+detectionScore = preview (#detections . traverse . #score)
+
 compareWith ::  Bool -> SortKey -> (DocName, DocInfo) -> (DocName, DocInfo) -> Ordering
 compareWith rev key = (case key of
-  SortCat         -> compares (view #category &&& view #naturalKey)
-  SortNum         -> compares (view #numAnnotations &&& view #naturalKey)
-  SortModified    -> compares (view #modified &&& view #naturalKey)
-  SortName        -> compares (view #naturalKey)
-  SortMixed       -> compares (view #hashedName))
+  SortCategory     -> compares (view #category)
+  SortAnnotations  -> compares (view #numAnnotations)
+  SortModified     -> compares (view #modified)
+
+  SortDetections   -> compares detectionScore
+  SortLossMean   -> compares (view (#training . #lossMean))
+  SortLossMax   -> compares (view (#training . #lossMax))
+
+  SortName         -> compares (view #naturalKey)
+  SortRandom       -> compares (view #hashedName))
   where
     compares :: forall a. Ord a => (DocInfo -> a) -> (DocName, DocInfo) -> (DocName, DocInfo) -> Ordering
-    compares f = if rev then reverseComparing (f . snd) else comparing (f . snd)
+    compares f = if rev then reverseComparing (f' . snd) else comparing (f' . snd)
+      where f' = f &&& view #naturalKey
 
 
+sortImagesBy :: (Bool, FilterOption) -> Text -> (Bool, SortKey)  -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
+sortImagesBy (negFilter, filtering) search (reversed, sortKey) 
+  = filter (xor negFilter . filterImage filtering) 
+  . searchImages search
+  . sortBy (compareWith reversed sortKey) 
 
 sortImages :: SortOptions -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
-sortImages SortOptions{..} = searchImages search . sortBy (compareWith reversed sortKey) . filter (filterImage filtering)
+sortImages SortOptions{..} = sortImagesBy (negFilter, filtering) search (reversed, sortKey)
+  
+
 
 searchImages :: Text ->  [(DocName, DocInfo)] -> [(DocName, DocInfo)]
 searchImages ""   = id

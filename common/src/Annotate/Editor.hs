@@ -34,6 +34,15 @@ data DocumentPatch'
   | PatchArea' (Maybe Box)
      deriving (Show, Eq, Generic)
 
+
+-- data OpenMethod = OpenReview [Detections] | OpenNew [Detections] | OpenEdit
+--   deriving (Eq, Enum, Generic, Show)
+
+-- instance Show OpenType where
+--   show OpenReview = "Review"
+--   show OpenNew    = "New"
+--   show OpenEdit   = "Edit"
+
 data Editor = Editor
   { name  :: DocName
   , undos :: [DocumentPatch]
