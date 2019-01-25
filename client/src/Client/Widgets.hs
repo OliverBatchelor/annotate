@@ -16,7 +16,6 @@ import qualified Data.Map as M
 import Data.Default
 import Data.Tuple (swap)
 
-import Text.Printf
 
 column :: Builder t m => Text -> m a -> m a
 column classes children = div [classes_ =: ["d-flex flex-column", classes]] children
@@ -129,7 +128,7 @@ preload file = void $ do
 
 groupPane :: AppBuilder t m => Text -> m a -> m a
 groupPane title children = column "v-spacing-2 p-2 border" $ do
-    h5 [] $ text title
+    h6 [class_ =: "font-weight-bold m-0"] $ text title
     children
 
 pane :: AppBuilder t m => m a -> m a
@@ -235,17 +234,15 @@ grow2 = div [class_ =: "grow-2"]
 grow3 :: forall t m a. Builder t m => m a -> m a 
 grow3 = div [class_ =: "grow-3"]  
 
+grow5 :: forall t m a. Builder t m => m a -> m a 
+grow5 = div [class_ =: "grow-5"]  
+
 rangePreview :: (Builder t m, Read a, Show a, Num a, Eq a) => (a -> Text) -> (a, a) -> a -> Dynamic t a -> m (Event t a)
 rangePreview showValue range step value = row "spacing-3 align-items-center" $ do
-  inp <- rangeView range step value
-  span [] $ dynText $ (showValue <$> value)
+  inp <- grow5 $ rangeView range step value
+  span [ class_ =: "grow-1 text-right" ] $ dynText $ (showValue <$> value)
   return inp
 
-printFloat :: Float -> Text
-printFloat = T.pack . printf "%.2f"
-
-printFloat0 :: Float -> Text
-printFloat0 = T.pack . printf "%.0f"
 
 
 checkboxLabel :: Builder t m => Text -> Text -> Dynamic t Bool -> m (Event t Bool)

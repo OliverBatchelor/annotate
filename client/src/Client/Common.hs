@@ -25,6 +25,8 @@ import Language.Javascript.JSaddle (MonadJSM)
 import Control.Lens (makePrisms)
 
 import Web.KeyCode (Key)
+import Text.Printf
+
 
 
 type Builder t m = (Adjustable t m, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m
@@ -63,12 +65,15 @@ data PrefCommand
   | SetMinThreshold Float
   | SetDetections Int
   | SetThreshold Float
-  | SetMargin Float
-
+  | SetLowerThreshold Float
+  
   | SetPrefs Preferences
   | SetSort SortCommand
 
   | SetAutoDetect Bool
+
+  | SetAssignMethod AssignmentMethod
+  | SetTrainRatio Int
 
   deriving (Generic, Show)
 
@@ -89,7 +94,7 @@ data AppCommand
   | SelectCmd DocParts
   | ClearCmd
 
-  | SubmitCmd ImageCat
+  | SubmitCmd SubmitType
   | OpenCmd DocName
 
   | DetectCmd
@@ -173,13 +178,13 @@ localPath path = do
 imagePath :: MonadReader (AppEnv t) m => Text -> m Text
 imagePath path = localPath ("images/" <> path)
   
-
 newtype Shortcuts t = Shortcuts (forall a. Shortcut a -> Event t a)
 
 askShortcuts :: (Reflex t, MonadReader (AppEnv t) m) => m (Shortcuts t)
 askShortcuts = do
   selector <- view #shortcut
   return (Shortcuts (select selector))
+
 
 askClasses :: AppBuilder t m => m (Dynamic t (Map ClassId ClassConfig))
 askClasses = fmap (view #classes) <$> view #config
@@ -233,8 +238,16 @@ showText = T.pack . show
 clearAnnotations :: EditCmd
 clearAnnotations = DocEdit EditClearAll
 
+printFloat :: Float -> Text
+printFloat = T.pack . printf "%.2f"
+
+printFloat0 :: Float -> Text
+printFloat0 = T.pack . printf "%.0f"
+
 makePrisms ''AppCommand
 makePrisms ''SceneEvent
 
 deriveGCompare ''Shortcut
 deriveGEq ''Shortcut
+
+

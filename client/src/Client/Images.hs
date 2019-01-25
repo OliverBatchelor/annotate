@@ -4,6 +4,7 @@ import Annotate.Prelude hiding (div)
 import qualified Annotate.Prelude as Prelude
 
 import Annotate.Common hiding (label)
+import Annotate.Sorting
 
 import Client.Common
 import Client.Widgets
@@ -28,20 +29,27 @@ fixed n = style_ =:
   -- , ("padding-top", "0"), ("padding-bottom", "0"), ("border", "0")]
 
 
+upcomingHeader :: AppBuilder t m => Dynamic t ImageSelection -> m ()
+upcomingHeader sel = tr [] $ do
+    th [fixed 60] $ text "File"
+    th [fixed 40] $ dynText (selectionDesc <$> sel)
+  
 
 showHeader :: AppBuilder t m => Dynamic t SortOptions -> m ()
 showHeader opts = tr [] $ do
     th [fixed 60] $ text "File"
     key <- th [fixed 40] $ 
-      selectView allSorts (view #sortKey <$> opts)
+      selectView allSorts sortKey
 
-    rev <- toggleButtonView ("sort-descending", "sort-ascending") (view #reversed <$> opts)
+    rev <- toggleButtonView ("sort-descending", "sort-ascending") reversed
 
     sortCommand (SetSortKey <$> key)
     sortCommand (SetReverse <$> rev)      
 
     return ()
       where
+
+        (sortKey, reversed) = split (view #sorting <$> opts)
         width n = style_ =: [("width", showText n <> "%")]
   
 approxLocale :: HumanTimeLocale
@@ -93,16 +101,24 @@ showImage sortKey maybeRow selected = do
       imageInfo = fromMaybe def <$> maybeRow
       (name, info) = split imageInfo
       
+selectionDesc :: ImageSelection -> Text
+selectionDesc = \case 
+  SelSequential False -> "forwards"
+  SelSequential True  -> "backwards"
+  SelRandom           -> "random"
+  SelDetections False -> "most detections"
+  SelLoss             -> "training error"
+  SelDetections True  -> "least detections"
+  
 
 allSelection :: [(Text, ImageSelection)]
-allSelection =
-  [ ("forwards",     SelSequential False)
-  , ("backwards",     SelSequential True)
-  , ("random",     SelRandom)
-  , ("most detections",     SelDetections False)
-  , ("large train error",     SelLoss)
-  , ("least detections",     SelDetections True)
-  ]
+allSelection = withDesc <$>
+  [ SelSequential False
+  , SelSequential True
+  , SelRandom
+  , SelDetections False
+  , SelLoss
+  ] where withDesc s = (selectionDesc s, s)
 
 allFilters :: [(Text, FilterOption)]
 allFilters =
@@ -138,16 +154,17 @@ imagesTab = sidePane $ do
   images      <- fmap (view #images) <$> view #collection
   prefs       <- view #preferences 
 
-  let opts  = view #sortOptions <$> prefs
-      sorted = sortImages <$> opts <*> (M.toList <$> images)
+  let opts  = (view #sortOptions <$> prefs :: Dynamic t SortOptions)
+      sorted = sortForBrowsing <$> opts <*> (M.toList <$> images)
+
+      (filtering, invert) = split (view #filtering <$> opts)
       
 
-  column "v-spacing-2 p-2 border h-100" $ do
+  groupPane "Browse" $ do
     centreRow $ do
       searched <- div [class_ =: "input-group grow-3"] $ searchView (view #search <$> opts)
-      neg <- toggleButtonView ("not-equal-variant", "equal") (view #negFilter <$> opts)
-  
-      filtered <- grow $ selectView allFilters (view #filtering <$> opts)
+      neg <- toggleButtonView ("not-equal-variant", "equal") invert
+      filtered <- grow $ selectView allFilters filtering
       
       sortCommand (SetSearch <$> searched)
       sortCommand (SetFilter <$> filtered)
@@ -157,16 +174,12 @@ imagesTab = sidePane $ do
 
     spacer
 
-    imgSelection <- labelled "Example selection" $ selectView allSelection (view #selection <$> opts)
+  groupPane "Selection" $ do
+    imgSelection <- selectView allSelection (view #selection <$> opts)
     sortCommand (SetImageSelection <$> imgSelection)
 
 
-    where 
-      maybeLookup selected m = do 
-        k <- selected
-        info <- M.lookup k m
-        return (k, info)
-       
+
        
 
 findOffset :: Int -> [(DocName, DocInfo)] -> Maybe DocName -> Int
@@ -189,14 +202,14 @@ searchView = inputView' [ class_ =: "form-control", type_ =: "search", placehold
 navControl :: forall t m. Builder t m => Int -> Dynamic t Int -> Dynamic t Int -> m (Event t (Int -> Int))
 navControl size numImages offset = row "justify-content-between align-items-center" $ do
     (start, dec) <- buttonGroup $ liftA2 (,)
+      (navButton enablePrev $  icon "page-first")
       (navButton enablePrev $  icon "chevron-double-left")
-      (navButton enablePrev $  icon "chevron-left")
 
     span [] $ dynText (showPage <$> offset <*> numImages)  
 
     (inc, end) <- buttonGroup $ liftA2 (,)
-      (navButton enableNext $ icon "chevron-right")
       (navButton enableNext $ icon "chevron-double-right")
+      (navButton enableNext $ icon "page-last")
 
     return $ leftmost
       [ (+size) <$ inc
@@ -233,20 +246,17 @@ imageList size  opts selected images = do
       , attachWith (&) (current offset) updatePage
       ]
    
-    userSelect <- table [class_ =: "table table-sm table-hover"] $ do
+    userSelect <- table [class_ =: "table table-sm table-hover m-0"] $ do
       thead [] $ showHeader opts
 
       tbody [class_ =: "scroll"] $ 
-        dyn' never $ ffor (view #sortKey <$> opts) $ \k -> 
+        dyn' never $ ffor (view #sorting <$> opts) $ \(k, _) -> 
           selectPaged (pure size) offset images (showImage k) selected
 
     updatePage <- navControl size (length <$> images) offset
   command OpenCmd userSelect
 
    
-
-
-
 
 
 categoryIcon :: forall t. Reflex t => ImageCat -> IconConfig t

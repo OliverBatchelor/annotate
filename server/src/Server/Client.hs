@@ -87,7 +87,7 @@ processMsg env@ClientEnv{store, clientId, userId} msg = do
         NavNext  -> navNext env navId
 
     ClientSubmit submission -> void $ do
-      updateLog store (CmdSubmit submission time)
+      updateLog store (CmdSubmit userId submission time)
       mDoc <- lookupDocument (upcast env) (submission ^. #name)   
       
       for_ mDoc $ \doc -> do

@@ -10,6 +10,7 @@ import Data.SafeCopy
 import Control.Concurrent.Log
 import qualified Data.Text as Text
 
+import Data.List (transpose, (!!))
 
 data OldHistoryEntry = HistOpen | HistSubmit | HistEdit DocumentPatch | HistUndo | HistRedo
   deriving (Show, Eq, Generic)
@@ -199,17 +200,47 @@ data Command0 where
   CmdDetections0  :: [(DocName, [Detection])] -> NetworkId -> Command0
     deriving (Show,  Generic)
 
-instance Migrate Command where
-  type MigrateFrom Command = Command0
-  migrate (CmdCategory0 k c) = CmdCategory k c
-  migrate (CmdUpdate0 k c) = CmdUpdate k c
-  migrate (CmdModified0 k c) = CmdModified k c
-  migrate (CmdImages0 m) = CmdImages m
-  migrate (CmdSetRoot0 r) = CmdSetRoot r
-  migrate (CmdCheckpoint0 k f b) = CmdCheckpoint $ Checkpoint k f b
-  migrate (CmdPreferences0 k p) = CmdPreferences k p
-  migrate (CmdDetections0 ds netId)   = CmdDetections $ f <$> M.fromList ds
+data Command1 where
+  CmdCategory1     :: DocName -> ImageCat -> Command1
+  CmdUpdate1       :: Document -> UTCTime  -> Command1
+  CmdModified1     :: DocName -> UTCTime -> Command1
+  CmdImages1       :: [(DocName, DocInfo)] -> Command1
+  CmdClass1        :: ClassId -> Maybe ClassConfig -> Command1
+  CmdSetRoot1      :: Text -> Command1
+  CmdCheckpoint1   :: Checkpoint -> Command1
+  CmdPreferences1  :: UserId -> Preferences -> Command1
+  CmdDetections1   :: Map DocName Detections -> Command1
+  CmdSubmit1       :: Submission -> UTCTime  -> Command1
+  CmdTraining1     :: Map DocName [TrainSummary] -> Command1
+    deriving (Show, Generic)
+
+
+instance Migrate Command1 where
+  type MigrateFrom Command1 = Command0
+  migrate (CmdCategory0 k c) = CmdCategory1 k c
+  migrate (CmdUpdate0 k c) = CmdUpdate1 k c
+  migrate (CmdModified0 k c) = CmdModified1 k c
+  migrate (CmdImages0 m) = CmdImages1 m
+  migrate (CmdSetRoot0 r) = CmdSetRoot1 r
+  migrate (CmdCheckpoint0 k f b) = CmdCheckpoint1 $ Checkpoint k f b
+  migrate (CmdPreferences0 k p) = CmdPreferences1 k p
+  migrate (CmdDetections0 ds netId)   = CmdDetections1 $ f <$> M.fromList ds
     where f dets = Detections dets netId def
+
+instance Migrate Command where
+  type MigrateFrom Command = Command1
+  migrate (CmdCategory1 k c) = CmdCategory k c
+  migrate (CmdUpdate1 k c) = CmdUpdate k c
+  migrate (CmdModified1 k c) = CmdModified k c
+  migrate (CmdImages1 m) = CmdImages m
+  migrate (CmdSetRoot1 r) = CmdSetRoot r
+  migrate (CmdCheckpoint1 cp) = CmdCheckpoint cp
+  migrate (CmdPreferences1 k p) = CmdPreferences k p
+  migrate (CmdDetections1 ds)   = CmdDetections ds
+  migrate (CmdSubmit1 s t)   = CmdSubmit 0 s t
+  migrate (CmdTraining1 ds)   = CmdTraining ds
+
+
 
 data ImageOrdering = OrderSequential | OrderMixed | OrderBackwards
   deriving (Show, Eq, Ord, Enum, Generic)
@@ -229,6 +260,16 @@ data SortOptions1 = SortOptions1
   , restrictClass :: Maybe ClassId
   } deriving (Show, Generic, Eq)  
 
+data SortOptions3 = SortOptions3 
+  { sortKey   :: SortKey
+  , selection :: ImageSelection
+  , reversed  :: Bool 
+  , filtering :: FilterOption
+  , negFilter :: Bool
+  , search    :: Text
+  , restrictClass :: Maybe ClassId
+  } deriving (Show, Generic, Eq)
+
 data SortOptions2 = SortOptions2 
   { sortKey   :: SortKey
   , selection :: ImageSelection
@@ -237,6 +278,36 @@ data SortOptions2 = SortOptions2
   , search    :: Text
   , restrictClass :: Maybe ClassId
   } deriving (Show, Generic, Eq)
+
+
+data Preferences5 = Preferences5
+  { display      :: DisplayPreferences
+  , detection    :: DetectionParams
+  , thresholds    :: (Float, Float)
+  , sortOptions :: SortOptions
+  , autoDetect  :: Bool
+  , assignMethod   :: AssignmentMethod
+  , assignRatios  :: (Int, Int)
+  } deriving (Generic, Show, Eq)
+
+
+data Preferences4 = Preferences4
+  { controlSize       :: Float
+  , brushSize         :: Float
+  , instanceColours   :: Bool
+  , opacity           :: Float
+  , border            :: Float
+  , hiddenClasses     :: Set Int
+  , gamma             :: Float
+  , brightness        :: Float
+  , contrast          :: Float
+  , detection    :: DetectionParams
+  , threshold    :: Float
+  , margin       :: Float
+  , sortOptions :: SortOptions
+  , autoDetect  :: Bool
+  } deriving (Generic, Show, Eq)
+
 
 data Preferences3 = Preferences3
   { controlSize       :: Float
@@ -325,9 +396,19 @@ instance Migrate Store where
   migrate Store1{..} = Store{..}
     where preferences = mempty
 
+
+
 instance Migrate SortOptions where
-  type MigrateFrom SortOptions = SortOptions2
-  migrate SortOptions2{..} = SortOptions{..} where 
+  type MigrateFrom SortOptions = SortOptions3
+  migrate SortOptions3{..} = SortOptions
+    { sorting = (sortKey, reversed)
+    , filtering = (filtering, negFilter)
+    , selection, search, restrictClass } 
+    
+
+instance Migrate SortOptions3 where
+  type MigrateFrom SortOptions3 = SortOptions2
+  migrate SortOptions2{..} = SortOptions3{..} where 
     negFilter = False
 
 instance Migrate SortOptions2 where
@@ -341,10 +422,25 @@ instance Migrate SortOptions1 where
   migrate SortOptions0{..} = SortOptions1{..} where 
     restrictClass = Nothing
 
+instance Migrate Preferences5 where
+  type MigrateFrom Preferences5 = Preferences4
+  migrate Preferences4{..} = Preferences5{..}  where
+    display = DisplayPreferences{..}
+    assignRatios = (5, 1)
+    assignMethod = AssignAuto
     
+    thresholds = (threshold, margin)
+    showConfidence = True
+
 instance Migrate Preferences where
-  type MigrateFrom Preferences = Preferences3
-  migrate Preferences3{..} = Preferences{..} 
+  type MigrateFrom Preferences = Preferences5
+  migrate Preferences5{..} = Preferences{..}  where
+    trainRatio = 5
+
+    
+instance Migrate Preferences4 where
+  type MigrateFrom Preferences4 = Preferences3
+  migrate Preferences3{..} = Preferences4{..} 
 
 instance Migrate Preferences3 where
   type MigrateFrom Preferences3 = Preferences2
@@ -364,6 +460,22 @@ instance Migrate Preferences1 where
       margin = 0.1
       border = 1
    
+
+data Submission0 = Submission0
+  { name        :: DocName
+  , annotations :: Map AnnotationId BasicAnnotation
+  , validArea   :: Maybe Box
+  , history :: [(UTCTime, HistoryEntry)]
+  , category :: Maybe ImageCat
+  } deriving (Generic, Show)      
+
+instance Migrate Submission where
+  type MigrateFrom Submission = Submission0
+  migrate Submission0{..} = Submission{..} where
+    method = case category of
+      Just cat -> SubmitNew
+      _        -> SubmitAutoSave
+  
 
 
 instance Migrate Document where
@@ -570,7 +682,10 @@ $(deriveSafeCopy 0 'base ''DetectionStats)
 $(deriveSafeCopy 0 'base ''Checkpoint)
 
 $(deriveSafeCopy 0 'base ''ImageCat)
-$(deriveSafeCopy 0 'base ''Submission)
+$(deriveSafeCopy 0 'base ''Submission0)
+$(deriveSafeCopy 1 'extension ''Submission)
+
+$(deriveSafeCopy 0 'base ''SubmitType)
 
 $(deriveSafeCopy 1 'base ''Document1)
 $(deriveSafeCopy 2 'extension ''Document2)
@@ -613,16 +728,24 @@ $(deriveSafeCopy 0 'base ''AnnotationPatch)
 
 $(deriveSafeCopy 2 'extension ''Store)
 $(deriveSafeCopy 0 'base ''Command0)
-$(deriveSafeCopy 1 'extension ''Command)
+$(deriveSafeCopy 1 'extension ''Command1)
+$(deriveSafeCopy 2 'extension ''Command)
 
 $(deriveSafeCopy 0 'base ''TrainerState)
 $(deriveSafeCopy 0 'base ''ModelState)
+
+$(deriveSafeCopy 0 'base ''AssignmentMethod)
+
 
 $(deriveSafeCopy 0 'base ''Preferences0)
 $(deriveSafeCopy 1 'extension ''Preferences1)
 $(deriveSafeCopy 2 'extension ''Preferences2)
 $(deriveSafeCopy 3 'extension ''Preferences3)
-$(deriveSafeCopy 4 'extension ''Preferences)
+$(deriveSafeCopy 4 'extension ''Preferences4)
+$(deriveSafeCopy 5 'extension ''Preferences5)
+$(deriveSafeCopy 6 'extension ''Preferences)
+
+$(deriveSafeCopy 0 'base ''DisplayPreferences)
 
 
 $(deriveSafeCopy 0 'base ''DetectionParams)
@@ -633,7 +756,8 @@ $(deriveSafeCopy 0 'base ''FilterOption)
 $(deriveSafeCopy 0 'base ''SortOptions0)
 $(deriveSafeCopy 1 'extension ''SortOptions1)
 $(deriveSafeCopy 2 'extension ''SortOptions2)
-$(deriveSafeCopy 3 'extension ''SortOptions)
+$(deriveSafeCopy 3 'extension ''SortOptions3)
+$(deriveSafeCopy 4 'extension ''SortOptions)
 
 $(deriveSafeCopy 0 'base ''ImageSelection)
 
@@ -681,19 +805,78 @@ emptyDoc k info = Document
   , training = []
   }
 
+selectCategory :: UserId -> Store -> ImageCat
+selectCategory user store = (case (prefs ^. #assignMethod) of 
+  AssignAuto    -> assignCat (prefs ^. #trainRatio) (countSubmitted $ store ^. #images)
+  AssignCat cat -> cat)
+    where  prefs = lookupPreferences store user
 
-submitDocument :: UTCTime -> Submission -> (Store -> Store)
-submitDocument time Submission{..} = over (#images . ix name) $ \doc -> doc 
-  & #annotations .~ annotations
-  & #validArea .~ validArea
-  & #history %~ (history <>)
-
-  & #info %~ \info -> info 
-    & #category %~ maybe id const category
-    & #modified .~ Just time
-    & #numAnnotations .~ length annotations
+countSubmitted = M.size . M.filter notNew
+  where notNew =  (/= CatNew) . view (#info . #category)
 
 
+assignCat :: Int -> Int -> ImageCat
+assignCat trainRatio n = if n `mod` (trainRatio + 1) == 0 
+  then CatValidate
+  else CatTrain
+
+
+-- minValue :: (Ord a, Foldable t) => t (k, a) -> k
+-- minValue = fst . minimumBy (comparing snd)
+
+-- initCounts :: Ord k => [(k, Int)] -> Map k (Int, Int)
+-- initCounts ratios = (0, ) <$> M.fromList ratios
+  
+-- incCount ::  Map k (Int, Int) -> k -> Map k (Int, Int)
+-- incCount m k = adjust (+1) k m
+
+-- nextBalanced :: Map k (Int, Int) -> k
+-- nextBalanced m = minValue (uncurry (%) <$> m)
+
+-- repeatedly :: (a -> a) -> Int -> a -> a
+-- repeatedly f n x = iterate f x !! n
+
+-- balanceCount :: (Ord a) => [(k, Int)] -> [k] -> Map k (Int, Int)
+-- balanceCount ratios = foldl incCount (initCounts ratios)
+
+-- makeBalanced :: Ord k => [(k, Int)] -> Int -> [k]
+-- makeBalanced ratios n = repeatedly update n (initCounts ratios)
+--   where 
+--     update (ks, counts) = (k : ks,  incCount counts k)
+--       where k = nextBalanced counts
+  
+
+lookupPreferences :: Store -> UserId -> Preferences
+lookupPreferences store user = fromMaybe def (store ^. #preferences . at user)
+
+submitDocument :: UserId -> UTCTime -> Submission -> (Store -> Store)
+submitDocument user time Submission{..} store = store & #images . ix name %~ \doc -> 
+  case method of
+    SubmitNew     -> doc & storeChanges 
+        & #info . #category .~ (selectCategory user store) 
+        & #info . #reviews .~ 0
+
+    SubmitDiscard -> doc & storeChanges 
+      & #info . #category .~ CatDiscard
+      & #info . #reviews .~ 0
+
+    SubmitConfirm -> doc & storeChanges
+      & #info . #reviews %~ (+1) 
+
+    SubmitAutoSave -> doc & storeChanges
+
+  where 
+    storeChanges doc = doc 
+      & #annotations .~ annotations
+      & #validArea .~ validArea
+      & #history %~ (history <>)
+
+      & #info %~ \info -> info 
+        & #modified .~ Just time
+        & #numAnnotations .~ length annotations
+
+
+  
 instance Persistable Store where
   type Update Store = Command
 
@@ -712,7 +895,7 @@ instance Persistable Store where
   update (CmdDetections detections) = over #images $
     (flip (foldr updateDetections)) (M.toList detections)
 
-  update (CmdSubmit submission time) = submitDocument time submission 
+  update (CmdSubmit user submission time) = submitDocument user time submission 
   update (CmdTraining summaries) = over #images $ 
     (flip (foldr addTraining)) (M.toList summaries)
 

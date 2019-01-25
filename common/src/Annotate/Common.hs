@@ -22,11 +22,7 @@ import qualified Data.Text as Text
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 
-import qualified Text.Fuzzy as Fuzzy
-
-import Data.Ord (comparing)
-import Data.List (sortBy, drop, dropWhile)
-
+import Data.List (splitAt, elemIndex,  dropWhile)
 import Data.GADT.Compare.TH
 
 
@@ -165,13 +161,19 @@ data Detections = Detections
   , stats     :: DetectionStats
   } deriving (Show,  Generic)
 
+data SubmitType
+    = SubmitNew 
+    | SubmitDiscard 
+    | SubmitConfirm 
+    | SubmitAutoSave
+  deriving (Show,  Generic)
 
 data Submission = Submission 
   { name        :: DocName
   , annotations :: Map AnnotationId BasicAnnotation
   , validArea   :: Maybe Box
   , history :: [(UTCTime, HistoryEntry)]
-  , category :: Maybe ImageCat
+  , method :: SubmitType
   } deriving (Generic, Show)
 
 data TrainSummary = TrainSummary 
@@ -189,7 +191,7 @@ data Document = Document
   } deriving (Generic, Show)
 
 
-data ImageCat = CatNew | CatTrain | CatValidate | CatDiscard 
+data ImageCat = CatNew | CatTrain | CatValidate | CatDiscard | CatTest
   deriving (Eq, Ord, Enum, Generic)
 
 instance Show ImageCat where
@@ -197,6 +199,7 @@ instance Show ImageCat where
   show CatValidate = "validate"
   show CatTrain = "train"
   show CatDiscard = "discard"
+  show CatTest = "test"
 
 
 newtype Hash32 = Hash32 { unHash :: Word32 }
@@ -273,33 +276,43 @@ instance Show FilterOption where
 
 
 data SortOptions = SortOptions 
-  { sortKey   :: SortKey
+  { sorting  :: (SortKey, Bool)
   , selection :: ImageSelection
-  , reversed  :: Bool 
-  , filtering :: FilterOption
-  , negFilter :: Bool
+
+  , filtering :: (FilterOption, Bool)
   , search    :: Text
   , restrictClass :: Maybe ClassId
   } deriving (Show, Generic, Eq)
 
   
+data AssignmentMethod
+    = AssignCat ImageCat
+    | AssignAuto
+  deriving (Show, Generic, Eq)
 
-
-data Preferences = Preferences
+data DisplayPreferences = DisplayPreferences 
   { controlSize       :: Float
   , brushSize         :: Float
   , instanceColours   :: Bool
+  , showConfidence    :: Bool
+
   , opacity           :: Float
   , border            :: Float
   , hiddenClasses     :: Set Int
+
   , gamma             :: Float
   , brightness        :: Float
   , contrast          :: Float
+  } deriving (Generic, Show, Eq)
+
+data Preferences = Preferences
+  { display      :: DisplayPreferences
   , detection    :: DetectionParams
-  , threshold    :: Float
-  , margin       :: Float
+  , thresholds    :: (Float, Float)
   , sortOptions :: SortOptions
   , autoDetect  :: Bool
+  , assignMethod   :: AssignmentMethod
+  , trainRatio  :: Int
   } deriving (Generic, Show, Eq)
 
   
@@ -440,8 +453,10 @@ instance FromJSON ShapeConfig where parseJSON = Aeson.genericParseJSON options
 instance FromJSON ClassConfig where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON DetectionParams where parseJSON = Aeson.genericParseJSON options
+instance FromJSON AssignmentMethod where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON Preferences where parseJSON = Aeson.genericParseJSON options
+instance FromJSON DisplayPreferences where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON ImageCat    where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Shape       where parseJSON = Aeson.genericParseJSON options
@@ -463,6 +478,8 @@ instance FromJSON ConfigUpdate  where parseJSON = Aeson.genericParseJSON options
 instance FromJSON NaturalKey    where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON Document     where parseJSON = Aeson.genericParseJSON options
+
+instance FromJSON SubmitType     where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Submission     where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Config       where parseJSON = Aeson.genericParseJSON options
 
@@ -497,6 +514,8 @@ instance ToJSON ShapeConfig  where toJSON = Aeson.genericToJSON options
 instance ToJSON ClassConfig  where toJSON = Aeson.genericToJSON options
 
 instance ToJSON DetectionParams where toJSON = Aeson.genericToJSON options
+instance ToJSON AssignmentMethod     where toJSON = Aeson.genericToJSON options
+instance ToJSON DisplayPreferences     where toJSON = Aeson.genericToJSON options
 instance ToJSON Preferences     where toJSON = Aeson.genericToJSON options
 
 instance ToJSON ImageCat    where toJSON = Aeson.genericToJSON options
@@ -519,6 +538,8 @@ instance ToJSON Navigation    where toJSON = Aeson.genericToJSON options
 instance ToJSON ConfigUpdate  where toJSON = Aeson.genericToJSON options
 instance ToJSON NaturalKey    where toJSON = Aeson.genericToJSON options
 instance ToJSON Document  where toJSON = Aeson.genericToJSON options
+
+instance ToJSON SubmitType  where toJSON = Aeson.genericToJSON options
 instance ToJSON Submission  where toJSON = Aeson.genericToJSON options
 
 instance ToJSON Config    where toJSON = Aeson.genericToJSON options
@@ -576,8 +597,8 @@ instance Default Config where
     , classes    = M.fromList [(0, newClass 0)]
     }
 
-instance Default Preferences where
-  def = Preferences
+instance Default DisplayPreferences where
+  def = DisplayPreferences
     { controlSize = 10
     , brushSize = 40
     , instanceColours = False
@@ -587,20 +608,25 @@ instance Default Preferences where
     , gamma = 1.0
     , brightness = 0.0
     , contrast = 1.0
+    , showConfidence = True
+    }
+
+instance Default Preferences where
+  def = Preferences
+    { display = def
     , detection = def
-    , threshold = 0.5
-    , margin = 0.1
+    , thresholds = (0.5, 0.2)
     , sortOptions = def
     , autoDetect = True
+    , trainRatio = 5
+    , assignMethod = AssignAuto
     }
 
 instance Default SortOptions where
   def = SortOptions 
-    { sortKey = SortRandom
-    , reversed = False
+    { sorting = (SortName, False)
     , selection = SelSequential False
-    , filtering = FilterAll
-    , negFilter = False
+    , filtering = (FilterAll, False)
     , search = ""
     , restrictClass = Nothing
     }
@@ -633,6 +659,7 @@ fromBasic BasicAnnotation{..} = Annotation{..} where
 
 toBasic :: Annotation -> BasicAnnotation
 toBasic Annotation{..} = BasicAnnotation{..}  
+
 
 
 getConfidence :: Annotation -> Float
@@ -698,62 +725,6 @@ unNatural (NaturalKey xs) = Text.concat (show' <$> xs) where
 emptyCollection :: Collection
 emptyCollection = Collection mempty
 
-
-filterImage :: FilterOption -> (DocName, DocInfo) -> Bool
-filterImage opt (_, DocInfo{category}) = case opt of
-  FilterAll     -> category /= CatDiscard
-  FilterEdited  -> category == CatTrain || category == CatValidate
-  FilterCat cat -> category == cat
-
-xor :: Bool -> Bool -> Bool
-xor True False = True
-xor False True = True
-xor _ _        = False
-
-reverseComparing :: Ord b => (a -> b) -> a -> a -> Ordering
-reverseComparing f x y = reverseOrdering $ compare (f x) (f y)
-
-reverseOrdering :: Ordering -> Ordering
-reverseOrdering LT = GT
-reverseOrdering GT = LT
-reverseOrdering EQ = EQ
-
-detectionScore :: DocInfo -> Maybe Float
-detectionScore = preview (#detections . traverse . #score)
-
-compareWith ::  Bool -> SortKey -> (DocName, DocInfo) -> (DocName, DocInfo) -> Ordering
-compareWith rev key = (case key of
-  SortCategory     -> compares (view #category)
-  SortAnnotations  -> compares (view #numAnnotations)
-  SortModified     -> compares (view #modified)
-
-  SortDetections   -> compares detectionScore
-  SortLossMean   -> compares (view (#training . #lossMean))
-  SortLossMax   -> compares (view (#training . #lossMax))
-
-  SortName         -> compares (view #naturalKey)
-  SortRandom       -> compares (view #hashedName))
-  where
-    compares :: forall a. Ord a => (DocInfo -> a) -> (DocName, DocInfo) -> (DocName, DocInfo) -> Ordering
-    compares f = if rev then reverseComparing (f' . snd) else comparing (f' . snd)
-      where f' = f &&& view #naturalKey
-
-
-sortImagesBy :: (Bool, FilterOption) -> Text -> (Bool, SortKey)  -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
-sortImagesBy (negFilter, filtering) search (reversed, sortKey) 
-  = filter (xor negFilter . filterImage filtering) 
-  . searchImages search
-  . sortBy (compareWith reversed sortKey) 
-
-sortImages :: SortOptions -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
-sortImages SortOptions{..} = sortImagesBy (negFilter, filtering) search (reversed, sortKey)
-  
-
-
-searchImages :: Text ->  [(DocName, DocInfo)] -> [(DocName, DocInfo)]
-searchImages ""   = id
-searchImages str  = \images -> Fuzzy.original <$>
-  Fuzzy.filter str images "" "" fst False
 
 
 makePrisms ''Navigation

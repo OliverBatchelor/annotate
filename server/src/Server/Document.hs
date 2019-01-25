@@ -10,77 +10,18 @@ import Control.Concurrent.STM
 import Control.Concurrent.Log
 
 import Control.Lens
-
-import Data.List (splitAt, elemIndex, takeWhile, dropWhile)
-
-
-minSet :: Ord a => Set a -> Maybe a
-minSet s
-  | null s        = Nothing
-  | otherwise     = Just (S.elemAt 0 s)
-
-lookupNext :: Ord a => Set a -> a -> Maybe a
-lookupNext s x = S.lookupGT x s <|> minSet s
-
-maybeNext :: Ord a => Set a -> Maybe a -> Maybe a
-maybeNext s = \case
-    Nothing -> minSet s
-    Just x  -> lookupNext (S.delete x s) x
+import Annotate.Sorting
 
 
-nextSet :: Ord a => Set a -> Maybe a -> [a]
-nextSet s = \case
-    Nothing -> S.toList s
-    Just x  -> S.toList ys <> S.toList xs
-      where (xs, _, ys) = S.splitMember x s
-
-prevSet :: Ord a => Set a -> Maybe a -> [a]
-prevSet s = reverse . nextSet s
-      
-
-rotate :: Int -> [a] -> [a]
-rotate n xs = bs <> as 
-  where (as, bs) = splitAt n xs
-
-
-rotateFrom :: Eq a => Maybe a -> [a] -> [a]
-rotateFrom current ks = fromMaybe ks $ do
-  k <- current
-  i <- elemIndex k ks
-  return (drop 1 (rotate i ks))
-
-
-selectionKey :: ImageSelection -> (Bool, SortKey)
-selectionKey = \case 
-    SelSequential rev -> (not rev, SortName)
-    SelRandom         -> (True, SortRandom)
-    SelDetections rev -> (not rev, SortDetections)
-    SelLoss           -> (True, SortLossMax)
-
-selectingMax :: ImageSelection -> Bool
-selectingMax = \case
-  SelRandom       -> False
-  SelSequential _ -> False
-  _             -> True
-
-sortSelection :: SortOptions -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
-sortSelection SortOptions{..} = sortImagesBy (negFilter, filtering) search (selectionKey selection)
-  
-
-sortAll :: SortOptions ->  Map DocName Document  -> [DocName]
-sortAll sortOptions = fmap fst . sortSelection sortOptions . M.toList . M.map (view #info)
-         
 
 findNext :: Env -> SortOptions -> Maybe DocName ->  STM [DocName]
 findNext Env{..} sortOptions current = do
   images <- view #images <$> readLog store
   openDocs  <- readTVar documents
 
-  return $ filter (inUse openDocs) $ nextFrom (sortAll sortOptions images)
+  return $ filter (inUse openDocs) $ sorting (M.toList (view #info <$> images))
     where
-      nextFrom = if selectingMax (sortOptions ^. #selection) 
-          then dropWhile ((== current) . Just) else rotateFrom current
-
+      sorting = fmap fst . nextImages sortOptions current
       inUse openDocs k = not (M.member k openDocs)
 
 withDocument :: Env -> DocName -> (Document -> STM ()) -> STM ()

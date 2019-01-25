@@ -39,12 +39,12 @@ inViewport vp child = g [transform_ ~: (transforms <$> vp)] child
 
 
 sceneDefines :: Builder t m => Dynamic t Viewport -> Dynamic t Preferences -> m ()
-sceneDefines vp prefs = void $ defs [] $ do
-    boxElem [ id_ =: controlId ] (makeBox <$> prefs <*> vp)
+sceneDefines vp preferences = void $ defs [] $ do
+    boxElem [ id_ =: controlId ] (makeBox <$> display <*> vp)
 
-    brightness <- holdUniqDyn (view #brightness <$> prefs)
-    contrast   <- holdUniqDyn (view #contrast <$> prefs)
-    gamma      <- holdUniqDyn ((1.0 /) . view #gamma <$> prefs)
+    brightness <- holdUniqDyn (view #brightness <$> display)
+    contrast   <- holdUniqDyn (view #contrast <$> display)
+    gamma      <- holdUniqDyn ((1.0 /) . view #gamma <$> display)
 
     Svg.filter [id_ =: adjustmentId ] $
       feComponentTransfer [] $ void $ do
@@ -56,6 +56,7 @@ sceneDefines vp prefs = void $ defs [] $ do
     --   feMorphology [operator_ =: "dilate" radius_ =: 2]
 
   where
+    display = view #display <$> preferences
 
     makeBox prefs vp = getBounds $ Extents (V2 0 0) (V2 s s)
       where s = (prefs ^. #controlSize) / (vp ^. #zoom)
@@ -125,11 +126,19 @@ annotationProperties ShapeProperties{selected, hidden, marginal} =
     ]
 
 
-circleView :: Builder t m => ShapeProperties t  -> Dynamic t Circle -> m (Event t (Maybe Int, SceneEvent))
-circleView props circle = fmap (sceneEvents Nothing) $
-  g_ (annotationProperties props) $ void $
-    circleElem (shapeAttributes "circle" props) circle
 
+confidenceText :: Builder t m => (Text, Text) ->  Dynamic t Position -> ShapeProperties t -> m ()
+confidenceText (anchor, baseline) pos props = void $ 
+  text_ [text_anchor_ =: anchor, dominant_baseline_ =: baseline, xy_ ~: pos, style_ =: style] $ 
+    dynText (maybe "" printFloat <$> (props ^. #confidence))
+
+  where style = [("fill", "white")]
+
+circleView :: Builder t m => ShapeProperties t -> Dynamic t Circle -> m (Event t (Maybe Int, SceneEvent))
+circleView props circle = fmap (sceneEvents Nothing) $
+  g_ (annotationProperties props) $ void $ do
+    circleElem (shapeAttributes "circle" props) circle
+    confidenceText ("middle", "middle") (view #centre <$> circle) props            
 
 
 
@@ -137,6 +146,8 @@ boxView :: Builder t m => ShapeProperties t  -> Dynamic t Box -> m (Event t (May
 boxView props box = do
   (e, events) <- g' (annotationProperties props) $ do
     boxElem (shapeAttributes "box" props) box
+    confidenceText ("middle", "baseline") v3 props            
+
     controls (props ^. #selected) [v1, v2, v3, v4]
 
   return $ leftmost (events <> [sceneEvents Nothing e])
@@ -243,8 +254,8 @@ data ClassAttrs = ClassAttrs
   , name   :: Text
   } deriving (Generic, Eq)
 
-classProperties :: Config -> Preferences -> ClassMap
-classProperties Config{classes} Preferences{hiddenClasses} =
+classProperties :: Config -> DisplayPreferences -> ClassMap
+classProperties Config{classes} DisplayPreferences{hiddenClasses} =
     flip M.mapWithKey classes $ \k conf ->
       ClassAttrs
         { hidden   = S.member k hiddenClasses
@@ -258,6 +269,7 @@ data ShapeProperties t = ShapeProperties
   , colour   :: !(Dynamic t HexColour)
   , hidden   :: !(Dynamic t Bool)
   , marginal :: !(Dynamic t Bool)
+  , confidence :: !(Dynamic t (Maybe Float))
   , elemId   :: !Text
   } deriving Generic
 
@@ -292,6 +304,10 @@ holdHover e = holdDyn False $ fmapMaybe f e where
   f SceneLeave = Just False
   f _          = Nothing
 
+annConfidence :: Annotation -> Maybe Float
+annConfidence Annotation{detection} = case detection of 
+  Just (_, d)   -> Just $ d ^. #confidence
+  _             -> Nothing
 
 annotationView :: forall t m. (Builder t m)
                => Dynamic t ClassMap
@@ -299,24 +315,32 @@ annotationView :: forall t m. (Builder t m)
                -> Dynamic t Bool
                -> Dynamic t (Maybe (Set Int))
                -> AnnotationId -> Updated t Annotation -> m (Event t (DocPart, SceneEvent))
-annotationView classMap (hideThreshold, marginalThreshold) instanceCols selected k obj = do
+annotationView classMap (t1, t2) instanceCols selected k obj = do
   classId    <- holdUpdated (view #label <$> obj)
-  confidence <- holdUpdated (getConfidence <$> obj)
+  confidence <- holdUpdated (annConfidence <$> obj)
+  
 
-  let (colour :: Dynamic t HexColour)    = lookupCol <$> instanceCols <*> classInfo
-      (classInfo :: Dynamic t (Maybe ClassAttrs)) = M.lookup <$> classId <*> classMap
+  let classInfo = M.lookup <$> classId <*> classMap
       
-      hidden    = liftA2 (||)  (hiddenClass <$> classInfo) (liftA2 (<) confidence hideThreshold)
-      marginal  = (liftA2 (<) confidence marginalThreshold)
+  let props = ShapeProperties 
+        { selected
+        , colour    = lookupCol <$> instanceCols <*> classInfo
+        , hidden    = liftA2 (||)  (hiddenClass <$> classInfo) (liftA2 less confidence t2)
+        , marginal  = (liftA2 less confidence t1)
+        , confidence
+        , elemId    = shapeId}
 
   rec
-    e     <- shapeView (ShapeProperties selected colour hidden marginal shapeId) obj
+    e     <- shapeView props obj
     -- hover <- holdHover (snd <$> e)
 
   return (arrange k <$> e)
     where
       shapeId = "ann" <> fromString (show k)
       hiddenClass = fromMaybe False . fmap (view #hidden)
+
+      less (Just conf) t = conf < t
+      less Nothing     _ = False
 
 
       lookupCol :: Bool -> Maybe ClassAttrs -> HexColour
@@ -357,8 +381,6 @@ editAction m = Workflow $ do
 
 
   
-
-
 makeBox :: Position -> Position -> Box
 makeBox p1 p2 = Box (liftI2 min p1 p2) (liftI2 max p1 p2)
 
@@ -404,7 +426,7 @@ drawCircles scene SceneInputs{..} finish = do
   addShapes scene (ShapeCircle <$> current cursor `tag` click LeftButton)
 
   where
-    brushSize = view #brushSize <$> (scene ^. #preferences)
+    brushSize = view (#display . #brushSize) <$> (scene ^. #preferences)
     cursor = Circle <$> mouse <*> brushSize
 
 
@@ -414,7 +436,7 @@ drawLines scene SceneInputs{..} finish = void $ do
   workflow idle
 
   where
-    brushSize = view #brushSize <$> (scene ^. #preferences)
+    brushSize = view (#display . #brushSize) <$> (scene ^. #preferences)
     cursor = Circle <$> mouse <*> brushSize
 
     idle  = workflow' $ do
@@ -653,16 +675,16 @@ actions scene@Scene{..} = holdWorkflow $
 
 
 getThresholds :: Preferences -> Set Key -> (Float, Float)
-getThresholds Preferences{threshold, margin} keyboard = (lower, threshold) where 
-  lower = if S.member Key.KeyR keyboard then threshold - margin else threshold
+getThresholds Preferences{thresholds = (t1, t2)} keyboard = (t1, t2') where 
+  t2' = if S.member Key.KeyR keyboard then t2 else t1
   
 
 sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart, SceneEvent))
 sceneView scene@Scene{..} = do
     imageView image
 
-    classMap     <- holdUniqDyn (classProperties <$> config <*> preferences)
-    instanceCols <- holdUniqDyn (view #instanceColours <$> preferences)
+    classMap     <- holdUniqDyn (classProperties <$> config <*> display)
+    instanceCols <- holdUniqDyn (view #instanceColours <$> display)
 
     thresholds  <- holdUniqDyn (getThresholds <$> preferences <*> input ^. #keyboard)  
 
@@ -675,3 +697,4 @@ sceneView scene@Scene{..} = do
     return (action, minElem <?> events)
       where
           isSelected = fanDynMap selection
+          display = view #display <$> preferences

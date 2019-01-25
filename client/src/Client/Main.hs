@@ -59,6 +59,7 @@ import qualified Web.KeyCode as Key
 import Stitch
 import Stitch.Combinators
 
+import Linear.V3 (V3(..))
 
 
 main :: JSM ()
@@ -92,11 +93,12 @@ headWidget env = do
     icons = decodeUtf8 $(embedFile $ "../html/css/materialdesignicons.min.css")
 
 prefsCss :: Preferences -> Text
-prefsCss Preferences{opacity, border} = renderCSS $ do
+prefsCss prefs = renderCSS $ do
   ".shape" ? do
     "stroke-opacity" .= showText border
     "fill-opacity" .= showText opacity
-
+  where
+    DisplayPreferences{opacity, border} = prefs ^. #display
 
 nonEmptyList :: [a] -> Maybe [a]
 nonEmptyList = \case
@@ -377,32 +379,26 @@ manageDocument hello serverMsg (userNext, userTo) = mdo
       isLatest latest (navId, doc)  = doc <$ guard (navId == latest - 1)
 
 
-data SaveCommand = AutoSave | SubmitSave ImageCat 
-  deriving (Show, Eq, Generic)
-
 
 navigationCmd :: Reflex t => Event t [AppCommand] -> (Event t (), Event t DocName)
 navigationCmd cmds = (void $ oneOf _SubmitCmd cmds, oneOf _OpenCmd cmds)
 
 
   
-saveCmd :: Reflex t => Event t [AppCommand] -> Dynamic t Bool -> Event t SaveCommand
-saveCmd cmds modified = leftmost [submit, autoSave] where
-  submit = SubmitSave <$> oneOf _SubmitCmd cmds
-  autoSave = current modified `gate` (AutoSave <$ oneOf _OpenCmd cmds)
+saveCmd :: Reflex t => Event t [AppCommand] -> Dynamic t Bool -> Event t SubmitType
+saveCmd cmds modified = leftmost [oneOf _SubmitCmd cmds, autoSave] where
+  autoSave = current modified `gate` (SubmitAutoSave <$ oneOf _OpenCmd cmds)
 
 
-submission :: Preferences -> (UTCTime, SaveCommand) -> Editor -> Submission
-submission prefs (time, cmd) Editor{..} = Submission
+submission :: Preferences -> (UTCTime, SubmitType) -> Editor -> Submission
+submission prefs (time, method) Editor{..} = Submission
   { name
   , history  = (time, HistoryClose) : history
   , annotations = anns
   , validArea
-  , category = case cmd of 
-      AutoSave         -> Nothing
-      (SubmitSave cat) -> Just cat
+  , method 
   } where 
-    anns = toBasic <$> M.filter (thresholdDetection (prefs ^. #threshold)) annotations
+    anns = toBasic <$> M.filter (thresholdDetection (prefs ^. #thresholds . _1)) annotations
 
 
 withTime :: GhcjsBuilder t m => Event t a -> m (Event t (UTCTime, a))
@@ -412,7 +408,7 @@ withTime e = performEvent $ ffor e $ \a -> do
     
 
 saveDocument :: GhcjsBuilder t m => Dynamic t Preferences -> Dynamic t (Maybe Editor)
-                        -> Event t SaveCommand -> m (Event t ClientMsg)
+                        -> Event t SubmitType -> m (Event t ClientMsg)
 saveDocument preferences editor submit = do 
   
   submitAt <- withTime submit 
@@ -528,37 +524,41 @@ runDialog (ErrorDialog code) = errorDialog code
 updatePrefs :: [PrefCommand] -> Preferences -> Preferences
 updatePrefs cmds = flip (foldr updatePref) cmds where
   updatePref :: PrefCommand -> Preferences -> Preferences
-  updatePref (ZoomBrush delta) = #brushSize %~ clamp (2, 400) . (* wheelZoom delta)
-  updatePref (SetOpacity opacity) = #opacity .~ opacity
-  updatePref (SetBorder border) = #border .~ border
-  updatePref (SetGamma gamma) = #gamma .~ gamma
-  updatePref (SetBrightness brightness) = #brightness .~ brightness
-  updatePref (SetContrast contrast) = #contrast .~ contrast
+  updatePref (ZoomBrush delta)          = #display . #brushSize %~ clamp (2, 400) . (* wheelZoom delta)
+  updatePref (SetOpacity opacity)       = #display . #opacity .~ opacity
+  updatePref (SetBorder border)         = #display . #border .~ border
+  updatePref (SetGamma gamma)           = #display . #gamma .~ gamma
+  updatePref (SetBrightness brightness) = #display . #brightness .~ brightness
+  updatePref (SetContrast contrast)     = #display . #contrast .~ contrast
 
-  updatePref (SetInstanceColors b) = #instanceColours .~ b
-  updatePref (SetControlSize size) = #controlSize .~ size
-  updatePref (ShowClass (classId, shown)) = #hiddenClasses .
+  updatePref (SetInstanceColors b)      = #display . #instanceColours .~ b
+  updatePref (SetControlSize size)      = #display . #controlSize .~ size
+  updatePref (ShowClass (classId, shown)) = #display . #hiddenClasses .
     at classId .~  if shown then Just () else Nothing
 
   updatePref (SetMinThreshold t)  = #detection . #threshold .~ t
   updatePref (SetNms nms)         = #detection . #nms .~ nms
   updatePref (SetDetections d)    = #detection . #detections .~ d
 
-  updatePref (SetThreshold t)   = #threshold .~ t
-  updatePref (SetMargin m)      = #margin .~ m
-
-  updatePref (SetPrefs prefs) = const prefs
+  updatePref (SetThreshold t1)       = #thresholds . _1 .~ t1
+  updatePref (SetLowerThreshold t2)  = #thresholds . _2 .~ t2
 
   updatePref (SetSort sortCmd)  = #sortOptions %~ updateSort sortCmd
   updatePref (SetAutoDetect b)  = #autoDetect .~ b
 
+  updatePref (SetAssignMethod m) = #assignMethod .~ m
+  updatePref (SetTrainRatio r)   = #trainRatio .~ r
+
+  updatePref (SetPrefs prefs) = const prefs
+
+
 
 
 updateSort :: SortCommand -> SortOptions -> SortOptions
-updateSort (SetSortKey k)  = #sortKey .~ k
-updateSort (SetReverse b)  = #reversed .~ b
-updateSort (SetFilter opt) = #filtering .~ opt
-updateSort (SetNegFilter opt) = #negFilter .~ opt
+updateSort (SetSortKey k)  = #sorting . _1 .~ k
+updateSort (SetReverse b)  = #sorting . _2 .~ b
+updateSort (SetFilter opt) = #filtering . _1 .~ opt
+updateSort (SetNegFilter opt) = #filtering . _2 .~ opt
 
 updateSort (SetSearch t)   = #search .~ t
 updateSort (SetImageSelection s)   = #selection .~ s
@@ -668,25 +668,27 @@ trainerTab = sidePane $ do
 
 settingsTab :: AppBuilder t m => m ()
 settingsTab = sidePane $ do
-  prefs <- view #preferences
+  (prefs :: Dynamic t Preferences) <- view #preferences
   doc   <- view #editor
+
+  let display = view #display <$> prefs
 
   groupPane "Interface settings" $ do
 
-    instanceCols <- checkboxLabel "instance-cols" "Instance colours" (view #instanceColours <$> prefs)
+    instanceCols <- checkboxLabel "instance-cols" "Instance colours" (view #instanceColours <$> display)
     prefCommand (SetInstanceColors <$> instanceCols)
 
     labelled "Mask opacity" $ do
-        inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #opacity <$> prefs)
+        inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #opacity <$> display)
         prefCommand (SetOpacity <$> inp)
 
     labelled "Border opacity" $ do
-      inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #border <$> prefs)
+      inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #border <$> display)
       prefCommand (SetBorder <$> inp)
   
 
     labelled "Control size" $ do
-      inp <- rangePreview (printFloat0) (5.0, 50.0) 1 (view #controlSize <$> prefs)
+      inp <- rangePreview (printFloat0) (5.0, 50.0) 1 (view #controlSize <$> display)
       prefCommand (SetControlSize <$> inp)
 
     return ()
@@ -694,15 +696,15 @@ settingsTab = sidePane $ do
 
   groupPane "Image adjustment" $ do
     labelled "Gamma" $ do
-        inp <- rangePreview printFloat (0.25, 4.0) 0.01 (view #gamma <$> prefs)
+        inp <- rangePreview printFloat (0.25, 4.0) 0.01 (view #gamma <$> display)
         prefCommand (SetGamma <$> inp)
 
     labelled "Brightness" $ do
-        inp <- rangePreview printFloat (-1.0, 1.0) 0.01 (view #brightness <$> prefs)
+        inp <- rangePreview printFloat (-1.0, 1.0) 0.01 (view #brightness <$> display)
         prefCommand (SetBrightness <$> inp)
 
     labelled "Contrast" $ do
-        inp <- rangePreview printFloat (0.0, 10.0) 0.01 (view #contrast <$> prefs)
+        inp <- rangePreview printFloat (0.0, 10.0) 0.01 (view #contrast <$> display)
         prefCommand (SetContrast <$> inp)
 
   groupPane "Detection settings" $ do
@@ -721,27 +723,50 @@ settingsTab = sidePane $ do
 
   groupPane "Active detections" $ do
 
-    let showCounts (V2 n total) = showText n <> "/" <> showText total
-        counts = detectionSummary <$> doc <*> (view #threshold <$> prefs)
+    let showCounts (V3 confident weak total) = showText confident <> "/" <> showText weak <> "/" <> showText total
+        counts = detectionSummary <$> doc <*> (view #thresholds <$> prefs)
 
-    labelled "Visible/detected" $ dynText (showCounts <$> counts)
+    labelled "Confident/weak/total" $ dynText (showCounts <$> counts)
 
+    let (higher, lower) = split (view #thresholds <$> prefs)
 
     labelled "Visible threshold" $ do
-      inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #threshold <$> prefs)
+      inp <- rangePreview printFloat (0.0, 1.0) 0.01 higher
       prefCommand (SetThreshold <$> inp)
 
-    labelled "Threshold margin" $ do
-      inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #margin <$> prefs)
-      prefCommand (SetMargin <$> inp)      
+    labelled "Weak threshold" $ do
+      inp <- rangePreview printFloat (0.0, 1.0) 0.01 lower
+      prefCommand (SetLowerThreshold <$> inp)      
+
+  groupPane "Image submission" $ do
+
+    labelled "Image assignment" $ do
+      inp <- selectView assignOptions (view #assignMethod <$> prefs)
+      prefCommand (SetAssignMethod <$> inp)
+
+
+    labelled "Train to validation" $ do
+      let showRatio n = showText n <> " to 1"
+
+      inp <- rangePreview showRatio (1, 9) 1 (view #trainRatio <$> prefs)
+      prefCommand (SetTrainRatio <$> inp)
 
   spacer
 
 
-detectionSummary :: Maybe Editor -> Float -> V2 Int
-detectionSummary Nothing    _         = V2 0 0
-detectionSummary (Just doc) threshold = sum $ summary <$> detections where
-  summary Detection{..} = V2 (if confidence > threshold then 1 else 0) 1
+
+assignOptions :: [(Text, AssignmentMethod)]
+assignOptions = 
+  [ ("auto", AssignAuto)
+  , ("train", AssignCat CatTrain)
+  , ("validate", AssignCat CatValidate)
+  , ("test", AssignCat CatTest)
+  ]
+
+detectionSummary :: Maybe Editor -> (Float, Float) -> V3 Int
+detectionSummary Nothing    _         = V3 0 0 0
+detectionSummary (Just doc) (t1, t2) = sum $ summary <$> detections where
+  summary Detection{..} = V3 (fromEnum (confidence > t1)) (fromEnum (confidence > t2)) 1
   detections = M.mapMaybe getDetection (doc ^. #annotations)
 
 getDetection :: Annotation -> Maybe Detection
@@ -808,21 +833,19 @@ submitButtons :: forall t m. AppBuilder t m => ImageCat ->  m ()
 submitButtons cat =  buttonGroup $ if isNew then new else confirm
   where
     isNew = cat == CatNew || cat == CatDiscard
-
     new = do
-      discard  <- toolButton' "Discard" (categoryIcon CatDiscard)  "Mark image as discarded"
-      val      <- toolButton' "Validate" (categoryIcon CatValidate) "Submit image for validation"
-      train    <- toolButton' "Train" (categoryIcon CatTrain) "Submit image for training"
+      discard     <- toolButton' "Discard" (categoryIcon CatDiscard)  "Mark image as discarded"
+      submit      <- toolButton' "Submit" "chevron-right" "Submit image"
 
-      command SubmitCmd $
-        leftmost [ CatDiscard <$ discard, CatValidate <$ val, CatTrain <$ train ]
+      command SubmitCmd $ 
+        leftmost [ SubmitDiscard <$ discard, SubmitNew <$ submit ]
 
     confirm = do
       discard  <- toolButton' "Discard" (categoryIcon CatDiscard)  "Mark image as discarded"
       confirm  <- toolButton' "Confirm" "check" "Confirm review"      
 
       command SubmitCmd $ 
-        leftmost [ CatDiscard <$ discard, cat <$ confirm ]              
+        leftmost [  SubmitDiscard <$ discard, SubmitConfirm <$ confirm  ]              
 
 
 overlay :: forall t m. AppBuilder t m => AppEnv t -> m ()
@@ -855,18 +878,17 @@ overlay AppEnv{shortcut, document, editor, modified} = row "expand  disable-curs
     canRedo = fromDocument False (not . null . view #redos)
 
     footer = buttonRow $ do
-      buttonGroup $ do
-
-        prev   <- toolButton' "Prev" "chevron-left" "View previous frame"
-        next   <- toolButton' "Next" "chevron-right" "View next frame"
-
-        command NavCmd $ leftmost [ NavBackward <$ prev, NavForward <$ next ]
-
-        return ()
-
       dyn_ (traverse_ footer' <$> document)
-       
+      -- buttonGroup $ do
 
+      --   prev   <- toolButton' "Prev" "chevron-left" "View previous frame"
+      --   next   <- toolButton' "Next" "chevron-right" "View next frame"
+
+      --   command NavCmd $ leftmost [ NavBackward <$ prev, NavForward <$ next ]
+
+      --   return ()
+
+       
     footer' document = do 
       div [ class_ =: "grow" ] $  
         fileInfo modified document 

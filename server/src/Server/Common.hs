@@ -64,7 +64,7 @@ data Command where
   CmdCheckpoint   :: Checkpoint -> Command
   CmdPreferences  :: UserId -> Preferences -> Command
   CmdDetections   :: Map DocName Detections -> Command
-  CmdSubmit       :: Submission -> UTCTime  -> Command
+  CmdSubmit       :: UserId -> Submission -> UTCTime  -> Command
   CmdTraining     :: Map DocName [TrainSummary] -> Command
     deriving (Show, Generic)
 

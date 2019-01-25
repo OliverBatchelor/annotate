@@ -80,6 +80,8 @@ library
                      , stitch
                      , uri-encode
 
+                     , linear
+
 
   if !impl(ghcjs)
     build-depends:     jsaddle-warp
