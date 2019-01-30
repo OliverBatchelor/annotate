@@ -80,20 +80,21 @@ data Detection = Detection
   { label      :: ClassId
   , shape      :: Shape
   , confidence :: Float
+  , match      :: Maybe AnnotationId
   } deriving (Generic, Show, Eq)
 
-data ShapeTag 
+data DetectionTag 
   = Detected
-  | Positive
-  | Negative 
+  | Review
+  | Missed
+  | Deleted 
   | Confirmed
-  | Deleted
     deriving (Generic, Show, Eq)
   
 data Annotation = Annotation
   { shape :: Shape
   , label :: ClassId
-  , detection :: Maybe (ShapeTag, Detection)
+  , detection :: Maybe (DetectionTag, Detection)
   } deriving (Generic, Show, Eq)
 
 data BasicAnnotation = BasicAnnotation 
@@ -207,8 +208,8 @@ newtype Hash32 = Hash32 { unHash :: Word32 }
 
 
 data TrainStats = TrainStats 
-  { lossMean   :: Float
-  , lossMax    :: Float
+  { lossMean       :: Float
+  , lossRunning    :: Float
   } deriving (Generic, Eq, Show)
 
 
@@ -249,7 +250,7 @@ data SortKey
   | SortRandom 
   | SortDetections
   | SortLossMean
-  | SortLossMax
+  | SortLossRunning
   deriving (Eq, Show, Generic)
 
 
@@ -266,13 +267,15 @@ data FilterOption
   | FilterCat ImageCat 
   | FilterEdited 
   | FilterReviewed 
-  | Filter FilterOption
+  | FilterForReview
   deriving (Eq, Generic)
 
 instance Show FilterOption where
   show FilterAll        = "all"
   show (FilterCat cat)  = show cat
   show FilterEdited     = "edited"
+  show FilterReviewed     = "reviewed"
+  show FilterForReview     = "for review"
 
 
 data SortOptions = SortOptions 
@@ -295,14 +298,13 @@ data DisplayPreferences = DisplayPreferences
   , brushSize         :: Float
   , instanceColours   :: Bool
   , showConfidence    :: Bool
-
   , opacity           :: Float
   , border            :: Float
   , hiddenClasses     :: Set Int
-
   , gamma             :: Float
   , brightness        :: Float
   , contrast          :: Float
+  , fontSize          :: Int
   } deriving (Generic, Show, Eq)
 
 data Preferences = Preferences
@@ -311,6 +313,7 @@ data Preferences = Preferences
   , thresholds    :: (Float, Float)
   , sortOptions :: SortOptions
   , autoDetect  :: Bool
+  , reviewing   :: Bool
   , assignMethod   :: AssignmentMethod
   , trainRatio  :: Int
   } deriving (Generic, Show, Eq)
@@ -416,10 +419,10 @@ data ConfigUpdate
   = ConfigClass ClassId (Maybe ClassConfig)
     deriving (Generic, Show, Eq)
 
-data ClientMsg
+data ClientMsg 
   = ClientNav NavId Navigation
   | ClientSubmit Submission
-  | ClientDetect DocName
+  | ClientDetect DocName (Map AnnotationId BasicAnnotation)
   | ClientConfig ConfigUpdate
   | ClientPreferences Preferences
   | ClientCollection
@@ -462,7 +465,7 @@ instance FromJSON ImageCat    where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Shape       where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Annotation      where parseJSON = Aeson.genericParseJSON options
 instance FromJSON BasicAnnotation where parseJSON = Aeson.genericParseJSON options
-instance FromJSON ShapeTag        where parseJSON = Aeson.genericParseJSON options
+instance FromJSON DetectionTag        where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Detection   where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Detections   where parseJSON = Aeson.genericParseJSON options
 
@@ -523,7 +526,7 @@ instance ToJSON Shape       where toJSON = Aeson.genericToJSON options
 instance ToJSON Annotation  where toJSON = Aeson.genericToJSON options
 instance ToJSON BasicAnnotation where toJSON = Aeson.genericToJSON options
 
-instance ToJSON ShapeTag  where toJSON = Aeson.genericToJSON options
+instance ToJSON DetectionTag  where toJSON = Aeson.genericToJSON options
 instance ToJSON Detection where toJSON = Aeson.genericToJSON options
 instance ToJSON Detections where toJSON = Aeson.genericToJSON options
 
@@ -609,6 +612,7 @@ instance Default DisplayPreferences where
     , brightness = 0.0
     , contrast = 1.0
     , showConfidence = True
+    , fontSize = 12
     }
 
 instance Default Preferences where
@@ -620,6 +624,7 @@ instance Default Preferences where
     , autoDetect = True
     , trainRatio = 5
     , assignMethod = AssignAuto
+    , reviewing = False
     }
 
 instance Default SortOptions where
@@ -667,6 +672,11 @@ getConfidence Annotation{detection} = case detection of
   Just (Detected, d)  -> d ^. #confidence
   Just (Deleted, _) -> 0.0
   _                 -> 1.0
+
+xor :: Bool -> Bool -> Bool
+xor True False = True
+xor False True = True
+xor _ _        = False
 
 
 maxKey :: Ord k => Map k a -> Maybe k

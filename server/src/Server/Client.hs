@@ -94,9 +94,9 @@ processMsg env@ClientEnv{store, clientId, userId} msg = do
         sendTrainer (upcast env) (TrainerUpdate (submission ^. #name) (Just (exportImage doc)))
         broadcastInfo (upcast env) (submission ^. #name) (doc ^. #info)
 
-    ClientDetect k -> do
+    ClientDetect k review -> do
       prefs <- userPreferences userId <$> readLog store
-      running <- detectRequest env (DetectClient clientId) k
+      running <- detectRequest env (DetectClient clientId) k review
       unless running $
         sendClient env (ServerError ErrNotRunning)
 
@@ -121,10 +121,10 @@ bestNetwork Env{store} = bestModel . view #trainer <$> readLog store
 
 
 
-detectRequest :: ClientEnv -> DetectRequest -> DocName -> STM Bool
-detectRequest env@ClientEnv{userId, store} req k = do
+detectRequest :: ClientEnv -> DetectRequest -> DocName -> Map AnnotationId BasicAnnotation -> STM Bool
+detectRequest env@ClientEnv{userId, store} req k review = do
   prefs <- userPreferences userId <$> readLog store
-  sendTrainer (upcast env) (TrainerDetect req k (prefs ^. #detection))
+  sendTrainer (upcast env) (TrainerDetect req k review (prefs ^. #detection))
 
 
 navTo :: ClientEnv -> NavId -> DocName -> STM ()
@@ -134,11 +134,18 @@ navTo env navId k = do
   lookupDocument (upcast env) k >>= \case 
     Nothing  -> sendClient env (ServerError (ErrNotFound navId k))
     Just doc -> do
-      openDocument env k
+      openDocument env k      
       hasTrainer <- trainerConnected env
-      if latestDetect doc /= Just net && hasTrainer
-        then void $ detectRequest env (DetectLoad navId (env ^. #clientId)) k
+      -- if latestDetect doc /= Just net && hasTrainer
+      if hasTrainer
+        then void $ detectRequest env (DetectLoad navId (env ^. #clientId)) k (reviewAnnotations doc)
         else sendClient env (ServerDocument navId doc)
+
+reviewAnnotations :: Document -> Map AnnotationId BasicAnnotation
+reviewAnnotations doc = case doc ^. #info . #category of
+  CatNew      -> mempty
+  CatDiscard  -> mempty
+  _ -> doc ^. #annotations
 
 latestDetect :: Document -> Maybe NetworkId
 latestDetect = preview (#detections . traverse . #networkId)

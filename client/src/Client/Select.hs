@@ -43,6 +43,8 @@ tabContent selected items = void $ div_ [class_ =: "tab-content p-0 pt-2 grow"] 
     item (k, m) = div_ [classList ["tab-pane h-100", "active" `gated` isOpen k]] m
     isOpen = fanDyn selected
 
+
+
 selectPaged ::  (Ord k, Builder t m)
             => Dynamic t Int
             -> Dynamic t Int

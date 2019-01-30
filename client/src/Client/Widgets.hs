@@ -159,8 +159,7 @@ selectOption' props options initial setter = fmap fromText . _selectElement_valu
 
     where
       fromText t = fromMaybe initial (lookup t options)
-      toText a   = fromMaybe (error $ "selectOption, missing value: " <> show a) $
-        lookup a (swap <$> options)
+      toText a   = fromMaybe "" $ lookup a (swap <$> options)
 
       makeOption (t, _) = option [value_ =: t] $ text t
       config  = def & selectElementConfig_initialValue .~ toText initial
@@ -244,7 +243,7 @@ rangePreview showValue range step value = row "spacing-3 align-items-center" $ d
   return inp
 
 
-
+  
 checkboxLabel :: Builder t m => Text -> Text -> Dynamic t Bool -> m (Event t Bool)
 checkboxLabel i t value = div [class_ =: "custom-control custom-checkbox"] $ do
     let attrs = M.fromList [("class", "custom-control-input"), ("id", i)]
@@ -254,6 +253,12 @@ checkboxLabel i t value = div [class_ =: "custom-control custom-checkbox"] $ do
 
     return inp
  
+
+-- pushButtonView :: forall t m. Builder t m =>  Dynamic t Bool -> Dynamic t Bool -> Text -> IconConfig t -> m (Event t Bool)
+-- pushButtonView enabled pressed tooltip name = fmap (domEvent Click) $   
+--     button_ [class_ =: toolButtonClasses, title_ =: tooltip, disabled_ ~: not <$> enabled] $
+--       iconTextV name conf
+
 
 toggleButtonView :: forall t m. Builder t m => (Text, Text) -> Dynamic t Bool -> m (Event t Bool)
 toggleButtonView icons d = do 

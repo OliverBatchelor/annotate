@@ -221,6 +221,7 @@ instance Migrate Command1 where
   migrate (CmdUpdate0 k c) = CmdUpdate1 k c
   migrate (CmdModified0 k c) = CmdModified1 k c
   migrate (CmdImages0 m) = CmdImages1 m
+  migrate (CmdClass0 c conf) = CmdClass1 c conf
   migrate (CmdSetRoot0 r) = CmdSetRoot1 r
   migrate (CmdCheckpoint0 k f b) = CmdCheckpoint1 $ Checkpoint k f b
   migrate (CmdPreferences0 k p) = CmdPreferences1 k p
@@ -233,6 +234,7 @@ instance Migrate Command where
   migrate (CmdUpdate1 k c) = CmdUpdate k c
   migrate (CmdModified1 k c) = CmdModified k c
   migrate (CmdImages1 m) = CmdImages m
+  migrate (CmdClass1 c conf) = CmdClass c conf
   migrate (CmdSetRoot1 r) = CmdSetRoot r
   migrate (CmdCheckpoint1 cp) = CmdCheckpoint cp
   migrate (CmdPreferences1 k p) = CmdPreferences k p
@@ -278,6 +280,32 @@ data SortOptions2 = SortOptions2
   , search    :: Text
   , restrictClass :: Maybe ClassId
   } deriving (Show, Generic, Eq)
+
+
+data DisplayPreferences0 = DisplayPreferences0
+  { controlSize       :: Float
+  , brushSize         :: Float
+  , instanceColours   :: Bool
+  , showConfidence    :: Bool
+  , opacity           :: Float
+  , border            :: Float
+  , hiddenClasses     :: Set Int
+  , gamma             :: Float
+  , brightness        :: Float
+  , contrast          :: Float
+  } deriving (Generic, Show, Eq)  
+
+
+data Preferences6 = Preferences6
+  { display      :: DisplayPreferences
+  , detection    :: DetectionParams
+  , thresholds    :: (Float, Float)
+  , sortOptions :: SortOptions
+  , autoDetect  :: Bool
+  , assignMethod   :: AssignmentMethod
+  , trainRatio  :: Int
+  } deriving (Generic, Show, Eq)
+
 
 
 data Preferences5 = Preferences5
@@ -422,20 +450,36 @@ instance Migrate SortOptions1 where
   migrate SortOptions0{..} = SortOptions1{..} where 
     restrictClass = Nothing
 
+
+instance Migrate DisplayPreferences where
+  type MigrateFrom DisplayPreferences = DisplayPreferences0
+  migrate DisplayPreferences0{..} = DisplayPreferences{..}  where
+    fontSize = 14
+    
+
+
+instance Migrate Preferences where
+  type MigrateFrom Preferences = Preferences6
+  migrate Preferences6{..} = Preferences{..}  where
+    reviewing = False
+
+instance Migrate Preferences6 where
+  type MigrateFrom Preferences6 = Preferences5
+  migrate Preferences5{..} = Preferences6{..}  where
+    trainRatio = 5
+        
+    
 instance Migrate Preferences5 where
   type MigrateFrom Preferences5 = Preferences4
   migrate Preferences4{..} = Preferences5{..}  where
-    display = DisplayPreferences{..}
+    display = def
     assignRatios = (5, 1)
     assignMethod = AssignAuto
     
     thresholds = (threshold, margin)
     showConfidence = True
 
-instance Migrate Preferences where
-  type MigrateFrom Preferences = Preferences5
-  migrate Preferences5{..} = Preferences{..}  where
-    trainRatio = 5
+
 
     
 instance Migrate Preferences4 where
@@ -577,6 +621,7 @@ instance Migrate DocInfo5 where
   type MigrateFrom DocInfo5 = DocInfo4
   migrate DocInfo4{..} = DocInfo5{..} where 
     training = TrainStats {..}
+    lossRunning = 0
 
 instance Migrate DocInfo where
   type MigrateFrom DocInfo = DocInfo5
@@ -606,13 +651,25 @@ data Detection0 = Detection0
   , confidence :: Float
   } deriving (Generic, Show, Eq)
 
+data Detection1 = Detection1
+  { label      :: ClassId
+  , shape      :: Shape
+  , confidence :: Float
+  } deriving (Generic, Show, Eq)
 
 instance Migrate Detection where
-  type MigrateFrom Detection = Detection0
-  migrate Detection0{..} = Detection{..}
+  type MigrateFrom Detection = Detection1
+  migrate Detection1{..} = Detection{..}
+    where match = Nothing
+  
+instance Migrate Detection1 where
+  type MigrateFrom Detection1 = Detection0
+  migrate Detection0{..} = Detection1{..}
     where shape = ShapeBox bounds
 
 $(deriveSafeCopy 0 'base ''Detection0)
+$(deriveSafeCopy 1 'extension ''Detection1)
+
 
 
 data Annotation1 = Annotation1 { shape :: Shape, label :: ClassId }
@@ -649,7 +706,7 @@ instance Migrate NaturalKey where
     migrate' (Right t) = Right t
 
 
-$(deriveSafeCopy 0 'base ''ShapeTag)
+$(deriveSafeCopy 0 'base ''DetectionTag)
 $(deriveSafeCopy 0 'base ''BasicAnnotation)
 
 
@@ -669,7 +726,7 @@ $(deriveSafeCopy 0 'base ''WideLine)
 
 $(deriveSafeCopy 0 'base ''Extents)
 $(deriveSafeCopy 0 'base ''Shape)
-$(deriveSafeCopy 1 'extension ''Detection)
+$(deriveSafeCopy 2 'extension ''Detection)
 
 $(deriveSafeCopy 0 'base ''TrainSummary)
 
@@ -743,9 +800,11 @@ $(deriveSafeCopy 2 'extension ''Preferences2)
 $(deriveSafeCopy 3 'extension ''Preferences3)
 $(deriveSafeCopy 4 'extension ''Preferences4)
 $(deriveSafeCopy 5 'extension ''Preferences5)
-$(deriveSafeCopy 6 'extension ''Preferences)
+$(deriveSafeCopy 6 'extension ''Preferences6)
+$(deriveSafeCopy 7 'extension ''Preferences)
 
-$(deriveSafeCopy 0 'base ''DisplayPreferences)
+$(deriveSafeCopy 0 'base ''DisplayPreferences0)
+$(deriveSafeCopy 1 'extension ''DisplayPreferences)
 
 
 $(deriveSafeCopy 0 'base ''DetectionParams)
@@ -779,11 +838,16 @@ updateDetections (k, detections) = over (ix k) $ \doc -> doc
   & #detections         .~ Just detections
   & #info . #detections .~ Just (detections ^. #stats)
 
+interp :: Fractional a => a -> a -> a -> a
+interp t x total = t * x + (1 - t) * total
+
 trainingStats :: [TrainSummary] -> TrainStats 
 trainingStats training = TrainStats 
   { lossMean = sum losses / fromIntegral (length losses)
-  , lossMax = maximum losses
-  } where losses = view #loss <$> training
+  , lossRunning = maybe 0 (foldr1 (interp 0.2)) (nonEmpty losses)
+  } where 
+    losses = view #loss <$> training
+    
 
 addTraining :: (DocName, [TrainSummary]) ->  Map DocName Document -> Map DocName Document
 addTraining (k, summary) = over (ix k) addSummary where

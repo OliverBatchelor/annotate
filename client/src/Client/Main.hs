@@ -97,8 +97,11 @@ prefsCss prefs = renderCSS $ do
   ".shape" ? do
     "stroke-opacity" .= showText border
     "fill-opacity" .= showText opacity
+
+  ".confidence" ? do
+    "visibility" .= if showConfidence then "visible" else "hidden"
   where
-    DisplayPreferences{opacity, border} = prefs ^. #display
+    DisplayPreferences{opacity, border, showConfidence} = prefs ^. #display
 
 nonEmptyList :: [a] -> Maybe [a]
 nonEmptyList = \case
@@ -196,7 +199,7 @@ sceneWidget cmds loaded = do
         sceneDefines viewport =<< view #preferences
 
         inViewport viewport $ replaceHold'
-            (documentEditor input cmds  <$> loaded)
+            (documentEditor viewport input cmds  <$> loaded)
 
   return (matchShortcuts input, action, maybeDoc, selection)
 
@@ -227,6 +230,8 @@ openNew time detections doc = doc
 openReview :: UTCTime -> [Detection] -> Editor -> Editor
 openReview time detections doc = doc
   & #history      .~  [(time, HistoryOpenReview detections)]
+  & #annotations  %~ reviewDetections detections
+
 
 openDocument :: UTCTime -> Editor -> Editor
 openDocument time doc = doc
@@ -245,13 +250,14 @@ delayEvent :: Builder t m => Event t a -> m (Event t a)
 delayEvent e = performEvent (return <$> e)
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
-            => SceneInputs t
+            => Dynamic t Viewport 
+            -> SceneInputs t
             -> Event t [AppCommand]
             -> Document
             -> m (Dynamic t Action, Dynamic t (Maybe Editor)
                  , Event t (DocPart, SceneEvent), Dynamic t DocParts)
 
-documentEditor input cmds document  = do
+documentEditor viewport input cmds document  = do
 
   loadTime <- liftIO getCurrentTime
   let editor0 = loadedDocument document loadTime
@@ -294,6 +300,7 @@ documentEditor input cmds document  = do
       , config       = view #config env
       , shortcut     = view #shortcut env
       , preferences  = view #preferences env
+      , viewport     = viewport
       }
     
 
@@ -424,9 +431,11 @@ connectingDialog (opened, closed) = void $ workflow disconnected where
   disconnected = workflow' $ Dialog.connecting >> return (connected <$ opened)
   connected    = workflow' $ return (disconnected <$ closed)
 
-clientDetect :: Reflex t => Dynamic t (Maybe DocName) -> Event t [AppCommand] -> Event t ClientMsg
-clientDetect docSelected cmds = fmap ClientDetect <?> (current docSelected `tag` oneOf _DetectCmd cmds)
-
+clientDetect :: Reflex t => Dynamic t (Maybe Editor) -> Event t [AppCommand] -> Event t ClientMsg
+clientDetect editor cmds = makeRequest <?> (current editor `tag` oneOf _DetectCmd cmds) where 
+  makeRequest maybeEditor = do 
+    editor <- maybeEditor
+    return $ ClientDetect (editor ^. #name) mempty
 
 filterDocument :: Reflex t => Dynamic t (Maybe Document) -> Event t (DocName, a) -> Event t a
 filterDocument d = attachWithMaybe f (current d) where
@@ -453,7 +462,7 @@ bodyWidget host = mdo
  
   (opened, closed, serverMsg, serverErrors) <- network host clientMsg
   let clientMsg = toList <$> mergeList
-        [ clientDetect docSelected cmds
+        [ clientDetect editor cmds
         , clientNav
         , clientConfig
         , ClientCollection <$ hello
@@ -532,6 +541,8 @@ updatePrefs cmds = flip (foldr updatePref) cmds where
   updatePref (SetContrast contrast)     = #display . #contrast .~ contrast
 
   updatePref (SetInstanceColors b)      = #display . #instanceColours .~ b
+  updatePref (SetShowConfidence b)      = #display . #showConfidence .~ b
+
   updatePref (SetControlSize size)      = #display . #controlSize .~ size
   updatePref (ShowClass (classId, shown)) = #display . #hiddenClasses .
     at classId .~  if shown then Just () else Nothing
@@ -639,10 +650,10 @@ trainerTab' status = do
         stop    <- toolButton  (pure isConnected) "Pause" "pause" "Pause training"
         trainerCommand (UserPause <$ stop)    
 
-    review  <- toolButton   (pure isConnected) "Review" "rotate-left" "Review all"
-    detect  <- toolButton   (pure isConnected) "Detect" "auto-fix" "Detect new"
+    -- review  <- toolButton   (pure isConnected) "Review" "rotate-left" "Review all"
+    -- detect  <- toolButton   (pure isConnected) "Detect" "auto-fix" "Detect new"
 
-    trainerCommand $ leftmost [UserReview <$ review, UserDetect <$ detect]
+    -- trainerCommand $ leftmost [UserReview <$ review, UserDetect <$ detect]
   where
     isConnected = not (hasKey DisconnectedKey status)
     isPaused = hasKey PausedKey status
@@ -675,8 +686,15 @@ settingsTab = sidePane $ do
 
   groupPane "Interface settings" $ do
 
-    instanceCols <- checkboxLabel "instance-cols" "Instance colours" (view #instanceColours <$> display)
-    prefCommand (SetInstanceColors <$> instanceCols)
+    centreRow $ do 
+
+      instanceCols <- grow $ checkboxLabel "instance-cols" "Instance colours" (view #instanceColours <$> display)
+      prefCommand (SetInstanceColors <$> instanceCols)
+
+      showConfidence <- grow $ checkboxLabel "show-confidence" "Show confidence" (view #showConfidence <$> display)
+      prefCommand (SetShowConfidence <$> showConfidence)
+
+      grow $ return ()
 
     labelled "Mask opacity" $ do
         inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #opacity <$> display)
@@ -849,7 +867,7 @@ submitButtons cat =  buttonGroup $ if isNew then new else confirm
 
 
 overlay :: forall t m. AppBuilder t m => AppEnv t -> m ()
-overlay AppEnv{shortcut, document, editor, modified} = row "expand  disable-cursor" $ do
+overlay AppEnv{shortcut, document, editor, modified, preferences} = row "expand  disable-cursor" $ do
   sidebar
   column "expand" $
     sequence_ [header, spacer, footer]
@@ -865,6 +883,10 @@ overlay AppEnv{shortcut, document, editor, modified} = row "expand  disable-curs
 
       detect <- toolButton docOpen "Detect" "auto-fix" "Detect annotations using current trained model"
       command (const DetectCmd) detect
+            
+      -- review <- toggleButton docOpen (view #reviewing <$> preferences) "Review" "magnify" "Toggle review mode"
+
+
 
       buttonGroup $ do
         docCommand  (const DocUndo)  =<< toolButton canUndo "Undo" "undo" "Undo last edit"

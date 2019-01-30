@@ -129,7 +129,7 @@ annotationProperties ShapeProperties{selected, hidden, marginal} =
 
 confidenceText :: Builder t m => (Text, Text) ->  Dynamic t Position -> ShapeProperties t -> m ()
 confidenceText (anchor, baseline) pos props = void $ 
-  text_ [text_anchor_ =: anchor, dominant_baseline_ =: baseline, xy_ ~: pos, style_ =: style] $ 
+  text_ [class_ =: "confidence", text_anchor_ =: anchor, dominant_baseline_ =: baseline, xy_ ~: pos, style_ =: style] $ 
     dynText (maybe "" printFloat <$> (props ^. #confidence))
 
   where style = [("fill", "white")]
@@ -146,7 +146,7 @@ boxView :: Builder t m => ShapeProperties t  -> Dynamic t Box -> m (Event t (May
 boxView props box = do
   (e, events) <- g' (annotationProperties props) $ do
     boxElem (shapeAttributes "box" props) box
-    confidenceText ("middle", "baseline") v3 props            
+    confidenceText ("start", "baseline") v4 props            
 
     controls (props ^. #selected) [v1, v2, v3, v4]
 
@@ -297,7 +297,6 @@ shapeView props obj  = case view #shape <$> obj of
   Updated (ShapePolygon s) e  -> polygonView props  =<< holdDyn s (_ShapePolygon ?> e)
   Updated (ShapeLine s)    e  -> lineView props     =<< holdDyn s (_ShapeLine ?> e)
 
-
 holdHover :: (MonadHold t m, Reflex t) => Event t SceneEvent -> m (Dynamic t Bool)
 holdHover e = holdDyn False $ fmapMaybe f e where
   f SceneEnter = Just True
@@ -309,46 +308,39 @@ annConfidence Annotation{detection} = case detection of
   Just (_, d)   -> Just $ d ^. #confidence
   _             -> Nothing
 
-annotationView :: forall t m. (Builder t m)
-               => Dynamic t ClassMap
-               -> (Dynamic t Float, Dynamic t Float)
-               -> Dynamic t Bool
+isShown :: Annotation -> Bool -> (Float, Float) -> (Bool, Bool)
+isShown Annotation{detection} review (higher, lower) = fromMaybe (True, False) $ do 
+  (tag, d) <- detection
+  let confidence = d ^. #confidence
+  return $ case tag of 
+    Review      -> (False, False)
+    Missed      -> (not (review && confidence >= lower), True)
+    Detected    -> (not (review && confidence >= lower || confidence >= higher), confidence < higher)
+    Confirmed   -> (False, False)
+
+lookupColour :: AnnotationId -> Bool -> Maybe ClassAttrs -> HexColour
+lookupColour k instanceCols classInfo = fromMaybe 0x000000 $ if instanceCols
+  then M.lookup (k `mod` length defaultColours) defaultColourMap
+  else (view #colour <$> classInfo)    
+
+shapeProperties :: Reflex t => Dynamic t ClassMap -> Dynamic t (Float, Float)
+               -> Dynamic t Bool -> Dynamic t Bool
                -> Dynamic t (Maybe (Set Int))
-               -> AnnotationId -> Updated t Annotation -> m (Event t (DocPart, SceneEvent))
-annotationView classMap (t1, t2) instanceCols selected k obj = do
-  classId    <- holdUpdated (view #label <$> obj)
-  confidence <- holdUpdated (annConfidence <$> obj)
-  
-
-  let classInfo = M.lookup <$> classId <*> classMap
-      
-  let props = ShapeProperties 
-        { selected
-        , colour    = lookupCol <$> instanceCols <*> classInfo
-        , hidden    = liftA2 (||)  (hiddenClass <$> classInfo) (liftA2 less confidence t2)
-        , marginal  = (liftA2 less confidence t1)
-        , confidence
-        , elemId    = shapeId}
-
-  rec
-    e     <- shapeView props obj
-    -- hover <- holdHover (snd <$> e)
-
-  return (arrange k <$> e)
-    where
-      shapeId = "ann" <> fromString (show k)
-      hiddenClass = fromMaybe False . fmap (view #hidden)
-
-      less (Just conf) t = conf < t
-      less Nothing     _ = False
+               -> AnnotationId -> Dynamic t Annotation 
+               -> ShapeProperties t
+shapeProperties classMap thresholds reviewing instanceCols selected k annotation = ShapeProperties 
+  { selected
+  , colour     = lookupColour k <$> instanceCols <*> classInfo
+  , confidence = annConfidence <$> annotation
+  , elemId     = "ann" <> fromString (show k)
+  , hidden = liftA2 (||)  (hiddenClass <$> classInfo) hidden
+  , marginal 
+  } where 
+    classInfo = M.lookup <$> (view #label <$> annotation) <*> classMap
+    (hidden, marginal) = split (liftA3 isShown annotation reviewing thresholds)
+    hiddenClass = fromMaybe False . fmap (view #hidden)
 
 
-      lookupCol :: Bool -> Maybe ClassAttrs -> HexColour
-      lookupCol instanceCols classInfo = fromMaybe 0x000000 $ if instanceCols
-        then M.lookup (k `mod` length defaultColours) defaultColourMap
-        else (view #colour <$> classInfo)
-
-      arrange k (part, e) = ((k, part), e)
 
 imageView :: (AppBuilder t m) => Image -> m (ElemType t m)
 imageView (file, dim) = do
@@ -491,7 +483,6 @@ selectChange keys doc existing target
   | S.member Key.Shift keys = fromMaybe existing (flip (addPart doc) existing <$> target)
   | otherwise               = fromMaybe mempty (toParts doc <$> target)
 
-
 selectParts :: Reflex t => Scene t -> Event t DocParts
 selectParts Scene{editor, selection, input, shortcut} =
   selectChange <$> current keyboard <*> current editor <*> current selection <@> partsClicked where
@@ -512,9 +503,8 @@ confirmAnnotation Scene{editor, input} = confirm <$> current editor <@> clicked 
     return i
     
   clicked = input ^. #mouseDownOn
-
-  canConfirm Detected = True
-  canConfirm _        = False
+  canConfirm t = t == Detected || t == Missed
+  
 
 
 boxQuery :: Editor -> Box -> DocParts
@@ -559,8 +549,6 @@ polygon (v:vs) = (m v : fmap l vs) <> [Z]
 
 maskPath :: Box -> Box -> [PathCommand]
 maskPath outer inner = polygon (boxVertices' outer) <> polygon (reverse (boxVertices' inner))
-
-
 
 actions :: AppBuilder t m => Scene t -> m (Dynamic t Action)
 actions scene@Scene{..} = holdWorkflow $
@@ -673,23 +661,20 @@ actions scene@Scene{..} = holdWorkflow $
   defaultCursor = (\b -> if b then "copy" else "default") <$> holdingShift
   eps = 1e-2
 
-
-getThresholds :: Preferences -> Set Key -> (Float, Float)
-getThresholds Preferences{thresholds = (t1, t2)} keyboard = (t1, t2') where 
-  t2' = if S.member Key.KeyR keyboard then t2 else t1
   
 
 sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart, SceneEvent))
-sceneView scene@Scene{..} = do
+sceneView scene@Scene{..} = g [style_ ~: (makeStyle <$> viewport <*> display)] $ do
     imageView image
 
-    classMap     <- holdUniqDyn (classProperties <$> config <*> display)
-    instanceCols <- holdUniqDyn (view #instanceColours <$> display)
+    classMap      <- holdUniqDyn (classProperties <$> config <*> display)
+    instanceCols  <- holdUniqDyn (view #instanceColours <$> display)
+    thresholds    <- holdUniqDyn (view #thresholds <$> preferences)  
+    reviewing     <- holdUniqDyn (isReviewing <$> input ^. #keyboard <*> preferences)  
 
-    thresholds  <- holdUniqDyn (getThresholds <$> preferences <*> input ^. #keyboard)  
-
-    events <- holdMergePatched =<< incrementalMapWithUpdates annotations (\k ->
-       annotationView classMap (split thresholds) instanceCols (isSelected k) k)
+    events <- holdMergePatched =<< (incrementalMapWithUpdates annotations $ \k ann -> do
+      props     <- shapeProperties classMap thresholds reviewing instanceCols (isSelected k) k <$> holdUpdated ann
+      fmap (arrange k) <$> shapeView props ann)
 
     maskOut (snd image) (view #validArea <$> currentEdit)
     action <- actions scene
@@ -698,3 +683,9 @@ sceneView scene@Scene{..} = do
       where
           isSelected = fanDynMap selection
           display = view #display <$> preferences
+          isReviewing keys prefs = (S.member Key.KeyR keys) `xor` (prefs ^. #reviewing)
+
+          arrange k (part, e) = ((k, part), e)
+
+          makeStyle Viewport{zoom} DisplayPreferences{fontSize} = 
+            [("font-size", showText (fromIntegral fontSize / zoom) <> "px")]

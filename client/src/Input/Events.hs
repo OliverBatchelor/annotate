@@ -104,7 +104,8 @@ onCapturing target eventName callback = do
 windowInputs :: (GhcjsBuilder t m) => ElemType t m -> m (Inputs t)
 windowInputs scene = do
   
-  window <- DOM.currentDocumentUnchecked
+  -- window <- DOM.currentDocumentUnchecked
+  window <- DOM.currentWindowUnchecked
   raw <- rawElement scene
 
   -- Mouse down events on the element
@@ -115,8 +116,8 @@ windowInputs scene = do
     (toButton <$> DOM.mouseButton)
 
   -- Other events on the window
-  mouseMove  <- wrapDomEvent window    (`DOM.on` DOM.mouseMove)
-    (fromDim <$> DOM.uiPageXY)
+  mouseMove  <- wrapDomEvent window    (`DOM.on` DOM.mouseMove) $ do
+    fromDim <$> DOM.uiPageXY
 
   mouseUp    <- wrapDomEvent window    (`DOM.on` DOM.mouseUp)
     (toButton <$> DOM.mouseButton)
@@ -127,11 +128,14 @@ windowInputs scene = do
   focusOut <- wrapDomEvent window   (`DOM.on` DOM.blur) (return False)
 
 
-  localKey <- wrapDomEvent raw    (`DOM.on` DOM.keyDown)
-      (keyCodeLookup . fromIntegral <$> getKeyEvent)
+  localKey <- wrapDomEvent raw    (`DOM.on` DOM.keyDown) $ do
+      DOM.preventDefault
+      keyCodeLookup . fromIntegral <$> getKeyEvent
 
-  keyDown <- wrapDomEvent raw    (`onCapturing` DOM.keyDown)
-    (keyCodeLookup . fromIntegral <$> getKeyEvent)
+  keyDown <- wrapDomEvent raw    (`onCapturing` DOM.keyDown) $ do
+    DOM.preventDefault
+    DOM.stopPropagation
+    keyCodeLookup . fromIntegral <$> getKeyEvent
 
   keyUp <- wrapDomEvent window    (`onCapturing` DOM.keyUp)
       (keyCodeLookup . fromIntegral <$> getKeyEvent)
@@ -146,6 +150,7 @@ windowInputs scene = do
 
 wheelNormalized = do 
   e <- DOM.event 
+  DOM.preventDefault
   
   dy <- realToFrac <$> DOM.getDeltaY e
   mode <- DOM.getDeltaMode e

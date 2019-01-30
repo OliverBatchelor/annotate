@@ -125,7 +125,7 @@ data DetectRequest
 data ToTrainer
   = TrainerInit Config
   | TrainerUpdate DocName (Maybe TrainImage)
-  | TrainerDetect DetectRequest DocName DetectionParams
+  | TrainerDetect DetectRequest DocName (Map AnnotationId BasicAnnotation) DetectionParams
   | UserCommand UserCommand
     deriving (Show, Generic)
 

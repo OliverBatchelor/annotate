@@ -76,4 +76,5 @@ data Scene t = Scene
   , preferences  :: !(Dynamic t Preferences)
 
   , shortcut     :: !(EventSelector t Shortcut)
+  , viewport     :: !(Dynamic t Viewport)
   } deriving (Generic)

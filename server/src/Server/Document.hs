@@ -12,8 +12,6 @@ import Control.Concurrent.Log
 import Control.Lens
 import Annotate.Sorting
 
-
-
 findNext :: Env -> SortOptions -> Maybe DocName ->  STM [DocName]
 findNext Env{..} sortOptions current = do
   images <- view #images <$> readLog store

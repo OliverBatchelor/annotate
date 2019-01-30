@@ -75,6 +75,8 @@ data PrefCommand
   | SetAssignMethod AssignmentMethod
   | SetTrainRatio Int
 
+  | SetShowConfidence Bool
+
   deriving (Generic, Show)
 
 

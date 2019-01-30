@@ -12,6 +12,7 @@ import Client.Select
 
 import Data.Ord (comparing, Ordering(..))
 import Data.List (sortBy, findIndex)
+import Data.Align (padZipWith)
 
 import qualified GHC.Real as Real
 
@@ -35,8 +36,8 @@ upcomingHeader sel = tr [] $ do
     th [fixed 40] $ dynText (selectionDesc <$> sel)
   
 
-showHeader :: AppBuilder t m => Dynamic t SortOptions -> m ()
-showHeader opts = tr [] $ do
+showHeader :: AppBuilder t m => Dynamic t (SortKey, Bool) -> m ()
+showHeader sorting = tr [] $ do
     th [fixed 60] $ text "File"
     key <- th [fixed 40] $ 
       selectView allSorts sortKey
@@ -49,7 +50,7 @@ showHeader opts = tr [] $ do
     return ()
       where
 
-        (sortKey, reversed) = split (view #sorting <$> opts)
+        (sortKey, reversed) = split sorting
         width n = style_ =: [("width", showText n <> "%")]
   
 approxLocale :: HumanTimeLocale
@@ -78,7 +79,7 @@ showField d key  = case key of
     SortDetections  -> dynText (fromMaybe "" . fmap printFloat . detectionScore <$> info)
 
     SortLossMean    -> dynText (printFloat . view (#training . #lossMean) <$> info)
-    SortLossMax     -> dynText (printFloat . view (#training . #lossMax) <$> info)
+    SortLossRunning     -> dynText (printFloat . view (#training . #lossRunning) <$> info)
     where
       (name, info) = split d
 
@@ -128,6 +129,9 @@ allFilters =
   , ("validate",    FilterCat CatValidate)
   , ("discard", FilterCat CatDiscard)
   , ("edited",  FilterEdited)
+
+  , ("for review",  FilterForReview)
+  , ("reviewed",  FilterReviewed)
   ]
 
 
@@ -138,8 +142,7 @@ allSorts =
   , ("modified", SortModified)
   , ("annotations", SortAnnotations)
   , ("detection score", SortDetections)
-  , ("mean error", SortLossMean)
-  , ("max error", SortLossMax)
+  , ("train error", SortLossRunning)
   , ("random", SortRandom)
   ]
 
@@ -155,12 +158,11 @@ imagesTab = sidePane $ do
   prefs       <- view #preferences 
 
   let opts  = (view #sortOptions <$> prefs :: Dynamic t SortOptions)
-      sorted = sortForBrowsing <$> opts <*> (M.toList <$> images)
-
+      selectionMethod = (view #selection <$> opts)
+      filtered = filterOpts <$> opts <*> (M.toList <$> images)
       (filtering, invert) = split (view #filtering <$> opts)
-      
-
-  groupPane "Browse" $ do
+  
+  groupPane "Filter" $ do
     centreRow $ do
       searched <- div [class_ =: "input-group grow-3"] $ searchView (view #search <$> opts)
       neg <- toggleButtonView ("not-equal-variant", "equal") invert
@@ -168,19 +170,19 @@ imagesTab = sidePane $ do
       
       sortCommand (SetSearch <$> searched)
       sortCommand (SetFilter <$> filtered)
-      sortCommand (SetNegFilter <$> neg)
-  
-    imageList 10 opts selected sorted
+      sortCommand (SetNegFilter <$> neg)    
 
+  groupPane "Browse" $ do
+    imageList 10 opts selected (sortImages <$> (view #sorting  <$> opts) <*> filtered)
     spacer
 
-  groupPane "Selection" $ do
-    imgSelection <- selectView allSelection (view #selection <$> opts)
-    sortCommand (SetImageSelection <$> imgSelection)
+  groupPane "Upcoming" $ do
+    labelled "Selection method" $ do
+      imgSelection <- selectView allSelection selectionMethod
+      sortCommand (SetImageSelection <$> imgSelection)
 
+    previewList 2 selectionMethod (sortForSelection <$> selectionMethod <*> filtered)
 
-
-       
 
 findOffset :: Int -> [(DocName, DocInfo)] -> Maybe DocName -> Int
 findOffset size images selected = fromMaybe 0 $ do
@@ -195,8 +197,6 @@ inputView' props =  toView $ \setText -> _inputElement_value <$>
 
 searchView :: forall t m. Builder t m => Dynamic t Text -> m (Event t Text)
 searchView = inputView' [ class_ =: "form-control", type_ =: "search", placeholder_ =: "Search..." ]
-
-
 
 
 navControl :: forall t m. Builder t m => Int -> Dynamic t Int -> Dynamic t Int -> m (Event t (Int -> Int))
@@ -247,16 +247,36 @@ imageList size  opts selected images = do
       ]
    
     userSelect <- table [class_ =: "table table-sm table-hover m-0"] $ do
-      thead [] $ showHeader opts
+      thead [] $ showHeader sorting
 
       tbody [class_ =: "scroll"] $ 
-        dyn' never $ ffor (view #sorting <$> opts) $ \(k, _) -> 
+        dyn' never $ ffor sorting $ \(k, _) -> 
           selectPaged (pure size) offset images (showImage k) selected
 
     updatePage <- navControl size (length <$> images) offset
   command OpenCmd userSelect
+    where
+      sorting = view #sorting <$> opts
 
-   
+padNothing :: Int -> [a] -> [Maybe a]
+padNothing n xs = padZipWith (liftA2 const) (take n xs) [1..n]
+
+previewList :: forall t m. AppBuilder t m 
+  => Int 
+  -> Dynamic t ImageSelection -> Dynamic t [(DocName, DocInfo)] 
+  -> m ()
+previewList size  selectionMethod images = void $ do   
+  table [class_ =: "table table-sm m-0"] $ do
+    thead [] $ showHeader sorting
+
+    tbody [] $ 
+      dyn' never $ ffor sorting $ \(k, _) -> do
+        dynList (showImage' k) (padNothing size <$> images)
+
+      where 
+        sorting = selectionKey <$> selectionMethod
+        showImage' k _ info = void $ showImage k info (pure False) 
+
 
 
 categoryIcon :: forall t. Reflex t => ImageCat -> IconConfig t

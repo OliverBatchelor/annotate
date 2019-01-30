@@ -59,10 +59,29 @@ makePrisms ''DocumentPatch
 isModified :: Editor -> Bool
 isModified = not . null . view #undos
 
+newDetection :: Detection -> Annotation
+newDetection d@Detection{..} = Annotation{..}
+    where detection = Just (Detected, d) 
+
 fromDetections :: AnnotationId -> [Detection] -> AnnotationMap
-fromDetections i detections = M.fromList (zip [i..] $ toAnnotation <$> detections) where
-  toAnnotation detection@Detection{..} = Annotation
-    {shape, label, detection = Just (Detected, detection) }
+fromDetections i detections = M.fromList (zip [i..] $ newDetection <$> detections) where
+  
+missedDetection :: Detection -> Annotation
+missedDetection d@Detection{..} = Annotation {..}
+    where detection = Just (Missed, d) 
+
+reviewDetections :: [Detection] -> AnnotationMap -> AnnotationMap 
+reviewDetections = flip (foldr addReview) where
+
+  addReview d = case d ^. #match of
+    Just i  -> M.adjust (setReview d) i
+    Nothing -> insertAuto (missedDetection d)
+
+  setReview d = #detection .~ Just (Review, d)
+    
+insertAuto :: (Ord k, Num k) => a -> Map k a -> Map k a
+insertAuto a m = M.insert k a m
+    where k = 1 + fromMaybe 0 (maxKey m)
 
 
 editDocument :: Document -> Editor
@@ -82,7 +101,7 @@ thresholdDetection t Annotation{detection} = case detection of
   Just (tag, Detection{confidence}) -> 
           tag == Detected && confidence >= t 
           || tag == Confirmed
-          || tag == Positive
+          || tag == Review
 
   Nothing -> True
 
@@ -154,7 +173,7 @@ maybePatchDocument (Just p) = patchDocument p
 
 patchDocument :: DocumentPatch' -> Editor -> Editor
 patchDocument (PatchAnns' p)  = over #annotations (patchMap p)
-patchDocument' (PatchArea' b) = #validArea .~ b
+patchDocument (PatchArea' b) = #validArea .~ b
 
 
 applyEdit :: Edit -> Editor -> Maybe (DocumentPatch', Editor)

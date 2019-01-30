@@ -13,15 +13,16 @@ import Data.Ord (comparing)
 
 
 filterImage :: FilterOption -> (DocName, DocInfo) -> Bool
-filterImage opt (_, DocInfo{category, modified}) = case opt of
+filterImage opt (_, DocInfo{reviews, category, modified}) = (case opt of
   FilterAll     -> True
   FilterEdited  -> isJust modified
   FilterCat cat -> category == cat
+  FilterForReview -> reviews == 0 && usedInTraining
+  FilterReviewed -> reviews > 0 && usedInTraining)
 
-xor :: Bool -> Bool -> Bool
-xor True False = True
-xor False True = True
-xor _ _        = False
+    where usedInTraining = (category == CatTrain || category == CatTest || category == CatValidate)
+
+
 
 reverseComparing :: Ord b => (a -> b) -> a -> a -> Ordering
 reverseComparing f x y = reverseOrdering $ compare (f x) (f y)
@@ -41,8 +42,8 @@ compareWith rev key = (case key of
   SortModified     -> compares (view #modified)
 
   SortDetections   -> compares detectionScore
-  SortLossMean   -> compares (negate . view (#training . #lossMean))
-  SortLossMax   -> compares (negate . view (#training . #lossMax))
+  SortLossMean    -> compares (negate . view (#training . #lossMean))
+  SortLossRunning -> compares (negate . view (#training . #lossRunning))
 
   SortName         -> compares (view #naturalKey)
   SortRandom       -> compares (view #hashedName))
@@ -101,6 +102,11 @@ filterImages :: (FilterOption, Bool) -> Text -> [(DocName, DocInfo)] -> [(DocNam
 filterImages (method, inverse) search 
     = filter (xor inverse . filterImage method) . searchImages search
 
+
+filterOpts :: SortOptions ->  [(DocName, DocInfo)] -> [(DocName, DocInfo)]
+filterOpts SortOptions{..} = filterImages filtering search  . searchImages search
+
+
 sortImages :: (SortKey, Bool)  -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
 sortImages (sortKey, reversed) = sortBy (compareWith reversed sortKey) 
 
@@ -110,7 +116,7 @@ selectionKey = \case
     SelSequential rev -> (SortName, rev)
     SelRandom         -> (SortRandom, False)
     SelDetections rev -> (SortDetections, rev)
-    SelLoss           -> (SortLossMax, False)
+    SelLoss           -> (SortLossRunning, False)
 
 selectingMax :: ImageSelection -> Bool
 selectingMax = \case
