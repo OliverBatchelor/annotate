@@ -560,6 +560,8 @@ updatePrefs cmds = flip (foldr updatePref) cmds where
   updatePref (SetAssignMethod m) = #assignMethod .~ m
   updatePref (SetTrainRatio r)   = #trainRatio .~ r
 
+  updatePref (SetReviewing b)  = #reviewing .~ b
+
   updatePref (SetPrefs prefs) = const prefs
 
 
@@ -881,12 +883,11 @@ overlay AppEnv{shortcut, document, editor, modified, preferences} = row "expand 
 
       spacer
 
-      detect <- toolButton docOpen "Detect" "auto-fix" "Detect annotations using current trained model"
-      command (const DetectCmd) detect
-            
-      -- review <- toggleButton docOpen (view #reviewing <$> preferences) "Review" "magnify" "Toggle review mode"
+      -- detect <- toolButton docOpen "Detect" "auto-fix" "Detect annotations using current trained model"
+      -- command (const DetectCmd) detect
 
-
+      review <- toolButtonToggle docOpen (view #reviewing <$> preferences) "Review" "magnify" "Toggle review mode"
+      prefCommand (SetReviewing <$> review)
 
       buttonGroup $ do
         docCommand  (const DocUndo)  =<< toolButton canUndo "Undo" "undo" "Undo last edit"

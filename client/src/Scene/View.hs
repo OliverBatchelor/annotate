@@ -17,6 +17,7 @@ import qualified Data.Map as M
 import qualified Data.List.NonEmpty as NE
 
 import qualified Web.KeyCode as Key
+import Linear.V3 (V3(..))
 
 import Scene.Types
 import Scene.Viewport
@@ -37,7 +38,6 @@ inViewport vp child = g [transform_ ~: (transforms <$> vp)] child
 
 
 
-
 sceneDefines :: Builder t m => Dynamic t Viewport -> Dynamic t Preferences -> m ()
 sceneDefines vp preferences = void $ defs [] $ do
     boxElem [ id_ =: controlId ] (makeBox <$> display <*> vp)
@@ -52,10 +52,18 @@ sceneDefines vp preferences = void $ defs [] $ do
         feFuncG_ [type_ =: "gamma", amplitude_ ~: contrast, exponent_ ~: gamma, offset_ ~: brightness]
         feFuncB_ [type_ =: "gamma", amplitude_ ~: contrast, exponent_ ~: gamma, offset_ ~: brightness]
 
-    -- Svg.filter [id_ =: "select-filter"] $
-    --   feMorphology [operator_ =: "dilate" radius_ =: 2]
+    -- for_ [0, 5.. 100] $ \confidence -> 
+    --   Svg.filter [id_ =: "confidence" <> showText confidence] $ do
+    --     let t = fromIntegral confidence * 255/100
 
+    --     feMorphology_    [operator_     =:"dilate", radius_ ~: zoomFactor 2 <$> vp, in_=:"StrokePaint"]
+    --     feGaussianBlur_  [stdDeviation_ ~: zoomFactor 4 <$> vp, result_ =:"blurred"]
+    --     feFlood_         [flood_color_  =: V3 (255 - t) t 0]
+    --     feComposite_     [in2_=:"blurred", operator_=: "in"]
+    --     feBlend_         [in2_ =: "SourceGraphic", mode_ =: "normal"]
+    
   where
+    zoomFactor x vp = x / (vp ^. #zoom)
     display = view #display <$> preferences
 
     makeBox prefs vp = getBounds $ Extents (V2 0 0) (V2 s s)
@@ -117,7 +125,7 @@ sceneEvents k e = (k,) <$> leftmost
     -- , SceneDoubleClick <$ domEvent Dblclick e
     ]
 
-
+-- 
 annotationProperties :: Reflex t => ShapeProperties t -> [Property t]
 annotationProperties ShapeProperties{selected, hidden, marginal} =
     [ classList ["annotation", "selected" `gated` (isJust <$> selected)]
@@ -126,13 +134,15 @@ annotationProperties ShapeProperties{selected, hidden, marginal} =
     ]
 
 
-
 confidenceText :: Builder t m => (Text, Text) ->  Dynamic t Position -> ShapeProperties t -> m ()
 confidenceText (anchor, baseline) pos props = void $ 
-  text_ [class_ =: "confidence", text_anchor_ =: anchor, dominant_baseline_ =: baseline, xy_ ~: pos, style_ =: style] $ 
-    dynText (maybe "" printFloat <$> (props ^. #confidence))
+  text_ [class_ =: "confidence", text_anchor_ =: anchor, dominant_baseline_ =: baseline, xy_ ~: pos, style_ ~: style <$> confidence] $ 
+    dynText (maybe "" printFloat <$> confidence)
 
-  where style = [("fill", "white")]
+  where 
+    style conf = [("fill", maybe "white" (showRgb . toColour) conf)]
+    toColour t = 32 + 224 *^ (V3 (1.0 - t) t 0)
+    confidence = props ^. #confidence
 
 circleView :: Builder t m => ShapeProperties t -> Dynamic t Circle -> m (Event t (Maybe Int, SceneEvent))
 circleView props circle = fmap (sceneEvents Nothing) $
@@ -273,9 +283,11 @@ data ShapeProperties t = ShapeProperties
   , elemId   :: !Text
   } deriving Generic
 
+data_confidence_ :: Attribute Float
+data_confidence_             = floatA "data-confidence"
 
 shapeAttributes :: Reflex t => Text -> ShapeProperties t -> [Property t]
-shapeAttributes shapeType ShapeProperties{selected, hidden, colour, marginal} =
+shapeAttributes shapeType ShapeProperties{selected, hidden, colour, marginal, confidence} =
     [ classList 
       [ pure shapeType
       , "shape"
@@ -283,10 +295,16 @@ shapeAttributes shapeType ShapeProperties{selected, hidden, colour, marginal} =
       , "marginal" `gated` marginal
       ]
     , style_ ~: style <$> colour
+    -- , Svg.optional filter_ ~: fmap (url . indicator) <$> confidence
+
     , pointer_events_ =: "visiblePainted"]
   where
 
-    style colour = [("stroke", showColour colour), ("fill", showColour colour)]
+    style colour = 
+      [("stroke", showColour colour), ("fill", showColour colour)]
+    -- indicator t = "#confidence" <> showText (5 * round (t * 20))
+
+
 
 
 
@@ -309,7 +327,7 @@ annConfidence Annotation{detection} = case detection of
   _             -> Nothing
 
 isShown :: Annotation -> Bool -> (Float, Float) -> (Bool, Bool)
-isShown Annotation{detection} review (higher, lower) = fromMaybe (True, False) $ do 
+isShown Annotation{detection} review (higher, lower) = fromMaybe (False, False) $ do 
   (tag, d) <- detection
   let confidence = d ^. #confidence
   return $ case tag of 
@@ -317,6 +335,8 @@ isShown Annotation{detection} review (higher, lower) = fromMaybe (True, False) $
     Missed      -> (not (review && confidence >= lower), True)
     Detected    -> (not (review && confidence >= lower || confidence >= higher), confidence < higher)
     Confirmed   -> (False, False)
+
+
 
 lookupColour :: AnnotationId -> Bool -> Maybe ClassAttrs -> HexColour
 lookupColour k instanceCols classInfo = fromMaybe 0x000000 $ if instanceCols

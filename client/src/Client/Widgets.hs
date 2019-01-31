@@ -107,13 +107,22 @@ iconButton enabled name conf tooltip = fmap (domEvent Click) $
 iconButton' :: Builder t m => Text -> IconConfig t -> Text -> m (Event t ())
 iconButton' = iconButton (pure True)
 
-toolButtonClasses :: Text
-toolButtonClasses = "btn btn-secondary enable-cursor pt-0 pb-0"
+toolButtonClasses :: [Text]
+toolButtonClasses = ["btn", "btn-secondary", "enable-cursor", "pt-0", "pb-0"]
 
 toolButton :: Builder t m => Dynamic t Bool -> Text -> IconConfig t -> Text -> m (Event t ())
 toolButton enabled name conf tooltip = fmap (domEvent Click) $
-    button_ [class_ =: toolButtonClasses, title_ =: tooltip, disabled_ ~: not <$> enabled] $
+    button_ [classes_ =: toolButtonClasses, title_ =: tooltip, disabled_ ~: not <$> enabled] $
       iconTextV name conf
+
+
+toolButtonToggle :: Builder t m => Dynamic t Bool -> Dynamic t Bool -> Text -> IconConfig t -> Text -> m (Event t Bool)
+toolButtonToggle enabled active name conf tooltip = do
+    e <- button_ [classes_ ~: classes <$> active, title_ =: tooltip, disabled_ ~: not <$> enabled ] $
+          iconTextV name conf
+
+    return $ attachWith (const . not) (current active) (domEvent Click e)
+      where classes isActive = if isActive then ("active" : toolButtonClasses) else toolButtonClasses
 
 
 toolButton' :: Builder t m => Text -> IconConfig t -> Text -> m (Event t ())

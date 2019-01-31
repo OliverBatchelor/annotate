@@ -75,6 +75,7 @@ import Prelude as X (
   Real(..), RealFloat(..), Fractional(..), Floating(..), Bounded(..), realToFrac,
   Integer, Char, Float, Int, Double, String, FilePath, IO,
   curry, uncurry, flip, const, fst, snd, fromIntegral,
+  round, floor,
   ($), undefined, error, subtract, print, putStr, putStrLn)
 
 import Data.String as X (IsString(..))

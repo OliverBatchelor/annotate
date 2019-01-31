@@ -27,6 +27,7 @@ import Control.Lens (makePrisms)
 import Web.KeyCode (Key)
 import Text.Printf
 
+import Linear.V3(V3(..))
 
 
 type Builder t m = (Adjustable t m, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m
@@ -76,6 +77,8 @@ data PrefCommand
   | SetTrainRatio Int
 
   | SetShowConfidence Bool
+  | SetReviewing Bool
+   
 
   deriving (Generic, Show)
 
