@@ -96,10 +96,15 @@ prefsCss :: Preferences -> Text
 prefsCss prefs = renderCSS $ do
   ".shape" ? do
     "stroke-opacity" .= showText border
-    "fill-opacity" .= showText opacity
+    "fill-opacity"   .= showText opacity
 
   ".confidence" ? do
     "visibility" .= if showConfidence then "visible" else "hidden"
+    "stroke" .= "black"
+    "stroke-width" .= "1px"
+    "vector-effect" .= "non-scaling-stroke"
+    "paint-order" .= "stroke"
+
   where
     DisplayPreferences{opacity, border, showConfidence} = prefs ^. #display
 
@@ -544,6 +549,7 @@ updatePrefs cmds = flip (foldr updatePref) cmds where
   updatePref (SetShowConfidence b)      = #display . #showConfidence .~ b
 
   updatePref (SetControlSize size)      = #display . #controlSize .~ size
+  updatePref (SetFontSize size)      = #display . #fontSize .~ size
   updatePref (ShowClass (classId, shown)) = #display . #hiddenClasses .
     at classId .~  if shown then Just () else Nothing
 
@@ -706,10 +712,14 @@ settingsTab = sidePane $ do
       inp <- rangePreview printFloat (0.0, 1.0) 0.01 (view #border <$> display)
       prefCommand (SetBorder <$> inp)
   
-
     labelled "Control size" $ do
       inp <- rangePreview (printFloat0) (5.0, 50.0) 1 (view #controlSize <$> display)
       prefCommand (SetControlSize <$> inp)
+
+    labelled "Font size" $ do      
+      inp <- rangePreview showText (4, 32) 1 (view #fontSize <$> display)
+      prefCommand (SetFontSize <$> inp)
+    
 
     return ()
 

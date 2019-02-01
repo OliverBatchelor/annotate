@@ -53,6 +53,7 @@ data Dialog = ClassDialog DocParts
 data PrefCommand
   = ZoomBrush Float
   | SetOpacity Float
+  | SetFontSize Int
   | SetBorder Float
   | SetGamma Float
   | SetBrightness Float

@@ -156,7 +156,7 @@ boxView :: Builder t m => ShapeProperties t  -> Dynamic t Box -> m (Event t (May
 boxView props box = do
   (e, events) <- g' (annotationProperties props) $ do
     boxElem (shapeAttributes "box" props) box
-    confidenceText ("start", "baseline") v4 props            
+    confidenceText  ("middle", "middle") centre props            
 
     controls (props ^. #selected) [v1, v2, v3, v4]
 
@@ -164,6 +164,7 @@ boxView props box = do
 
   where
     (v1, v2, v3, v4) = split4 (boxVertices <$> box)
+    centre = boxCentre <$> box
 
 
 polygonView :: Builder t m => ShapeProperties t  -> Dynamic t Polygon -> m (Event t (Maybe Int, SceneEvent))
@@ -708,4 +709,4 @@ sceneView scene@Scene{..} = g [style_ ~: (makeStyle <$> viewport <*> display)] $
           arrange k (part, e) = ((k, part), e)
 
           makeStyle Viewport{zoom} DisplayPreferences{fontSize} = 
-            [("font-size", showText (fromIntegral fontSize / zoom) <> "px")]
+            [("font-size", showText (fromIntegral fontSize) <> "px")]
