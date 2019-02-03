@@ -36,8 +36,8 @@ upcomingHeader sel = tr [] $ do
     th [fixed 40] $ dynText (selectionDesc <$> sel)
   
 
-showHeader :: AppBuilder t m => Dynamic t (SortKey, Bool) -> m ()
-showHeader sorting = tr [] $ do
+selectHeader :: AppBuilder t m => Dynamic t (SortKey, Bool) -> m ()
+selectHeader sorting = tr [] $ do
     th [fixed 60] $ text "File"
     key <- th [fixed 40] $ 
       selectView allSorts sortKey
@@ -52,6 +52,18 @@ showHeader sorting = tr [] $ do
 
         (sortKey, reversed) = split sorting
         width n = style_ =: [("width", showText n <> "%")]
+
+
+showHeader :: AppBuilder t m => Dynamic t (SortKey, Bool) -> m ()
+showHeader sorting = tr [] $ do
+    th [fixed 60] $ text "File"
+    key <- th [fixed 40] $ 
+      dynText (showSortKey <$> sortKey)
+
+    return ()
+      where
+        (sortKey, reversed) = split sorting
+        width n = style_ =: [("width", showText n <> "%")]        
   
 approxLocale :: HumanTimeLocale
 approxLocale = defaultHumanTimeLocale 
@@ -107,9 +119,9 @@ selectionDesc = \case
   SelSequential False -> "forwards"
   SelSequential True  -> "backwards"
   SelRandom           -> "random"
-  SelDetections False -> "most detections"
+  SelDetections True  -> "most detections"
   SelLoss             -> "training error"
-  SelDetections True  -> "least detections"
+  SelDetections False -> "least detections"
   
 
 allSelection :: [(Text, ImageSelection)]
@@ -117,9 +129,20 @@ allSelection = withDesc <$>
   [ SelSequential False
   , SelSequential True
   , SelRandom
-  , SelDetections False
+  , SelDetections True
   , SelLoss
   ] where withDesc s = (selectionDesc s, s)
+
+showSortKey :: SortKey -> Text
+showSortKey = \case 
+  SortCategory    -> "Category"
+  SortAnnotations -> "Annotations"
+  SortName        -> "Name"
+  SortModified    -> "Modified"
+  SortRandom      -> "Random"
+  SortDetections  -> "Detection Score"
+  SortLossMean    -> "Mean Loss"
+  SortLossRunning -> "Running Loss"
 
 allFilters :: [(Text, FilterOption)]
 allFilters =
@@ -129,7 +152,6 @@ allFilters =
   , ("validate",    FilterCat CatValidate)
   , ("discard", FilterCat CatDiscard)
   , ("edited",  FilterEdited)
-
   , ("for review",  FilterForReview)
   , ("reviewed",  FilterReviewed)
   ]
@@ -247,7 +269,7 @@ imageList size  opts selected images = do
       ]
    
     userSelect <- table [class_ =: "table table-sm table-hover m-0"] $ do
-      thead [] $ showHeader sorting
+      thead [] $ selectHeader sorting
 
       tbody [class_ =: "scroll"] $ 
         dyn' never $ ffor sorting $ \(k, _) -> 

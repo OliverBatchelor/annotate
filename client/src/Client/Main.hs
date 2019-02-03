@@ -154,6 +154,9 @@ printLog = liftIO . putStrLn . truncate . show where
     else str
 
 
+isLogged :: ServerMsg -> Bool
+isLogged (ServerStatus _) = False
+isLogged _ = True
 
 network :: GhcjsBuilder t m => Text -> Event t [ClientMsg] -> m (Event t (), Event t (Maybe Text), Event t ServerMsg, Event t ErrCode)
 network host send = do
@@ -168,7 +171,7 @@ network host send = do
 
   performEvent_ (printLog <$> send)
   -- performEvent_ (printLog <$> decoded)
-  performEvent_ (printLog <$> decoded)
+  performEvent_ (printLog <$> ffilter isLogged decoded)
 
 
   return

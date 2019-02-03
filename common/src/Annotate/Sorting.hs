@@ -12,15 +12,21 @@ import Data.Ord (comparing)
 
 
 
-filterImage :: FilterOption -> (DocName, DocInfo) -> Bool
-filterImage opt (_, DocInfo{reviews, category, modified}) = (case opt of
-  FilterAll     -> True
-  FilterEdited  -> isJust modified
-  FilterCat cat -> category == cat
-  FilterForReview -> reviews == 0 && usedInTraining
-  FilterReviewed -> reviews > 0 && usedInTraining)
+filterImage :: FilterOption -> Bool -> (DocName, DocInfo) -> Bool
+filterImage opt inverse (_, DocInfo{reviews, category, modified}) = (case opt of
+  FilterCat CatDiscard -> category == CatDiscard
+  _ -> category /= CatDiscard && (inverse `xor` cond))
+    where
 
-    where usedInTraining = (category == CatTrain || category == CatTest || category == CatValidate)
+  usedInTraining = category == CatTrain || category == CatTest || category == CatValidate
+  cond = case opt of
+    FilterAll     -> True
+    FilterEdited  ->  isJust modified
+    FilterCat cat ->  category == cat
+    FilterForReview -> reviews == 0 && usedInTraining
+    FilterReviewed -> reviews > 0 && usedInTraining
+
+
 
 
 
@@ -78,10 +84,10 @@ nextSet s = \case
 
 prevSet :: Ord a => Set a -> Maybe a -> [a]
 prevSet s = reverse . nextSet s
-      
+
 
 rotate :: Int -> [a] -> [a]
-rotate n xs = bs <> as 
+rotate n xs = bs <> as
   where (as, bs) = splitAt n xs
 
 
@@ -99,8 +105,7 @@ sortForBrowsing SortOptions{..} = filterImages filtering search
     . sortImages sorting
 
 filterImages :: (FilterOption, Bool) -> Text -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
-filterImages (method, inverse) search 
-    = filter (xor inverse . filterImage method) . searchImages search
+filterImages (method, inverse) search = filter (filterImage method inverse) . searchImages search
 
 
 filterOpts :: SortOptions ->  [(DocName, DocInfo)] -> [(DocName, DocInfo)]
@@ -108,11 +113,11 @@ filterOpts SortOptions{..} = filterImages filtering search  . searchImages searc
 
 
 sortImages :: (SortKey, Bool)  -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
-sortImages (sortKey, reversed) = sortBy (compareWith reversed sortKey) 
+sortImages (sortKey, reversed) = sortBy (compareWith reversed sortKey)
 
 
 selectionKey :: ImageSelection -> (SortKey, Bool)
-selectionKey = \case 
+selectionKey = \case
     SelSequential rev -> (SortName, rev)
     SelRandom         -> (SortRandom, False)
     SelDetections rev -> (SortDetections, rev)
@@ -139,4 +144,3 @@ searchImages :: Text ->  [(DocName, DocInfo)] -> [(DocName, DocInfo)]
 searchImages ""   = id
 searchImages str  = \images -> Fuzzy.original <$>
     Fuzzy.filter str images "" "" fst False
-
