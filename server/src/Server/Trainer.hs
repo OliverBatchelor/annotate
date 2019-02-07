@@ -60,6 +60,10 @@ updateDetections env@Env{store} m = do
   broadcast env $
     ServerUpdateDetections (M.mapMaybe (view (#info . #detections)) docs)
 
+logTrainerMsg :: FromTrainer -> Bool
+logTrainerMsg (TrainerProgress _) = False
+logTrainerMsg _ = True
+
 trainerLoop :: Env -> WS.Connection ->  IO ()
 trainerLoop env@Env{store} conn = do
   atomically $ do
@@ -78,7 +82,9 @@ trainerLoop env@Env{store} conn = do
           Left err  -> do
             writeLog env ("trainer <- error decoding " <> unpackBS str <> ", " <> err)
           Right msg -> do
-            writeLog env ("trainer <- " <> truncate (show msg))
+            when (logTrainerMsg msg) $
+              writeLog env ("trainer <- " <> truncate (show msg))
+
             processMsg msg
 
       processMsg :: FromTrainer -> STM ()

@@ -194,16 +194,28 @@ imagesTab = sidePane $ do
       sortCommand (SetFilter <$> filtered)
       sortCommand (SetNegFilter <$> neg)    
 
-  groupPane "Browse" $ do
-    imageList 10 opts selected (sortImages <$> (view #sorting  <$> opts) <*> filtered)
-    spacer
+  let 
+    browseTab = do
+      imageList 12 opts selected (sortImages <$> (view #sorting  <$> opts) <*> filtered)
+        
+    selectionTab = column "expand" $ do 
+      previewList 12 selectionMethod (sortForSelection <$> selectionMethod <*> filtered)
+      spacer
 
-  groupPane "Upcoming" $ do
-    labelled "Selection method" $ do
-      imgSelection <- selectView allSelection selectionMethod
-      sortCommand (SetImageSelection <$> imgSelection)
+      row "justify-content-between align-items-center" $ do
+        grow $ text "Selection method" 
+        grow $ do 
+          imgSelection <- selectView allSelection selectionMethod
+          sortCommand (SetImageSelection <$> imgSelection)
+    
+      return ()
 
-    previewList 2 selectionMethod (sortForSelection <$> selectionMethod <*> filtered)
+  tabs 0
+    [ (browseTab,    tab "image-search"   "Browse")
+    , (selectionTab,     tab "sort" "Upcoming")
+    ]
+
+
 
 
 findOffset :: Int -> [(DocName, DocInfo)] -> Maybe DocName -> Int
@@ -220,18 +232,21 @@ inputView' props =  toView $ \setText -> _inputElement_value <$>
 searchView :: forall t m. Builder t m => Dynamic t Text -> m (Event t Text)
 searchView = inputView' [ class_ =: "form-control", type_ =: "search", placeholder_ =: "Search..." ]
 
+navButton :: forall t m. Builder t m => Text -> Dynamic t Bool -> m () -> m (Event t ())
+navButton tooltip enabled = fmap (domEvent Click) <$> 
+  button_ [title_ =: tooltip, class_ =: "btn btn-outline", enabled_  ~: enabled ] 
 
 navControl :: forall t m. Builder t m => Int -> Dynamic t Int -> Dynamic t Int -> m (Event t (Int -> Int))
 navControl size numImages offset = row "justify-content-between align-items-center" $ do
     (start, dec) <- buttonGroup $ liftA2 (,)
-      (navButton enablePrev $  icon "page-first")
-      (navButton enablePrev $  icon "chevron-double-left")
+      (navButton "To beginning" enablePrev $  icon "page-first")
+      (navButton "Next page" enablePrev $  icon "chevron-double-left")
 
     span [] $ dynText (showPage <$> offset <*> numImages)  
 
     (inc, end) <- buttonGroup $ liftA2 (,)
-      (navButton enableNext $ icon "chevron-double-right")
-      (navButton enableNext $ icon "page-last")
+      (navButton "To end" enableNext $ icon "chevron-double-right")
+      (navButton "Previous page" enableNext $ icon "page-last")
 
     return $ leftmost
       [ (+size) <$ inc
@@ -247,9 +262,6 @@ navControl size numImages offset = row "justify-content-between align-items-cent
     enableNext = hasNext <$> offset <*> numImages
       where hasNext i n = (i + size < n)
 
-    navButton enabled = fmap (domEvent Click) <$> 
-      button_ [class_ =: "btn btn-outline", enabled_  ~: enabled ]     
-
     showPage i images = showText (pageNum i) <> " of " <> showText (pageNum images)
     pageNum i = i `Real.div` size + 1    
   
@@ -261,13 +273,13 @@ imageList :: forall t m. AppBuilder t m
           -> Dynamic t (Maybe DocName) -> Dynamic t [(DocName, DocInfo)] 
           -> m ()
 
-imageList size  opts selected images = do   
+imageList size  opts selected images = column "expand" $ do   
   rec
     offset <- holdDyn 0 $ leftmost
       [ updated (findOffset size <$> images <*> selected)
       , attachWith (&) (current offset) updatePage
       ]
-   
+       
     userSelect <- table [class_ =: "table table-sm table-hover m-0"] $ do
       thead [] $ selectHeader sorting
 
@@ -275,6 +287,7 @@ imageList size  opts selected images = do
         dyn' never $ ffor sorting $ \(k, _) -> 
           selectPaged (pure size) offset images (showImage k) selected
 
+    spacer
     updatePage <- navControl size (length <$> images) offset
   command OpenCmd userSelect
     where

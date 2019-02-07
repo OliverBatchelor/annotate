@@ -256,25 +256,24 @@ withClient_ ClientEnv{clients, clientId}  f = do
   mClient <- M.lookup clientId <$> readTVar clients
   traverse_ f mClient
 
-
 sendClient :: ClientEnv -> ServerMsg -> STM ()
-sendClient env msg = void $ do
-  clientLog env (" -> " <> truncate (show msg))
-
-  withClient env $ \Client {..} ->
-    writeTChan connection (Just msg)
-
-
+sendClient env = sendClient' (upcast env) (env ^. #clientId)
+  
 
 withClient' :: Env -> ClientId -> (Client -> STM a) -> STM ()
 withClient' Env{clients} clientId  f = do
   mClient <- M.lookup clientId <$> readTVar clients
   traverse_ f mClient
 
+logServerMsg :: ServerMsg -> Bool
+logServerMsg (ServerStatus _) = False
+logServerMsg _ = True
+  
 
 sendClient' :: Env -> ClientId -> ServerMsg -> STM ()
 sendClient' env clientId msg = void $ do
-  writeLog env (show clientId <> " -> " <> truncate (show msg))
+  when (logServerMsg msg) $ 
+    writeLog env (show clientId <> " -> " <> truncate (show msg))
 
   withClient' env clientId $ \Client{connection} ->
     writeTChan connection (Just msg)
@@ -283,7 +282,9 @@ sendClient' env clientId msg = void $ do
 
 broadcast :: Env -> ServerMsg -> STM ()
 broadcast env msg = do
-  writeLog env ("* -> " <> truncate (show msg))
+
+  when (logServerMsg msg) $ 
+    writeLog env ("* -> " <> truncate (show msg))
 
   clients <- readTVar (env ^. #clients)
   for_ clients $ \Client {..} ->
