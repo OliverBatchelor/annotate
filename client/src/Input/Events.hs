@@ -24,6 +24,7 @@ import qualified GHCJS.DOM.EventM as DOM
 import qualified GHCJS.DOM.Element as DOM
 import qualified GHCJS.DOM.DOMRectReadOnly as DOM
 
+import qualified GHCJS.DOM.HTMLElement as Element
 
 import qualified GHCJS.DOM.WheelEvent as DOM
 
@@ -79,6 +80,11 @@ getCoords e = DOM.liftJSM $ do
 rawElement :: (DomBuilder t m, DomBuilderSpace m ~ GhcjsDomSpace) => ElemType t m -> m DOM.HTMLElement
 rawElement e = return $ DOM.uncheckedCastTo DOM.HTMLElement (_element_raw e)
 
+focusOn :: (Builder t m) => ElemType t m -> Event t a -> m ()
+focusOn elem e = do 
+  raw <- rawElement elem
+  performEvent_ (Element.focus raw <$ e)
+
 pollBoundingBox :: (GhcjsBuilder t m, MonadJSM m) => ElemType t m -> m (Dynamic t Box)
 pollBoundingBox e = do
   t0 <- liftIO getCurrentTime
@@ -132,9 +138,9 @@ windowInputs scene = do
       DOM.preventDefault
       keyCodeLookup . fromIntegral <$> getKeyEvent
 
-  keyDown <- wrapDomEvent raw    (`onCapturing` DOM.keyDown) $ do
-    DOM.preventDefault
-    DOM.stopPropagation
+  keyDown <- wrapDomEvent window    (`onCapturing` DOM.keyDown) $ do
+    -- DOM.preventDefault
+    -- DOM.stopPropagation
     keyCodeLookup . fromIntegral <$> getKeyEvent
 
   keyUp <- wrapDomEvent window    (`onCapturing` DOM.keyUp)

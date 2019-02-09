@@ -79,8 +79,7 @@ headWidget env = do
    Html.style [] $ text appStyle
    Html.style [] $ text bootstrap
    Html.style [] $ text icons
-
-   Html.style [] $ dynText (prefsCss <$> env ^. #preferences)
+   Html.style [] $ dynText =<< holdUniqDyn (prefsCss <$> env ^. #preferences)
 
 
    return host
@@ -187,6 +186,7 @@ network host send = do
 
 
 
+
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
             => Event t [AppCommand]
             -> Event t Document
@@ -204,6 +204,8 @@ sceneWidget cmds loaded = do
     let (action, maybeDoc, sceneEvents, selection) = r
  
     (element, r) <- Svg.svg' [class_ =: "expand enable-cursor view", tabindex_ =: 0, version_ =: "2.0"] $ do
+
+        focusOn element (oneOf _SubmitCmd cmds)
         sceneDefines viewport =<< view #preferences
 
         inViewport viewport $ replaceHold'

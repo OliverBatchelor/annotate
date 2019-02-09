@@ -117,10 +117,6 @@ classesTab = column "h-100 p-0 v-spacing-2" $ do
     ]
     
 
-
-
-
-
   return ()
     where
       nextClass classes = fromMaybe 0 ((+1)  <$> maxKey classes)

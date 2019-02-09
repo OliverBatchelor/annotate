@@ -179,9 +179,10 @@ imagesTab = sidePane $ do
   images      <- fmap (view #images) <$> view #collection
   prefs       <- view #preferences 
 
-  let opts  = (view #sortOptions <$> prefs :: Dynamic t SortOptions)
-      selectionMethod = (view #selection <$> opts)
-      filtered = filterOpts <$> opts <*> (M.toList <$> images)
+  opts <- holdUniqDyn $ view #sortOptions <$> prefs
+  selectionMethod <- holdUniqDyn $ view #selection <$> opts
+
+  let filtered = filterOpts <$> opts <*> (M.toList <$> images)
       (filtering, invert) = split (view #filtering <$> opts)
   
   groupPane "Filter" $ do

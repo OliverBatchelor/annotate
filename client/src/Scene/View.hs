@@ -40,6 +40,8 @@ inViewport vp child = g [transform_ ~: (transforms <$> vp)] child
 
 sceneDefines :: Builder t m => Dynamic t Viewport -> Dynamic t Preferences -> m ()
 sceneDefines vp preferences = void $ defs [] $ do
+    
+    display <- holdUniqDyn (view #display <$> preferences)
     boxElem [ id_ =: controlId ] (makeBox <$> display <*> vp)
 
     brightness <- holdUniqDyn (view #brightness <$> display)
@@ -64,7 +66,6 @@ sceneDefines vp preferences = void $ defs [] $ do
     
   where
     zoomFactor x vp = x / (vp ^. #zoom)
-    display = view #display <$> preferences
 
     makeBox prefs vp = getBounds $ Extents (V2 0 0) (V2 s s)
       where s = (prefs ^. #controlSize) / (vp ^. #zoom)
@@ -433,14 +434,15 @@ drawPolygons scene SceneInputs{..} finish = void $ workflow idle
 
 drawCircles :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
 drawCircles scene SceneInputs{..} finish = do
+
+  brushSize <- holdUniqDyn $ view (#display . #brushSize) <$> (scene ^. #preferences)
+  let 
+    cursor = Circle <$> mouse <*> brushSize
+  
   prefCommand (ZoomBrush <$> wheel)
   circleElem [class_ =: "outline"] cursor
 
   addShapes scene (ShapeCircle <$> current cursor `tag` click LeftButton)
-
-  where
-    brushSize = view (#display . #brushSize) <$> (scene ^. #preferences)
-    cursor = Circle <$> mouse <*> brushSize
 
 
 drawLines :: forall t m. AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> m ()
@@ -685,7 +687,10 @@ actions scene@Scene{..} = holdWorkflow $
   
 
 sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart, SceneEvent))
-sceneView scene@Scene{..} = g [style_ ~: (makeStyle <$> viewport <*> display)] $ do
+sceneView scene@Scene{..} = do
+
+  display <- holdUniqDyn $ view #display <$> preferences 
+  g [style_ ~: (makeStyle <$> viewport <*> display)] $ do
     imageView image
 
     classMap      <- holdUniqDyn (classProperties <$> config <*> display)
@@ -703,7 +708,6 @@ sceneView scene@Scene{..} = g [style_ ~: (makeStyle <$> viewport <*> display)] $
     return (action, minElem <?> events)
       where
           isSelected = fanDynMap selection
-          display = view #display <$> preferences
           isReviewing keys prefs = (S.member Key.KeyR keys) `xor` (prefs ^. #reviewing)
 
           arrange k (part, e) = ((k, part), e)
