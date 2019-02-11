@@ -165,7 +165,7 @@ data Detections = Detections
 data SubmitType
     = SubmitNew 
     | SubmitDiscard 
-    | SubmitConfirm 
+    | SubmitConfirm (Maybe ImageCat)
     | SubmitAutoSave
   deriving (Show,  Generic)
 

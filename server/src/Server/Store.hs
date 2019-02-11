@@ -520,7 +520,19 @@ instance Migrate Submission where
       Just cat -> SubmitNew
       _        -> SubmitAutoSave
   
+data SubmitType0
+  = SubmitNew0 
+  | SubmitDiscard0 
+  | SubmitConfirm0 
+  | SubmitAutoSave0
+    deriving (Show,  Generic)
 
+instance Migrate SubmitType where
+  type MigrateFrom SubmitType = SubmitType0
+  migrate SubmitNew0 = SubmitNew
+  migrate SubmitDiscard0 = SubmitDiscard
+  migrate SubmitConfirm0 = SubmitConfirm Nothing
+  migrate SubmitAutoSave0 = SubmitAutoSave
 
 instance Migrate Document where
   type MigrateFrom Document = Document12
@@ -742,7 +754,8 @@ $(deriveSafeCopy 0 'base ''ImageCat)
 $(deriveSafeCopy 0 'base ''Submission0)
 $(deriveSafeCopy 1 'extension ''Submission)
 
-$(deriveSafeCopy 0 'base ''SubmitType)
+$(deriveSafeCopy 0 'base ''SubmitType0)
+$(deriveSafeCopy 1 'extension ''SubmitType)
 
 $(deriveSafeCopy 1 'base ''Document1)
 $(deriveSafeCopy 2 'extension ''Document2)
@@ -924,8 +937,9 @@ submitDocument user time Submission{..} store = store & #images . ix name %~ \do
       & #info . #category .~ CatDiscard
       & #info . #reviews .~ 0
 
-    SubmitConfirm -> doc & storeChanges
+    SubmitConfirm cat -> doc & storeChanges
       & #info . #reviews %~ (+1) 
+      & #info . #category %~ maybe id const cat
 
     SubmitAutoSave -> doc & storeChanges
 

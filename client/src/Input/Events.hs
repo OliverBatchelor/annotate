@@ -106,6 +106,10 @@ onCapturing target eventName callback = do
       DOM.releaseListener l
 
     
+clickAnywhere :: (GhcjsBuilder t m) => m (Event t ()) 
+clickAnywhere = do
+  window <- DOM.currentWindowUnchecked
+  wrapDomEvent window  (`DOM.on` DOM.click) $ return ()
 
 windowInputs :: (GhcjsBuilder t m) => ElemType t m -> m (Inputs t)
 windowInputs scene = do

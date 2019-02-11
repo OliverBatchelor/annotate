@@ -150,6 +150,7 @@ allFilters =
   , ("new",     FilterCat CatNew)
   , ("train",   FilterCat CatTrain)
   , ("validate",    FilterCat CatValidate)
+  , ("test",    FilterCat CatTest)
   , ("discard", FilterCat CatDiscard)
   , ("edited",  FilterEdited)
   , ("for review",  FilterForReview)
@@ -323,4 +324,5 @@ categoryIcon' CatDiscard   = "delete-empty"
 categoryIcon' CatValidate  = "clipboard-check" 
 categoryIcon' CatNew       = "image-outline"
 categoryIcon' CatTrain     = "book-open-page-variant" 
+categoryIcon' CatTest     = "clipboard-check-outline" 
       

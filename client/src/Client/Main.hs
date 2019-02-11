@@ -488,10 +488,13 @@ bodyWidget host = mdo
 
   document <- holdDyn Nothing (Just <$> loaded)
   
+  clickOut <- clickAnywhere
+  
   let classSelected = oneOf _ClassCmd cmds
       (hello, initPrefs, initConfig, initialStatus)  = split4 (preview _ServerHello <?> serverMsg)
 
       shortcut   = fan shortcuts
+      cancel     = leftmost [select shortcut ShortCancel, clickOut]
       detections = view #detections <$> (filterDocument document $ preview _ServerDetection <?> serverMsg)
 
       modified = maybe False isModified <$> editor
@@ -865,22 +868,28 @@ fileInfo isModified Document{name, info} = do
     fixed width = div [class_ =: "text-light", style_ =: [("width", width)]] . sequence_
 
 submitButtons :: forall t m. AppBuilder t m => ImageCat ->  m ()
-submitButtons cat =  buttonGroup $ if isNew then new else confirm
+submitButtons cat = if isNew then new else confirm
   where
     isNew = cat == CatNew || cat == CatDiscard
-    new = do
+    new = buttonGroup $ do
       discard     <- toolButton' "Discard" (categoryIcon CatDiscard)  "Mark image as discarded"
       submit      <- toolButton' "Submit" "chevron-right" "Submit image"
 
       command SubmitCmd $ 
         leftmost [ SubmitDiscard <$ discard, SubmitNew <$ submit ]
 
-    confirm = do
+    confirm = buttonGroup $ do
+      category <- selectOption' [class_ =: "custom-select bg-secondary border-0", style_ =: [("height", "100%")]] commitCategories Nothing never
+
       discard  <- toolButton' "Discard" (categoryIcon CatDiscard)  "Mark image as discarded"
-      confirm  <- toolButton' "Confirm" "check" "Confirm review"      
+      confirm  <- toolButton' "Confirm" "check" "Confirm review" 
 
       command SubmitCmd $ 
-        leftmost [  SubmitDiscard <$ discard, SubmitConfirm <$ confirm  ]              
+        leftmost [  SubmitDiscard <$ discard, SubmitConfirm <$> current category `tag` confirm  ]              
+
+commitCategories :: [(Text, Maybe ImageCat)]
+commitCategories = ("auto", Nothing) : fmap f [CatTrain, CatValidate, CatTest]
+    where f cat = (showText cat, Just cat)
 
 
 overlay :: forall t m. AppBuilder t m => AppEnv t -> m ()
@@ -908,7 +917,6 @@ overlay AppEnv{shortcut, document, editor, modified, preferences} = row "expand 
         docCommand  (const DocUndo)  =<< toolButton canUndo "Undo" "undo" "Undo last edit"
         docCommand  (const DocRedo)  =<< toolButton canRedo "Redo" "redo" "Re-do last undo"
         command     (const ClearCmd) =<< toolButton' "Clear" "eraser" "Clear all annotations"
-
 
     fromDocument a f = fromMaybe a . fmap f <$> editor
 

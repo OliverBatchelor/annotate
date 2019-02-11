@@ -163,6 +163,8 @@ data AppEnv t = AppEnv
   , currentClass :: (Dynamic t ClassId)
   , docSelected  :: (Dynamic t (Maybe DocName))
   , shortcut     :: (EventSelector t Shortcut)
+  , cancel       :: (Event t ())
+
   , selection    ::  (Dynamic t DocParts)
   , collection :: (Dynamic t Collection) 
   , loaded     :: Event t Document

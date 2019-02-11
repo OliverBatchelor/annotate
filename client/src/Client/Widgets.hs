@@ -115,6 +115,29 @@ toolButton enabled name conf tooltip = fmap (domEvent Click) $
     button_ [classes_ =: toolButtonClasses, title_ =: tooltip, disabled_ ~: not <$> enabled] $
       iconTextV name conf
 
+    --   <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+    --   <a class="dropdown-item" href="#">Action</a>
+    --   <a class="dropdown-item" href="#">Another action</a>
+    --   <a class="dropdown-item" href="#">Something else here</a>
+    -- </div>
+
+toolSplit :: AppBuilder t m => Dynamic t Bool -> [(Text, a)] -> m (Event t a)
+toolSplit enabled options =  do
+  cancels <- view #cancel
+  button_ [classes_ =: classes, disabled_ ~: not <$> enabled] $ return ()
+
+  div_ [class_ =: "dropdown-menu show", style_ =: dropStyle] $ forM_ options $ \(t, v) -> 
+    a_ [class_ =: "dropdown-item"] $ text t
+    
+  return never
+  where
+    classes = toolButtonClasses <> ["dropdown-toggle", "dropdown-toggle-split"]
+
+    dropStyle = [ ("position", "absolute")
+            , ("will-change", "transform") 
+            , ("height", "7em")
+            ]
+
 
 toolButtonToggle :: Builder t m => Dynamic t Bool -> Dynamic t Bool -> Text -> IconConfig t -> Text -> m (Event t Bool)
 toolButtonToggle enabled active name conf tooltip = do
@@ -150,6 +173,11 @@ sidePane = column "h-100 v-spacing-2"
 
 buttonGroup :: Builder t m => m a -> m a
 buttonGroup inner = div [class_ =: "btn-group enable-cursor"]  inner
+
+
+splitUpGroup :: Builder t m => m a -> m a
+splitUpGroup inner = div [class_ =: "btn-group enable-cursor dropup"]  inner
+
 
 
 timeout :: GhcjsBuilder t m => (Event t a, Event t a) -> NominalDiffTime -> m (Event t a)
