@@ -40,6 +40,22 @@ testCombo key modifiers (held, pressed)
   | key == pressed && modifiers == S.delete key held = Just ()
   | otherwise = Nothing
 
+
+numericKey :: Key -> Maybe Int
+numericKey = \case 
+    Key.Digit1 -> Just 1
+    Key.Digit2 -> Just 2
+    Key.Digit3 -> Just 3
+    Key.Digit4 -> Just 4
+    Key.Digit5 -> Just 5
+    Key.Digit6 -> Just 6
+    Key.Digit7 -> Just 7
+    Key.Digit8 -> Just 8
+    Key.Digit9 -> Just 9
+    Key.Digit0 -> Just 10
+    _        -> Nothing
+
+
 holdInputs :: (MonadFix m, MonadHold t m, Reflex t)
            => Behavior t Viewport -> Event t (DocPart, SceneEvent) -> E.Inputs t  -> m (SceneInputs t)
 holdInputs viewport sceneEvents inp = do
@@ -82,11 +98,13 @@ holdInputs viewport sceneEvents inp = do
     , keysUp = E.keyUp inp
     , keysPressed = E.keyPress inp
 
+    , localKeysDown = E.localKeyDown inp
+
     , keyDown = selectEq (E.keyDown inp)
     , keyUp = selectEq (E.keyUp inp)
     , keyPress = selectEq (E.keyPress inp)
 
-    , localKey = selectEq (E.localKey inp)
+    , localKeyDown = selectEq (E.localKeyDown inp)
 
     , wheel = E.wheel inp
     , focus = E.focus inp
@@ -95,7 +113,7 @@ holdInputs viewport sceneEvents inp = do
     , hover = hover
 
     , keyCombo = \k held -> testCombo k (S.fromList held) <?>
-        (current keys `attach` E.localKey inp)
+        (current keys `attach` E.localKeyDown inp)
   }
 
 
@@ -103,10 +121,11 @@ matchShortcuts :: Reflex t => SceneInputs t -> Event t (DMap Shortcut Identity)
 matchShortcuts SceneInputs{..} = merge $ DM.fromList
     [ (ShortUndo :=> keyCombo Key.KeyZ [Key.Control])
     , (ShortRedo :=> keyCombo Key.KeyZ [Key.Control, Key.Shift])
-    , (ShortDelete :=> leftmost [localKey Key.Delete, localKey Key.Backspace, localKey Key.KeyX])
+    , (ShortDelete :=> leftmost [localKeyDown Key.Delete, localKeyDown Key.Backspace, localKeyDown Key.KeyX])
     , (ShortCancel :=> keyDown Key.Escape)
-    , (ShortSelect :=> (S.member Key.Shift <$> current keyboard) `tag` localKey Key.KeyR)
+    , (ShortSelect :=> (S.member Key.Shift <$> current keyboard) `tag` localKeyDown Key.KeyR)
     , (ShortSelectAll :=> keyCombo Key.KeyA [Key.Control])
     , (ShortArea :=> keyCombo Key.KeyA [Key.Alt])
     , (ShortClass :=> keyCombo Key.KeyC [Key.Alt])
+    , (ShortSetClass :=> numericKey <?> localKeysDown)
     ]

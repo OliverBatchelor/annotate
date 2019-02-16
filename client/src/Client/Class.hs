@@ -24,7 +24,7 @@ showClass ClassConfig{shape, colour, name} =
 
 
 shapeIcon :: Reflex t => ShapeConfig -> IconConfig t
-shapeIcon ConfigCircle     = "vector-circle"
+shapeIcon ConfigCircle     = "circle-outline"
 shapeIcon ConfigBox     = "vector-rectangle"
 shapeIcon ConfigPolygon = "vector-polygon"
 shapeIcon ConfigLine    = "vector-line"
@@ -87,12 +87,32 @@ editClass conf = do
             disable = disabled_ =: isNothing conf
             fromDesc = flip M.lookup shapeTypes
 
+addClassShortcut :: forall t m. AppBuilder t m 
+                 => Dynamic t (Map ClassId ClassConfig) 
+                 -> Dynamic t (Set AnnotationId)
+                 -> Event t Int
+                 -> m ()
+addClassShortcut classes selection keyEvent = command id $ filterMaybe 
+     (selectCmd <$> current classes <*> current selection <@> keyEvent)
+  where 
+    selectCmd classes selection i = fmap (ClassCmd selection) $  
+      (fst <$> selectIndex classes (i - 1))
 
+    selectIndex m i = if i < M.size m 
+        then Just $ M.elemAt i m
+        else Nothing
+
+    
 
 classesTab :: forall t m. AppBuilder t m => m ()
 classesTab = column "h-100 p-0 v-spacing-2" $ do
   classes  <- askClasses
   selected <- view #currentClass
+
+  selection <- view #selection
+
+  (Shortcuts shortcut) <- askShortcuts
+  addClassShortcut classes (M.keysSet <$> selection) (shortcut ShortSetClass)
 
   let selectedClass = M.lookup <$>  selected <*> classes
 

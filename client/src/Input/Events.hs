@@ -43,7 +43,7 @@ data Inputs t = Inputs
   , focus     :: Event t Bool
 
 
-  , localKey  :: Event t Key
+  , localKeyDown  :: Event t Key
   , keyDown   :: Event t Key
   , keyUp   :: Event t Key
   , keyPress :: Event t Key
@@ -138,7 +138,7 @@ windowInputs scene = do
   focusOut <- wrapDomEvent window   (`DOM.on` DOM.blur) (return False)
 
 
-  localKey <- wrapDomEvent raw    (`DOM.on` DOM.keyDown) $ do
+  localKeyDown <- wrapDomEvent raw    (`DOM.on` DOM.keyDown) $ do
       DOM.preventDefault
       keyCodeLookup . fromIntegral <$> getKeyEvent
 

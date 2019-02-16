@@ -135,6 +135,7 @@ data Shortcut a where
   ShortArea      :: Shortcut ()
   ShortSelectAll :: Shortcut ()
   ShortClass     :: Shortcut ()
+  ShortSetClass     :: Shortcut Int
 
 type Cursor = Text
 

@@ -250,7 +250,7 @@ openDocument time doc = doc
 loadedDocument :: Document -> UTCTime -> Editor
 loadedDocument doc@Document{info, annotations, detections} time = maybeOpen (editDocument doc) where
 
-    f = if info ^. #category == CatNew && null annotations
+    f = if info ^. #category == CatNew
       then openNew time
       else openReview time
 
@@ -287,7 +287,7 @@ documentEditor viewport input cmds document  = do
   selection <- holdDyn mempty $ oneOf _SelectCmd cmds
 
   entry <- withTime (historyEntry <$> editCmd)
-  history <- foldDyn (:) [] entry
+  history <- foldDyn (:) (editor0 ^. #history) entry
 
   rec
     annotations  <- holdIncremental (editor0 ^. #annotations) (annotationsPatch <?> patch)

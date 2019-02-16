@@ -31,11 +31,13 @@ data SceneInputs t = SceneInputs
   , keyDown :: !(Key -> Event t ())
   , keyPress :: !(Key -> Event t ())
 
-  , localKey :: !(Key -> Event t ())
+  , localKeyDown :: !(Key -> Event t ())
 
   , keysDown    :: !(Event t Key)
   , keysUp      :: !(Event t Key)
   , keysPressed :: !(Event t Key)
+
+  , localKeysDown :: !(Event t Key)
 
   , keyboard :: !(Dynamic t (Set Key))
   , hover :: !(Dynamic t (Maybe DocPart))

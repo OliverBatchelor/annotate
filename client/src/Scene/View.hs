@@ -581,7 +581,7 @@ actions scene@Scene{..} = holdWorkflow $
     let beginPan    = pan <$> mouseDownAt
         beginSelectRect = rectSelect <$> gate (current holdingShift) mouseDownAt
 
-        beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` localKey drawKey
+        beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` localKeyDown drawKey
         beginDragSelection   = filterMaybe $ drag <$> current mouse <*> current editor <@> selectionClick
 
     viewCommand zoomCmd
