@@ -15,6 +15,17 @@ import Data.List (transpose, (!!))
 data OldHistoryEntry = HistOpen | HistSubmit | HistEdit DocumentPatch | HistUndo | HistRedo
   deriving (Show, Eq, Generic)
 
+data ClassConfig0 = ClassConfig0
+  { name :: Text
+  , shape :: ShapeConfig
+  , colour :: HexColour
+  } deriving (Generic, Show, Eq)
+
+instance Migrate ClassConfig where
+  type MigrateFrom ClassConfig = ClassConfig0
+  migrate ClassConfig0{..} = ClassConfig{..}
+    where weighting = 0.25
+
 
 data DocInfo0 = DocInfo0
   { modified    :: Maybe DateTime
@@ -785,7 +796,10 @@ $(deriveSafeCopy 6 'extension ''DocInfo)
 
 
 $(deriveSafeCopy 0 'base ''Config)
-$(deriveSafeCopy 0 'base ''ClassConfig)
+
+$(deriveSafeCopy 0 'base ''ClassConfig0)
+$(deriveSafeCopy 1 'extension ''ClassConfig)
+
 $(deriveSafeCopy 0 'base ''ShapeConfig)
 
 $(deriveSafeCopy 0 'base ''Edit)
@@ -869,7 +883,6 @@ addTraining (k, summary) = over (ix k) addSummary where
     & #info . #training  .~ trainingStats training
       where training = take 20 (summary <> doc ^. #training)
         
-
 
 emptyDoc :: DocName -> DocInfo -> Document
 emptyDoc k info = Document 

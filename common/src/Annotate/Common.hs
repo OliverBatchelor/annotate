@@ -232,6 +232,7 @@ data ClassConfig = ClassConfig
   { name :: Text
   , shape :: ShapeConfig
   , colour :: HexColour
+  , weighting :: Float
   } deriving (Generic, Show, Eq)
 
 
@@ -656,6 +657,7 @@ newClass k = ClassConfig
   { name    = "unnamed-" <> fromString (show k)
   , colour  = fromMaybe 0xFFFF00 $ preview (ix k) defaultColours
   , shape   = ConfigBox
+  , weighting = 0.25
   }
 
 fromBasic :: BasicAnnotation -> Annotation

@@ -42,7 +42,6 @@ data Inputs t = Inputs
   , wheel     :: Event t Float
   , focus     :: Event t Bool
 
-
   , localKeyDown  :: Event t Key
   , keyDown   :: Event t Key
   , keyUp   :: Event t Key

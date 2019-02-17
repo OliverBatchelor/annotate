@@ -70,22 +70,33 @@ editClass conf = do
         forM_ (M.keys shapeTypes) $ \k -> option [value_ =: k] $ text k
 
     labelled "Colour" $ div_ [class_ =: "border expand", style_ =: bgColour (view #colour <$> conf), disable] blank
+
+    rec
+      weighting <- labelled "Weighting" $ do 
+        e <- rangePreview printFloat (0.01, 1.0) 0.01 weighting
+        holdDyn (fromMaybe 0.25 (view #weighting <$> conf)) e
+
+
     update <- row "" $ do
       spacer
       iconButton (pure $ isJust conf) "Update" "content-save" "Update class changes"
 
-    let value = liftA3 ClassConfig
-          <$> fmap Just (current (_inputElement_value name))
-          <*> fmap fromDesc (current (_selectElement_value shape))
-          <*> pure (view #colour <$> conf)
+    let value = ClassConfig
+          <$> current (_inputElement_value name)
+          <*> (fromDesc <$> current (_selectElement_value shape))
+          <*> pure (fromMaybe def $ view #colour <$> conf)
+          <*> current weighting
 
-    return $ filterMaybe (value `tag` update)
+    return $ value `tag` update
 
       where selectConf = def & selectElementConfig_initialValue .~
               fromMaybe "" (shapeDesc . view #shape <$> conf)
 
             disable = disabled_ =: isNothing conf
-            fromDesc = flip M.lookup shapeTypes
+            fromDesc desc = fromMaybe ConfigBox $ M.lookup desc shapeTypes
+
+
+
 
 addClassShortcut :: forall t m. AppBuilder t m 
                  => Dynamic t (Map ClassId ClassConfig) 

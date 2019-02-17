@@ -97,31 +97,32 @@ main = do
 
   traverse_ (atomically . updateLog store . CmdSetRoot . fromString) setRoot
 
-  root <- readRoot store
 
-  clients   <- atomically (newTVar M.empty)
-  documents <- atomically (newTVar M.empty)
+  case exportJson of
+    Just file -> do
+      state <- atomically $ readLog store
 
-  trainer <- atomically $ newTVar Nothing
+      putStrLn $ "Exporting store to: " <> file
+      BS.writeFile file (encodePretty (exportCollection state))
 
-  atomically $ do
-    config <- view #config <$> readLog store
-    existing <- M.keysSet . view #images <$> readLog store
-    images <- unsafeIOToSTM (findNewImages config root existing)
-    updateLog store (CmdImages images)
+    Nothing -> do
 
-  let env = Env {..}
+      clients   <- atomically (newTVar M.empty)
+      documents <- atomically (newTVar M.empty)
+      trainer   <- atomically $ newTVar Nothing      
+      root <- readRoot store
 
-  forM_ exportJson $ \file -> do
-    state <- atomically $ do
-      writeLog env $ "Exporting store to: " <> file
-      readLog store
+      let env = Env {..}
 
-    BS.writeFile file (encodePretty (exportCollection state))
+      atomically $ do
+        config <- view #config <$> readLog store
+        existing <- M.keysSet . view #images <$> readLog store
 
+        images <- unsafeIOToSTM (findNewImages config root existing)
+        updateLog store (CmdImages images)
 
-  let port' = fromMaybe 3000 port
-  atomically $ writeLog env ("Anotate server listening on port " <> show port')
+      let port' = fromMaybe 3000 port
+      atomically $ writeLog env ("Anotate server listening on port " <> show port')
 
-  forkIO $ WS.runServer "127.0.0.1" 2160 $ trainerServer env
-  Warp.run port' $ serve (Proxy @ Api) (server root env)
+      forkIO $ WS.runServer "127.0.0.1" 2160 $ trainerServer env
+      Warp.run port' $ serve (Proxy @ Api) (server root env)

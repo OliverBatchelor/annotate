@@ -9,7 +9,7 @@ data Options = Options
   { database :: String
   , pipe     :: String
   , create   :: Maybe String
-  , exts  :: Maybe String
+  , exts     :: Maybe String
   , setRoot  :: Maybe String
   , port     :: Maybe Int
   , exportJson :: Maybe String
