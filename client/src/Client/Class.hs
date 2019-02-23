@@ -8,6 +8,8 @@ import Client.Widgets
 import Client.Select
 import Client.Dialog
 
+import Annotate.Editor (isNew)
+
 import Builder.Html
 import qualified Builder.Html as Html
 
@@ -44,20 +46,59 @@ shapeTypes = M.fromList
   , ("Line", ConfigLine)
   ]
 
+dialogButton :: Builder t m => Text -> m (Event t ())
+dialogButton t = domEvent Click <$>  button_ [type_ =: "button", class_ =: "btn btn-primary"] (text t)
+
+
+saveDialog :: forall t m. AppBuilder t m => (DocName, ImageCat) -> DocName -> m (Event t ())
+saveDialog (currentDoc, category) nextDoc = modal (pure True) $ sections header widgets buttons 
+    where
+      header = if isNew category 
+        then titleClose "Submit annotations?"
+        else titleClose "Confirm modifications?"
+
+      widgets = do 
+        iconText ("text-warning", "alert") currentDoc
+        return never
+
+      buttons = centreRow $ do
+
+        yes <- if isNew category 
+          then (do 
+            submit <- dialogButton "Submit"
+            command (OpenCmd nextDoc . Just) (SubmitNew <$ submit)
+            return submit)
+          else (do
+            confirm <- dialogButton "Confirm"
+            command (OpenCmd nextDoc . Just) (SubmitConfirm (Just category) <$ confirm)
+            return confirm)
+            
+
+        no <- dialogButton "Discard changes"
+        discard <- dialogButton "Discard image"
+
+        command (OpenCmd nextDoc . Just) (SubmitDiscard <$ discard)
+        command (OpenCmd nextDoc) (Nothing <$ no)
+
+        cancel <- dialogButton "Cancel"
+        
+        cancels <- askShortcut ShortCancel
+        return $ leftmost [yes, no, cancel, cancels, discard]
+
+
 
 
 selectClassDialog :: AppBuilder t m => Set AnnotationId -> m (Event t ())
 selectClassDialog selection = modal (pure True) $ sections
-  (titleClose "Select class") widget
-  (domEvent Click <$> button_ [type_ =: "button", class_ =: "btn btn-primary"] (text "Cancel"))
+  (titleClose "Select class") widget (dialogButton "Cancel")
     where
       widget = do
         classes <- askClasses
         selected <- selectTable (-1) (Dyn (M.toList . fmap showClass <$> classes))
         command (ClassCmd selection) selected
 
-        (Shortcuts shortcut) <- askShortcuts
-        return $ leftmost [shortcut ShortCancel, void selected ]
+        cancels <- askShortcut ShortCancel
+        return $ leftmost [cancels, void selected ]
 
 
 editClass :: Builder t m => Maybe ClassConfig -> m (Event t ClassConfig)

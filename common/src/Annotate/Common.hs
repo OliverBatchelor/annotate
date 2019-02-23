@@ -115,7 +115,7 @@ data Edit
   | EditDetection [Detection]
   | EditSetArea (Maybe Box)
   | EditAdd [BasicAnnotation]
-  | EditConfirmDetection (Set AnnotationId)
+  | EditConfirmDetection (Map AnnotationId Bool)
 
   deriving (Generic, Show, Eq)
 
@@ -132,16 +132,24 @@ data DocumentPatch
   deriving (Eq, Show, Generic)
 
 
+data OpenType = OpenNew Detections | OpenReview Detections | OpenDisconnected 
+  deriving (Show,  Generic)
+
+data OpenSession = OpenSession 
+  { initial    :: Map AnnotationId BasicAnnotation
+  , threshold  :: Float
+  , openType :: OpenType
+  }   deriving (Show,  Generic)
+
+
 data HistoryEntry 
-  = HistoryOpen 
-  | HistorySubmit 
-  | HistoryEdit Edit 
+  = HistoryEdit Edit 
   | HistoryUndo 
   | HistoryRedo 
+  | HistoryThreshold Float
+  | HistoryOpen OpenSession
   | HistoryClose 
-  | HistoryOpenNew [Detection]
-  | HistoryOpenReview [Detection]
-  deriving (Show, Eq, Generic)
+  deriving (Show,  Generic)
 
 data EditCmd = DocEdit Edit | DocUndo | DocRedo
   deriving (Show, Eq, Generic)
@@ -151,13 +159,20 @@ newtype NaturalKey = NaturalKey [Either (Int, Text) Text]
   deriving (Ord, Eq, Generic, Show)
 
 
+data Count = Count
+  { lower   :: (Float, Int)
+  , middle  :: (Float, Int)
+  , upper   :: (Float, Int)
+  } deriving (Generic, Eq, Show)  
+
 data DetectionStats = DetectionStats 
-  { score       :: Float
-  , classes  :: Map ClassId Float
+  { score     :: Float
+  , classes   :: Map ClassId Float
+  , counts    :: Maybe (Map ClassId Count)
   } deriving (Generic, Eq, Show)  
 
 data Detections = Detections 
-  { detections :: [Detection]
+  { instances :: [Detection]
   , networkId :: NetworkId
   , stats     :: DetectionStats
   } deriving (Show,  Generic)
@@ -169,6 +184,7 @@ data SubmitType
     | SubmitAutoSave
   deriving (Show,  Generic)
 
+  
 data Submission = Submission 
   { name        :: DocName
   , annotations :: Map AnnotationId BasicAnnotation
@@ -186,7 +202,7 @@ data Document = Document
   , info  :: DocInfo
   , annotations    :: Map AnnotationId BasicAnnotation
   , validArea      :: Maybe Box
-  , history        :: [(UTCTime, HistoryEntry)]
+  , history       :: [(UTCTime, HistoryEntry)]
   , detections     :: Maybe Detections
   , training       :: [TrainSummary]
   } deriving (Generic, Show)
@@ -213,18 +229,23 @@ data TrainStats = TrainStats
   } deriving (Generic, Eq, Show)
 
 
+data ImageInfo = ImageInfo 
+  { size       :: Dim
+  , creation   :: Maybe UTCTime
+  } deriving (Generic, Eq, Show)
+
 data DocInfo = DocInfo
   { hashedName :: Hash32
   , naturalKey :: NaturalKey
   , modified    :: Maybe DateTime
   , numAnnotations :: Int
   , category    :: ImageCat
-  , imageSize   :: (Int, Int)
 
   , detections :: Maybe DetectionStats
   , training   :: TrainStats
   , reviews    :: Int
 
+  , image      :: ImageInfo
   } deriving (Generic, Eq, Show)
 
 
@@ -473,6 +494,8 @@ instance FromJSON Detections   where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON AnnotationPatch where parseJSON = Aeson.genericParseJSON options
 instance FromJSON HistoryEntry    where parseJSON = Aeson.genericParseJSON options
+instance FromJSON OpenSession    where parseJSON = Aeson.genericParseJSON options
+instance FromJSON OpenType    where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON Edit    where parseJSON = Aeson.genericParseJSON options
 instance FromJSON EditCmd where parseJSON = Aeson.genericParseJSON options
@@ -485,11 +508,15 @@ instance FromJSON Document     where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON SubmitType     where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Submission     where parseJSON = Aeson.genericParseJSON options
+
 instance FromJSON Config       where parseJSON = Aeson.genericParseJSON options
 
+
 instance FromJSON DetectionStats      where parseJSON = Aeson.genericParseJSON options
+instance FromJSON Count      where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON DocInfo      where parseJSON = Aeson.genericParseJSON options
+instance FromJSON ImageInfo      where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON TrainStats      where parseJSON = Aeson.genericParseJSON options
 instance FromJSON Collection   where parseJSON = Aeson.genericParseJSON options
@@ -535,6 +562,9 @@ instance ToJSON Detections where toJSON = Aeson.genericToJSON options
 instance ToJSON AnnotationPatch where toJSON = Aeson.genericToJSON options
 instance ToJSON HistoryEntry    where toJSON = Aeson.genericToJSON options
 
+instance ToJSON OpenSession where toJSON = Aeson.genericToJSON options
+instance ToJSON OpenType where toJSON = Aeson.genericToJSON options
+
 instance ToJSON Edit    where toJSON = Aeson.genericToJSON options
 instance ToJSON EditCmd where toJSON = Aeson.genericToJSON options
 
@@ -549,10 +579,13 @@ instance ToJSON Submission  where toJSON = Aeson.genericToJSON options
 instance ToJSON Config    where toJSON = Aeson.genericToJSON options
 
 instance ToJSON DetectionStats   where toJSON = Aeson.genericToJSON options
+instance ToJSON Count   where toJSON = Aeson.genericToJSON options
 
 instance ToJSON TrainStats   where toJSON = Aeson.genericToJSON options
 
 instance ToJSON DocInfo   where toJSON = Aeson.genericToJSON options
+instance ToJSON ImageInfo   where toJSON = Aeson.genericToJSON options
+
 instance ToJSON Collection  where toJSON = Aeson.genericToJSON options
 instance ToJSON ServerMsg   where toJSON = Aeson.genericToJSON options
 instance ToJSON ClientMsg   where toJSON = Aeson.genericToJSON options
@@ -587,11 +620,11 @@ instance Default DocInfo where
     , hashedName = Hash32 0
     , modified = Nothing
     , category = CatNew
-    , imageSize = (0, 0)
     , numAnnotations = 0
     , detections = def
     , training = def
     , reviews = 0
+    , image = ImageInfo (0, 0) Nothing
     }
 
 instance Default Config where
@@ -650,6 +683,7 @@ instance Default DetectionStats where
   def = DetectionStats 
     { score      = 0
     , classes = mempty
+    , counts = Nothing
     }
 
 newClass :: ClassId -> ClassConfig

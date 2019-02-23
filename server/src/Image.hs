@@ -1,4 +1,4 @@
-module Image (imageInfo, findNewImages, findImages) where
+module Image (imageInfo, findNewImages, findImages, parseIdentify) where
 
 import Prelude (lines)
 import Annotate.Prelude
@@ -19,18 +19,22 @@ import System.FilePath
 import System.Directory
 import System.Posix.Files
 
+import Data.Time
+
 import Server.Common (defaultInfo)
 
-imageInfo :: FilePath -> DocName -> IO (Maybe DocInfo)
+imageInfo :: FilePath -> DocName -> IO (Maybe ImageInfo)
 imageInfo root filename = do
-  (exit, out, _) <- readProcessWithExitCode "identify" [path] ""
-  return $ do
-    (_, dim) <- parseMaybe (parseIdentify path) (firstLine out)
-    return $ defaultInfo dim filename
-    where
 
-      path = root </> Text.unpack filename
-      firstLine = concat . take 1 . lines
+  timeZone <- getCurrentTimeZone
+  (exit, out, _) <- readProcessWithExitCode "identify" ["-format", "%wx%h;%[EXIF:DateTimeOriginal];", path] ""
+  return $ do
+    (dim, date) <- parseMaybe parseIdentify out
+    return $ ImageInfo dim (localTimeToUTC timeZone <$> date)
+      where
+
+        path = root </> Text.unpack filename
+        firstLine = concat . take 1 . lines
 
 
 validExtension :: [String] -> FilePath -> Bool
@@ -57,27 +61,26 @@ findImages :: Config -> FilePath -> IO [DocName]
 findImages config root = fmap fromString <$> findImages' config root
   
 
-findNewImages :: Config -> FilePath -> Set DocName -> IO [(DocName, DocInfo)]
+findNewImages :: Config -> FilePath -> Set DocName -> IO [(DocName, Maybe ImageInfo)]
 findNewImages config root existing = do
   images <- findImages config root
-  
-  catMaybes <$> for (filter (`S.notMember` existing) images)
-    (\image -> fmap (image, ) <$> imageInfo root image)
+  for (filter (`S.notMember` existing) images) $ 
+    (\k -> (k,) <$> imageInfo root k)
 
 
 type Parser = Parsec Void String
 
--- example: /home/oliver/trees/_DSC2028.JPG JPEG 1600x1064 1600x1064+0+0 8-bit sRGB 958KB 0.000u 0:00.000
-parseIdentify :: FilePath -> Parser (String, Dim)
-parseIdentify path = do
-  filename <- string path
-  space
-  code <- fileCode
-  space
+-- example: 3927x500;2018:12:20 13:22:53%
+parseIdentify :: Parser (Dim, Maybe LocalTime)
+parseIdentify = do
   dim <- parseDim
-  void $ many anyChar
-  return (code, dim)
-
+  void $ char ';'
+  datestr <- optional $ takeWhile1P (Just "date") (/= ';')
+  void $ char ';'
+  return (dim, join (fmap toDate datestr))
+    where
+      toDate :: String -> Maybe LocalTime
+      toDate = parseTimeM True defaultTimeLocale "%Y:%m:%d %H:%M:%S"
 
 
 fileCode :: Parser String

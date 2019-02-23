@@ -38,7 +38,6 @@ import qualified Data.ByteString.Lazy  as BS
 
 
 
-
 data Store = Store
   { config    :: Config
   , images :: Map DocName Document
@@ -66,6 +65,7 @@ data Command where
   CmdDetections   :: Map DocName Detections -> Command
   CmdSubmit       :: UserId -> Submission -> UTCTime  -> Command
   CmdTraining     :: Map DocName [TrainSummary] -> Command
+  CmdUpdateImages :: [(DocName, Maybe ImageInfo)] -> Command
     deriving (Show, Generic)
 
 
@@ -124,7 +124,9 @@ data DetectRequest
 -- Types for dealing with the trainer
 data ToTrainer
   = TrainerInit Config
-  | TrainerUpdate DocName (Maybe TrainImage)
+  | TrainerUpdate DocName SubmitType (Maybe TrainImage)
+  | TrainerImport DocName TrainImage
+
   | TrainerDetect DetectRequest DocName (Map AnnotationId BasicAnnotation) DetectionParams
   | UserCommand UserCommand
     deriving (Show, Generic)
@@ -142,13 +144,15 @@ data FromTrainer
 
 -- Input/export types
 data TrainImage = TrainImage
-  { imageFile   :: DocName,
-    annotations :: [BasicAnnotation],
-    imageSize   :: (Int, Int),
-    category    :: ImageCat,
-    validArea   :: Maybe Box,
-    evaluated   :: Maybe NetworkId,
-    history     :: [(UTCTime, HistoryEntry)]
+  { imageFile   :: DocName
+  , annotations :: [BasicAnnotation]
+  , imageSize     :: (Int, Int)
+  , imageCreation :: Maybe UTCTime
+
+  , category    :: ImageCat
+  , validArea   :: Maybe Box
+  , history     :: [(UTCTime, HistoryEntry)]
+  , detections  :: Maybe Detections
   } deriving (Show,  Generic)
 
 
@@ -356,11 +360,11 @@ parseNaturalKey = (NaturalKey <$> many part) <* eof where
 type Parser = Parsec Void String
 
 
-defaultInfo :: Dim -> DocName -> DocInfo
-defaultInfo dim filename = def 
+defaultInfo :: DocName -> ImageInfo -> DocInfo
+defaultInfo filename image = def 
     & #naturalKey .~ makeNaturalKey filename
     & #hashedName .~ Hash32 (fromIntegral (hash filename))
-    & #imageSize  .~ dim
+    & #image .~ image
 
 
 instance Default TrainerState where

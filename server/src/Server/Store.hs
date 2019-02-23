@@ -15,6 +15,85 @@ import Data.List (transpose, (!!))
 data OldHistoryEntry = HistOpen | HistSubmit | HistEdit DocumentPatch | HistUndo | HistRedo
   deriving (Show, Eq, Generic)
 
+
+data Edit0
+  = EditSetClass0 ClassId (Set AnnotationId)
+  | EditDeleteParts0 DocParts
+  | EditTransformParts0 Rigid DocParts
+  | EditClearAll0
+  | EditDetection0 [Detection]
+  | EditSetArea0 (Maybe Box)
+  | EditAdd0 [BasicAnnotation]
+  | EditConfirmDetection0 (Set AnnotationId)    
+
+
+instance Migrate Edit where
+  type MigrateFrom Edit = Edit0
+  migrate (EditSetClass0 k s) = EditSetClass k s 
+  migrate (EditDeleteParts0 k)  = EditDeleteParts k 
+  migrate (EditTransformParts0 k s) = EditTransformParts k s 
+  migrate EditClearAll0  = EditClearAll
+  migrate (EditDetection0 _) = EditClearAll 
+  migrate (EditSetArea0 b) = EditSetArea b
+  migrate (EditAdd0 a) = EditAdd a
+  migrate (EditConfirmDetection0 s) = EditConfirmDetection (setToMap True s)
+
+
+
+data HistoryEntry0
+  = HistoryOpen0 
+  | HistorySubmit0 
+  | HistoryEdit0 Edit 
+  | HistoryUndo0 
+  | HistoryRedo0 
+  | HistoryClose0 
+  | HistoryOpenNew0 [Detection]
+  | HistoryOpenReview0 [Detection]
+    deriving (Show, Eq, Generic)  
+
+
+  
+
+
+migrateHistory :: [(UTCTime, HistoryEntry0)] -> [(UTCTime, HistoryEntry)]
+migrateHistory history = catMaybes (f' <$> history)
+  where 
+    f' (t, h) = (t,) <$> f h    
+
+    f HistoryOpen0 = Just $ HistoryOpen (openSession OpenDisconnected)
+    f (HistoryEdit0 e) = Just $ HistoryEdit e
+    f HistoryUndo0 = Just $ HistoryUndo
+    f HistoryRedo0 = Just $ HistoryRedo
+    f HistoryClose0 = Just $ HistoryClose
+    f (HistoryOpenNew0 d) = Just $ HistoryOpen (openSession $ OpenNew (detections' d))
+    f (HistoryOpenReview0 d) = Just $ HistoryOpen (openSession $ OpenReview (detections' d))
+    f _ = Nothing    
+
+
+openSession :: OpenType -> OpenSession
+openSession t = OpenSession 
+  { openType = t
+  , threshold = 0.5
+  , initial = mempty
+  } 
+
+detections' :: [Detection] -> Detections
+detections' instances = Detections 
+  { instances = instances
+  , networkId = def
+  , stats = def
+  }
+
+    -- data HistoryEntry 
+    -- = HistoryEdit Edit 
+    -- | HistoryUndo 
+    -- | HistoryRedo 
+    -- | HistoryThreshold Float
+    -- | HistoryOpen OpenSession
+    -- | HistoryClose 
+    -- deriving (Show, Eq, Generic)   
+    
+
 data ClassConfig0 = ClassConfig0
   { name :: Text
   , shape :: ShapeConfig
@@ -85,18 +164,36 @@ data DocInfo5 = DocInfo5
   , training   :: TrainStats
   } deriving (Generic, Show, Eq)  
 
+data DocInfo6 = DocInfo6
+  { hashedName :: Hash32
+  , naturalKey :: NaturalKey
+  , modified    :: Maybe DateTime
+  , numAnnotations :: Int
+  , category    :: ImageCat
+  , imageSize   :: (Int, Int)
 
-data Detections0 = Detections0
-  { detections :: [Detection]
-  , networkId :: NetworkId
-  } deriving (Show,  Generic)
+  , detections :: Maybe DetectionStats
+  , training   :: TrainStats
+  , reviews    :: Int
+  } deriving (Generic, Eq, Show)
 
+
+data Document13 = Document13
+  { name  :: DocName
+  , info  :: DocInfo
+  , annotations    :: Map AnnotationId BasicAnnotation
+  , validArea      :: Maybe Box
+  , history       :: [(UTCTime, HistoryEntry0)]
+  , detections     :: Maybe Detections
+  , training       :: [TrainSummary]
+  } deriving (Generic, Show)  
+  
 data Document12 = Document12
   { name  :: DocName
   , info  :: DocInfo
   , annotations :: Map AnnotationId BasicAnnotation
   , validArea   :: Maybe Box
-  , history :: [(UTCTime, HistoryEntry)]
+  , history :: [(UTCTime, HistoryEntry0)]
   , detections :: Maybe Detections
   , trainingLoss   :: [Float]
   } deriving (Generic, Show)  
@@ -107,7 +204,7 @@ data Document11 = Document11
   , info  :: DocInfo
   , annotations :: Map AnnotationId BasicAnnotation
   , validArea   :: Maybe Box
-  , history :: [(UTCTime, HistoryEntry)]
+  , history :: [(UTCTime, HistoryEntry0)]
   , detections :: Maybe Detections
   } deriving (Generic, Show)  
 
@@ -117,7 +214,7 @@ data Document10 = Document10
   , annotations :: Map AnnotationId BasicAnnotation
   , validArea   :: Maybe Box
 
-  , history :: [(UTCTime, HistoryEntry)]
+  , history :: [(UTCTime, HistoryEntry0)]
   , detections :: Maybe ([Detection], NetworkId)
   } deriving (Generic, Show)  
 
@@ -126,7 +223,7 @@ data Document9 = Document9
   , info  :: DocInfo
   , annotations :: AnnotationMap
   , validArea   :: Maybe Box
-  , history :: [(UTCTime, HistoryEntry)]
+  , history :: [(UTCTime, HistoryEntry0)]
   , detections :: Maybe ([Detection], NetworkId)
 
   } deriving (Generic, Show)
@@ -136,7 +233,7 @@ data Document8 = Document8
   , info  :: DocInfo
   , annotations :: AnnotationMap
   , validArea   :: Maybe Box
-  , history :: [(UTCTime, HistoryEntry)]
+  , history :: [(UTCTime, HistoryEntry0)]
   , detections :: Maybe ([Detection], NetworkId)
 
   } deriving (Generic, Show)
@@ -515,22 +612,35 @@ instance Migrate Preferences1 where
       margin = 0.1
       border = 1
    
+data Submission1 = Submission1
+  { name        :: DocName
+  , annotations :: Map AnnotationId BasicAnnotation
+  , validArea   :: Maybe Box
+  , history :: [(UTCTime, HistoryEntry0)]
+  , method :: SubmitType
+  } deriving (Generic, Show)      
 
 data Submission0 = Submission0
   { name        :: DocName
   , annotations :: Map AnnotationId BasicAnnotation
   , validArea   :: Maybe Box
-  , history :: [(UTCTime, HistoryEntry)]
+  , history :: [(UTCTime, HistoryEntry0)]
   , category :: Maybe ImageCat
   } deriving (Generic, Show)      
 
 instance Migrate Submission where
-  type MigrateFrom Submission = Submission0
-  migrate Submission0{..} = Submission{..} where
+  type MigrateFrom Submission = Submission1
+  migrate Submission1{..} = Submission{name, annotations, 
+    validArea, method, history = migrateHistory history} 
+    
+  
+instance Migrate Submission1 where
+  type MigrateFrom Submission1 = Submission0
+  migrate Submission0{..} = Submission1{..} where
     method = case category of
       Just cat -> SubmitNew
       _        -> SubmitAutoSave
-  
+
 data SubmitType0
   = SubmitNew0 
   | SubmitDiscard0 
@@ -546,9 +656,17 @@ instance Migrate SubmitType where
   migrate SubmitAutoSave0 = SubmitAutoSave
 
 instance Migrate Document where
-  type MigrateFrom Document = Document12
-  migrate Document12{..} = Document{..} where
+  type MigrateFrom Document = Document13
+  migrate Document13{..} = Document{name, history = migrateHistory history, 
+    validArea, detections, info, annotations, training}
+
+
+  
+instance Migrate Document13 where
+  type MigrateFrom Document13 = Document12
+  migrate Document12{..} = Document13{..} where
     training = TrainSummary <$> trainingLoss
+    
 
 instance Migrate Document12 where
   type MigrateFrom Document12 = Document11
@@ -646,11 +764,31 @@ instance Migrate DocInfo5 where
     training = TrainStats {..}
     lossRunning = 0
 
-instance Migrate DocInfo where
-  type MigrateFrom DocInfo = DocInfo5
-  migrate DocInfo5{..} = DocInfo{..} where 
+instance Migrate DocInfo6 where
+  type MigrateFrom DocInfo6 = DocInfo5
+  migrate DocInfo5{..} = DocInfo6{..} where 
     reviews = 0
         
+instance Migrate DocInfo where
+  type MigrateFrom DocInfo = DocInfo6
+  migrate DocInfo6{..} = DocInfo{..} where 
+    image = ImageInfo{size=imageSize, creation=Nothing}
+
+data DetectionStats0 = DetectionStats0
+  { score       :: Float
+  , classes  :: Map ClassId Float
+  } deriving (Generic, Eq, Show)  
+  
+instance Migrate DetectionStats where
+  type MigrateFrom DetectionStats = DetectionStats0
+  migrate DetectionStats0{..} = DetectionStats{..} where 
+    counts = Nothing
+    
+data Detections0 = Detections0
+  { instances :: [Detection]
+  , networkId :: NetworkId
+  } deriving (Show,  Generic)
+  
 
 instance Migrate Detections where
   type MigrateFrom Detections = Detections0
@@ -757,13 +895,20 @@ $(deriveSafeCopy 0 'base ''TrainSummary)
 $(deriveSafeCopy 0 'base ''Detections0)
 $(deriveSafeCopy 1 'extension ''Detections)
 
-$(deriveSafeCopy 0 'base ''DetectionStats)
+$(deriveSafeCopy 0 'base ''DetectionStats0)
+$(deriveSafeCopy 1 'extension ''DetectionStats)
+
+
+
+$(deriveSafeCopy 0 'base ''Count)
+
 
 $(deriveSafeCopy 0 'base ''Checkpoint)
 
 $(deriveSafeCopy 0 'base ''ImageCat)
 $(deriveSafeCopy 0 'base ''Submission0)
-$(deriveSafeCopy 1 'extension ''Submission)
+$(deriveSafeCopy 1 'base ''Submission1)
+$(deriveSafeCopy 2 'extension ''Submission)
 
 $(deriveSafeCopy 0 'base ''SubmitType0)
 $(deriveSafeCopy 1 'extension ''SubmitType)
@@ -780,19 +925,20 @@ $(deriveSafeCopy 9 'extension ''Document9)
 $(deriveSafeCopy 10 'extension ''Document10)
 $(deriveSafeCopy 11 'extension ''Document11)
 $(deriveSafeCopy 12 'extension ''Document12)
+$(deriveSafeCopy 13 'extension ''Document13)
 
-$(deriveSafeCopy 13 'extension ''Document)
-
+$(deriveSafeCopy 14 'extension ''Document)
 
 $(deriveSafeCopy 0 'base ''NaturalKey0)
 $(deriveSafeCopy 1 'extension ''NaturalKey)
 
-
 $(deriveSafeCopy 3 'extension ''DocInfo3)
 $(deriveSafeCopy 4 'extension ''DocInfo4)
 $(deriveSafeCopy 5 'extension ''DocInfo5)
-$(deriveSafeCopy 6 'extension ''DocInfo)
+$(deriveSafeCopy 6 'extension ''DocInfo6)
+$(deriveSafeCopy 7 'extension ''DocInfo)
 
+$(deriveSafeCopy 0 'base ''ImageInfo)
 
 
 $(deriveSafeCopy 0 'base ''Config)
@@ -802,11 +948,17 @@ $(deriveSafeCopy 1 'extension ''ClassConfig)
 
 $(deriveSafeCopy 0 'base ''ShapeConfig)
 
-$(deriveSafeCopy 0 'base ''Edit)
+$(deriveSafeCopy 0 'base ''Edit0)
+$(deriveSafeCopy 1 'extension ''Edit)
 
 $(deriveSafeCopy 0 'base ''OldHistoryEntry)
-
+$(deriveSafeCopy 0 'base ''HistoryEntry0)
 $(deriveSafeCopy 0 'base ''HistoryEntry)
+
+$(deriveSafeCopy 0 'base ''OpenSession)
+$(deriveSafeCopy 0 'base ''OpenType)
+
+
 $(deriveSafeCopy 0 'base ''DocumentPatch)
 $(deriveSafeCopy 0 'base ''AnnotationPatch)
 
@@ -857,6 +1009,14 @@ updateInfo doc time = over (docInfo k) $ \info ->
   info & #modified .~ Just time & #numAnnotations .~ length (doc ^. #annotations)
     where k = view #name doc
 
+updateImageInfo :: (DocName, Maybe ImageInfo) ->  (Map DocName Document -> Map DocName Document)
+updateImageInfo (k, Nothing)   = M.delete k
+updateImageInfo (k, Just info) = M.alter f k where
+  f Nothing      = Just (emptyImage k info)
+  f (Just image) = Just (image & #info . #image .~ info) 
+
+
+
 updateDocument :: Document -> (Store -> Store)
 updateDocument doc = #images . at (doc ^. #name) .~ Just doc
 
@@ -882,7 +1042,9 @@ addTraining (k, summary) = over (ix k) addSummary where
     & #training .~ training 
     & #info . #training  .~ trainingStats training
       where training = take 20 (summary <> doc ^. #training)
-        
+
+emptyImage :: DocName -> ImageInfo -> Document
+emptyImage k info = emptyDoc k (defaultInfo k info)
 
 emptyDoc :: DocName -> DocInfo -> Document
 emptyDoc k info = Document 
@@ -942,7 +1104,9 @@ lookupPreferences store user = fromMaybe def (store ^. #preferences . at user)
 submitDocument :: UserId -> UTCTime -> Submission -> (Store -> Store)
 submitDocument user time Submission{..} store = store & #images . ix name %~ \doc -> 
   case method of
-    SubmitNew     -> doc & storeChanges 
+    SubmitNew     -> doc 
+        & #history .~ []
+        & storeChanges 
         & #info . #category .~ (selectCategory user store) 
         & #info . #reviews .~ 0
 
@@ -975,6 +1139,9 @@ instance Persistable Store where
   update (CmdImages new)        = over #images (M.union new') where
     new' = M.mapWithKey emptyDoc (M.fromList new)
 
+  update (CmdUpdateImages updates) = over #images $ 
+    (flip (foldr updateImageInfo) updates)
+ 
 
   update (CmdCategory k cat)      = docInfo k . #category .~ cat
   update (CmdClass k conf)  = over (#config . #classes) (M.alter (const conf) k)
@@ -1036,17 +1203,23 @@ importImage TrainImage{..} = (imageFile, document) where
   document = emptyDoc imageFile info
     & #annotations .~ M.fromList (zip [0..] annotations)
     & #validArea   .~ validArea
-  info :: DocInfo = (defaultInfo imageSize imageFile)
-    {modified = Nothing, category = category, numAnnotations = length annotations}
 
-    
-exportImage :: Document -> TrainImage
-exportImage Document{..} = TrainImage
+  info = (defaultInfo imageFile image)
+    {modified = Nothing, category = category, numAnnotations = length annotations, image = image}
+
+  image = ImageInfo {size = imageSize, creation = imageCreation}
+
+updateImage :: Document -> TrainImage
+updateImage Document{..} = TrainImage
   { imageFile = name
-  , imageSize = info ^. #imageSize
+  , imageSize = info ^. #image . #size
+  , imageCreation = info ^. #image . #creation
   , category  = info ^. #category
   , annotations = M.elems annotations
   , validArea = validArea
-  , history = history
-  , evaluated = view #networkId <$> detections
-  }
+  , history = []
+  , detections = detections
+  } 
+
+exportImage :: Document -> TrainImage
+exportImage doc = (updateImage doc) {history = doc ^. #history}

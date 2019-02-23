@@ -364,15 +364,6 @@ shapeProperties classMap thresholds reviewing instanceCols selected k annotation
 
 
 
-imageView :: (AppBuilder t m) => Image -> m (ElemType t m)
-imageView (file, dim) = do
-    path <- imagePath file
-    
-    Svg.image_
-      [draggable_ =: False, class_ =: "disable-cursor"
-      , wh_ =: fromDim dim, href_ =: path
-      , filter_ =: urlId adjustmentId
-      ]
 
 
 
@@ -517,18 +508,23 @@ selectParts Scene{editor, selection, input, shortcut} =
     SceneInputs{keyboard, mouseDown, mouseDownOn} = input
 
 
-confirmAnnotation :: Reflex t => Scene t -> Event t (Maybe AnnotationId)
-confirmAnnotation Scene{editor, input} = confirm <$> current editor <@> clicked where
-  confirm Editor{annotations} (i, _) = do 
+confirmAnnotation :: Reflex t => Scene t -> Event t (Maybe (AnnotationId, Bool))
+confirmAnnotation Scene{editor, input, preferences} 
+    = confirm <$> current editor <*> current preferences <@> clicked where
+
+  confirm Editor{annotations} prefs (i, _) = do 
     ann <- M.lookup i annotations
-    (t, _) <- ann ^. #detection
+    (t, d) <- ann ^. #detection
     guard (canConfirm t)
-    return i
+    return (i, isHidden (t, d ^. #confidence) (prefs ^. #thresholds . _1))
     
   clicked = input ^. #mouseDownOn
   canConfirm t = t == Detected || t == Missed
   
+  isHidden (Detected, conf) t = conf < t
+  isHidden (Missed, _)      t = True
 
+  
 
 boxQuery :: Editor -> Box -> DocParts
 boxQuery Editor{annotations} box = M.mapMaybe (queryShape . view #shape) annotations where
@@ -589,7 +585,7 @@ actions scene@Scene{..} = holdWorkflow $
 
     let deleteSelection = ffilter (not . null) (current selection <@ select shortcut ShortDelete)
     editCommand $ EditDeleteParts <$> deleteSelection 
-    editCommand $ fmap (EditConfirmDetection . S.singleton) <?> confirmAnnotation scene
+    editCommand $ fmap (EditConfirmDetection . uncurry M.singleton) <?> confirmAnnotation scene
 
     docCommand (const DocUndo) (select shortcut ShortUndo)
     docCommand (const DocRedo) (select shortcut ShortRedo)
@@ -684,33 +680,69 @@ actions scene@Scene{..} = holdWorkflow $
   defaultCursor = (\b -> if b then "copy" else "default") <$> holdingShift
   eps = 1e-2
 
-  
+
+
+imageView :: (AppBuilder t m) => Dynamic t Bool -> Image -> m (ElemType t m)
+imageView hidden (file, dim) = do
+    path <- imagePath file
+    
+    Svg.image_
+      [draggable_ =: False, class_ =: "disable-cursor"
+      , wh_ =: fromDim dim, href_ =: path
+      , filter_ =: urlId adjustmentId
+      , hidden_ ~: hidden
+      ]  
+
+slideShow :: AppBuilder t m => SceneInputs t -> Image -> ([Image], [Image]) -> m (Dynamic t Int)
+slideShow SceneInputs{keyCombo, keyUp} image (prev, next) = do
+
+  position <- foldDyn ($) 0 $ mergeWith (.) 
+    [ dec <$ keyCombo Key.ArrowLeft [Key.Control]
+    , inc <$ keyCombo Key.ArrowRight [Key.Control]
+    , const 0 <$ keyUp Key.Control ]
+
+
+  forM_ slides $ \(k, image) -> do
+    imageView ((/= k) <$> position) image
+
+  return position
+
+    where
+      slides = zip [(-1), (-2)..] prev <> (zip [0..] (image : next))
+
+      start = negate (length prev)
+      end   = length next
+
+      inc = clamp (start, end) . succ
+      dec = clamp (start, end) . pred
+
 
 sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart, SceneEvent))
 sceneView scene@Scene{..} = do
 
   display <- holdUniqDyn $ view #display <$> preferences 
   g [style_ ~: (makeStyle <$> viewport <*> display)] $ do
-    imageView image
+    -- imageView image
+    position <- slideShow input image neighbours
 
     classMap      <- holdUniqDyn (classProperties <$> config <*> display)
     instanceCols  <- holdUniqDyn (view #instanceColours <$> display)
-    thresholds    <- holdUniqDyn (view #thresholds <$> preferences)  
     reviewing     <- holdUniqDyn (isReviewing <$> input ^. #keyboard <*> preferences)  
 
-    events <- holdMergePatched =<< (incrementalMapWithUpdates annotations $ \k ann -> do
-      props     <- shapeProperties classMap thresholds reviewing instanceCols (isSelected k) k <$> holdUpdated ann
-      fmap (arrange k) <$> shapeView props ann)
+    g [hidden_ ~: (/= 0) <$> position] $ do
+      events <- holdMergePatched =<< (incrementalMapWithUpdates annotations $ \k ann -> do
+        props     <- shapeProperties classMap thresholds reviewing instanceCols (isSelected k) k <$> holdUpdated ann
+        fmap (arrange k) <$> shapeView props ann)
 
-    maskOut (snd image) (view #validArea <$> currentEdit)
-    action <- actions scene
+      maskOut (snd image) (view #validArea <$> currentEdit)
+      action <- actions scene
+      return (action, minElem <?> events)
+      
+  where
+    isSelected = fanDynMap selection
+    isReviewing keys prefs = (S.member Key.KeyR keys) `xor` (prefs ^. #reviewing)
 
-    return (action, minElem <?> events)
-      where
-          isSelected = fanDynMap selection
-          isReviewing keys prefs = (S.member Key.KeyR keys) `xor` (prefs ^. #reviewing)
+    arrange k (part, e) = ((k, part), e)
 
-          arrange k (part, e) = ((k, part), e)
-
-          makeStyle Viewport{zoom} DisplayPreferences{fontSize} = 
-            [("font-size", showText (fromIntegral fontSize) <> "px")]
+    makeStyle Viewport{zoom} DisplayPreferences{fontSize} = 
+      [("font-size", showText (fromIntegral fontSize) <> "px")]

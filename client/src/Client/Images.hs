@@ -266,7 +266,20 @@ navControl size numImages offset = row "justify-content-between align-items-cent
 
     showPage i images = showText (pageNum i) <> " of " <> showText (pageNum images)
     pageNum i = i `Real.div` size + 1    
-  
+
+openRequest :: forall t m. AppBuilder t m => Event t DocName -> m ()
+openRequest userSelect = do 
+  doc <- view #document
+  modified <- view #modified
+  let saveInfo = liftA2 needsSave (current doc) (current modified)
+
+  command id (attachWith makeCmd saveInfo userSelect)
+    where
+      makeCmd Nothing k          = OpenCmd k Nothing
+      makeCmd (Just save) k  = DialogCmd (SaveDialog save k)
+
+      needsSave (Just doc) True = Just (doc ^. #name, doc ^. #info . #category)
+      needsSave _  _ = Nothing
 
 imageList :: forall t m. AppBuilder t m 
           => Int 
@@ -291,7 +304,8 @@ imageList size  opts selected images = column "expand" $ do
 
     spacer
     updatePage <- navControl size (length <$> images) offset
-  command OpenCmd userSelect
+
+  openRequest userSelect
     where
       sorting = view #sorting <$> opts
 

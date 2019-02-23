@@ -91,7 +91,7 @@ processMsg env@ClientEnv{store, clientId, userId} msg = do
       mDoc <- lookupDocument (upcast env) (submission ^. #name)   
       
       for_ mDoc $ \doc -> do
-        sendTrainer (upcast env) (TrainerUpdate (submission ^. #name) (Just (exportImage doc)))
+        sendTrainer (upcast env)  (TrainerUpdate (submission ^. #name) (submission ^. #method)  (Just (exportImage doc)))
         broadcastInfo (upcast env) (submission ^. #name) (doc ^. #info)
 
     ClientDetect k review -> do

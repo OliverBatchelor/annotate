@@ -113,7 +113,7 @@ holdInputs viewport sceneEvents inp = do
     , hover = hover
 
     , keyCombo = \k held -> testCombo k (S.fromList held) <?>
-        (current keys `attach` E.localKeyDown inp)
+        (current keys `attach` E.keyDown inp)
   }
 
 

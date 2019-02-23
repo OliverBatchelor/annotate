@@ -65,6 +65,7 @@ type Controls = (Float, V2 Float)
 
 data Scene t = Scene
   { image    :: !Image
+  , neighbours :: !([Image], [Image])
   , input    :: !(SceneInputs t)
 
   , editor      :: !(Dynamic t Editor)
@@ -79,4 +80,5 @@ data Scene t = Scene
 
   , shortcut     :: !(EventSelector t Shortcut)
   , viewport     :: !(Dynamic t Viewport)
+  , thresholds   :: !(Dynamic t (Float, Float))
   } deriving (Generic)

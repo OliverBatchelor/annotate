@@ -16,7 +16,7 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 executable server
-  ghc-options:         -O2 -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -O2 -threaded -rtsopts -with-rtsopts=-N -optl-static -optl-pthread
   main-is:             Main.hs
   other-modules:        Server.Client, Server.Common, Server.Document,
                         Server.Options, Server.Store, Server.Trainer,
@@ -35,7 +35,7 @@ executable server
                        warp, http-types, websockets, aeson, mtl, containers,
                        cmdargs, lens, generic-lens, filepath, directory,
                        safecopy, time, stm, stm-persist, servant-server, process,
-                       megaparsec >= 6, parser-combinators, linear, aeson-pretty,
+                       megaparsec <= 7, parser-combinators, linear, aeson-pretty,
                        pipes, pipes-aeson, pipes-bytestring, unix, hashable
 
   hs-source-dirs:      src

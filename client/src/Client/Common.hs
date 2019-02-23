@@ -47,6 +47,8 @@ data ViewCommand
 
 data Dialog = ClassDialog DocParts
             | ErrorDialog ErrCode
+            | SaveDialog (DocName, ImageCat) DocName
+
   deriving (Generic, Show)
 
 
@@ -101,9 +103,8 @@ data AppCommand
   | ClearCmd
 
   | SubmitCmd SubmitType
-  | OpenCmd DocName
+  | OpenCmd DocName (Maybe SubmitType)
 
-  | DetectCmd
   | ConfigCmd ConfigUpdate
 
   | DialogCmd Dialog
@@ -157,8 +158,8 @@ data AppEnv t = AppEnv
   { basePath :: Text
   , document :: (Dynamic t (Maybe Document))
   , editor :: (Dynamic t (Maybe Editor))
-
   , modified :: Dynamic t Bool
+
   , config :: (Dynamic t Config)
   , preferences :: (Dynamic t Preferences)
   , currentClass :: (Dynamic t ClassId)
@@ -194,6 +195,11 @@ askShortcuts = do
   selector <- view #shortcut
   return (Shortcuts (select selector))
 
+askShortcut :: (Reflex t, MonadReader (AppEnv t) m) => Shortcut a -> m (Event t a)
+askShortcut s = do
+  (Shortcuts shortcut)  <- askShortcuts
+  return $ shortcut s
+  
 
 askClasses :: AppBuilder t m => m (Dynamic t (Map ClassId ClassConfig))
 askClasses = fmap (view #classes) <$> view #config

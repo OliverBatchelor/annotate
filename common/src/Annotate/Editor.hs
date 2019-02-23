@@ -50,11 +50,14 @@ data Editor = Editor
   , annotations :: AnnotationMap
   , validArea :: Maybe Box
   , history :: [(UTCTime, HistoryEntry)]
-  } deriving (Generic, Show, Eq)
+  } deriving (Generic, Show)
 
 makePrisms ''DocumentPatch'
 makePrisms ''EditCmd
 makePrisms ''DocumentPatch
+
+isNew :: ImageCat -> Bool
+isNew cat = cat == CatNew || cat == CatDiscard
 
 isModified :: Editor -> Bool
 isModified = not . null . view #undos
@@ -83,16 +86,6 @@ insertAuto :: (Ord k, Num k) => a -> Map k a -> Map k a
 insertAuto a m = M.insert k a m
     where k = 1 + fromMaybe 0 (maxKey m)
 
-
-editDocument :: Document -> Editor
-editDocument Document{..} = Editor
-    { name 
-    , annotations = fromBasic <$> annotations
-    , validArea
-    , history = []
-    , undos = []
-    , redos = []
-    } 
     
        
 
@@ -339,8 +332,8 @@ replace anns  Editor{annotations}  = PatchAnns $ changes <$> align annotations a
   changes (That ann) = Add ann
 
 
-confirmDetectionEdit :: Set AnnotationId -> Editor -> DocumentPatch
-confirmDetectionEdit ids doc = PatchAnns $ M.intersectionWith f (setToMap' ids) (doc ^. #annotations) where
+confirmDetectionEdit :: Map AnnotationId Bool -> Editor -> DocumentPatch
+confirmDetectionEdit ids doc = PatchAnns $ M.intersectionWith f ids (doc ^. #annotations) where
   f = const (Modify . confirmDetection)
 
 confirmDetection :: Annotation -> Annotation

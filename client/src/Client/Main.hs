@@ -3,6 +3,8 @@
 module Client.Main where
 
 import Annotate.Prelude hiding (div)
+import Annotate.Sorting (sortImages)
+
 import Client.Common
 
 import qualified Data.Text as T
@@ -184,7 +186,17 @@ network host send = do
     close (True,  _, _)       = Nothing
     close (False, _, reason)  = Just reason
 
+around :: Int -> Int -> [a] -> ([a], [a])
+around i n xs = (reverse (take n (reverse prev)), drop 1 $ take (n + 1) after)
+  where (prev, after) = L.splitAt i xs
 
+neighbourFrames :: DocName -> Int -> Map DocName DocInfo -> ([Image], [Image])
+neighbourFrames k n images = around i n sorted where
+  i = fromMaybe 0 (L.findIndex ((== k) . fst) sorted)
+  sorted = toImage <$> sortImages (SortName, False) (M.toList images)
+  toImage (k, info) = (k, info ^. #image . #size)
+  
+  
 
 
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
@@ -195,10 +207,10 @@ sceneWidget :: forall t m. (GhcjsAppBuilder t m)
 
 sceneWidget cmds loaded = do
   
-  dim <- holdDyn (800, 600) (view (#info . #imageSize) <$> loaded)
+  dim <- holdDyn (800, 600) (view (#info . #image . #size) <$> loaded)
   viewport <- viewControls cmds dim
 
- 
+
   rec 
     input <- holdInputs (current viewport) sceneEvents =<< windowInputs element
     let (action, maybeDoc, sceneEvents, selection) = r
@@ -209,7 +221,7 @@ sceneWidget cmds loaded = do
         sceneDefines viewport =<< view #preferences
 
         inViewport viewport $ replaceHold'
-            (documentEditor viewport input cmds  <$> loaded)
+            (documentEditor viewport input cmds <$> loaded)
 
   return (matchShortcuts input, action, maybeDoc, selection)
 
@@ -232,32 +244,36 @@ setClassCommand :: Editor -> (Set AnnotationId, ClassId) -> Maybe EditCmd
 setClassCommand doc (selection, classId) =
   guard (S.size selection > 0) $> DocEdit (EditSetClass classId selection)
 
-openNew :: UTCTime -> [Detection] -> Editor -> Editor
-openNew time detections doc = doc
-  & #history      .~  [(time, HistoryOpenNew detections)]
-  & #annotations  .~ fromDetections 0 detections
- 
-openReview :: UTCTime -> [Detection] -> Editor -> Editor
-openReview time detections doc = doc
-  & #history      .~  [(time, HistoryOpenReview detections)]
-  & #annotations  %~ reviewDetections detections
 
+loadedDocument :: Preferences -> Document -> UTCTime -> Editor
+loadedDocument prefs doc@Document{name, info, annotations, detections, validArea} time = Editor
+    { name 
+    , annotations = initial
+    , validArea
+    , history = [(time, HistoryOpen open)]
+    , undos = []
+    , redos = []
+    } where
+      
+    (openType, initial) = case detections of 
+      Just d -> if isNew (info ^. #category)
+        then (OpenNew d, fromDetections 0 (d ^. #instances))
+        else (OpenReview d, reviewDetections (d ^. #instances) annotations')
+      Nothing -> (OpenDisconnected, annotations')
 
-openDocument :: UTCTime -> Editor -> Editor
-openDocument time doc = doc
-  & #history      .~  [(time, HistoryOpen)]
-
-loadedDocument :: Document -> UTCTime -> Editor
-loadedDocument doc@Document{info, annotations, detections} time = maybeOpen (editDocument doc) where
-
-    f = if info ^. #category == CatNew
-      then openNew time
-      else openReview time
-
-    maybeOpen = fromMaybe (openDocument time) (f . view #detections <$> detections)
+    annotations' = fromBasic <$> annotations
+    open = OpenSession annotations (prefs ^. #thresholds . _1) openType
     
 delayEvent :: Builder t m => Event t a -> m (Event t a)
 delayEvent e = performEvent (return <$> e)
+
+
+appendHistory ::  (UTCTime, HistoryEntry) -> [(UTCTime, HistoryEntry)] -> [(UTCTime, HistoryEntry)]
+appendHistory e@(time, HistoryThreshold t) = \case 
+    ((_, HistoryThreshold _):es) -> (e:es)
+    es                      -> (e:es)
+    
+appendHistory e = cons e
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => Dynamic t Viewport 
@@ -267,10 +283,17 @@ documentEditor :: forall t m. (GhcjsAppBuilder t m)
             -> m (Dynamic t Action, Dynamic t (Maybe Editor)
                  , Event t (DocPart, SceneEvent), Dynamic t DocParts)
 
-documentEditor viewport input cmds document  = do
+documentEditor viewport input cmds document = do
 
   loadTime <- liftIO getCurrentTime
-  let editor0 = loadedDocument document loadTime
+  preferences  <- view #preferences
+
+  thresholds    <- holdUniqDyn (view #thresholds <$> preferences)
+
+  images0 <- sample =<< (fmap (view #images) <$> view #collection)
+  prefs0 <- sample preferences
+
+  let editor0 = loadedDocument prefs0 document loadTime
 
   rec
     editor <- holdDyn editor0 edited
@@ -280,14 +303,18 @@ documentEditor viewport input cmds document  = do
 
         clearCmd      = clearAnnotations <$ oneOf _ClearCmd cmds
         setClassCmd   = attachWithMaybe setClassCommand (current editor) (oneOf _ClassCmd cmds)
-        editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd,  detectionsCmd]
-        detectionsCmd = DocEdit . EditDetection <$> view #detections env
+        editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd]
+        
+        -- detectionsCmd = DocEdit . EditDetection <$> view #detections env
 
   -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $ oneOf _SelectCmd cmds
 
-  entry <- withTime (historyEntry <$> editCmd)
-  history <- foldDyn (:) (editor0 ^. #history) entry
+  entry <- withTime $ leftmost 
+    [ historyEntry <$> editCmd 
+    , HistoryThreshold . fst <$> updated thresholds
+    ]
+  history <- foldDyn appendHistory (editor0 ^. #history) entry
 
   rec
     annotations  <- holdIncremental (editor0 ^. #annotations) (annotationsPatch <?> patch)
@@ -297,7 +324,8 @@ documentEditor viewport input cmds document  = do
     -- logEvent (updated (pending <$> document <*> action))
 
     (action, sceneEvents) <- sceneView $ Scene
-      { image    = (document ^. #name, document ^. #info . #imageSize)
+      { image      = (document ^. #name, document ^. #info . #image . #size)
+      , neighbours = neighbourFrames (document ^. #name) 3 images0
       -- , viewport = viewport
       , input       = input
       , editor      = editor
@@ -305,6 +333,8 @@ documentEditor viewport input cmds document  = do
 
       , selection   = selection
       , annotations = patched
+
+      , thresholds
 
       , currentClass = view #currentClass env
       , config       = view #config env
@@ -373,7 +403,7 @@ manageDocument :: forall t m. GhcjsBuilder t m
 manageDocument hello serverMsg (userNext, userTo) = mdo
 
   selected <- handleLocation $ leftmost [userTo, view #name <$> validLoad]
-  navId    <- count request
+  navId    <- R.count request
 
   loaded <- hold Nothing (Just . view #name <$> validLoad)
   let validLoad = isLatest <$> current navId <??> loadedMsg
@@ -398,14 +428,11 @@ manageDocument hello serverMsg (userNext, userTo) = mdo
 
 
 navigationCmd :: Reflex t => Event t [AppCommand] -> (Event t (), Event t DocName)
-navigationCmd cmds = (void $ oneOf _SubmitCmd cmds, oneOf _OpenCmd cmds)
-
+navigationCmd cmds = (void $ oneOf _SubmitCmd cmds, fst <$> oneOf _OpenCmd cmds)
 
   
-saveCmd :: Reflex t => Event t [AppCommand] -> Dynamic t Bool -> Event t SubmitType
-saveCmd cmds modified = leftmost [oneOf _SubmitCmd cmds, autoSave] where
-  autoSave = current modified `gate` (SubmitAutoSave <$ oneOf _OpenCmd cmds)
-
+saveCmd :: Reflex t => Event t [AppCommand] -> Event t SubmitType
+saveCmd cmds = leftmost [oneOf _SubmitCmd cmds, snd <?> oneOf _OpenCmd cmds]
 
 submission :: Preferences -> (UTCTime, SubmitType) -> Editor -> Submission
 submission prefs (time, method) Editor{..} = Submission
@@ -441,11 +468,11 @@ connectingDialog (opened, closed) = void $ workflow disconnected where
   disconnected = workflow' $ Dialog.connecting >> return (connected <$ opened)
   connected    = workflow' $ return (disconnected <$ closed)
 
-clientDetect :: Reflex t => Dynamic t (Maybe Editor) -> Event t [AppCommand] -> Event t ClientMsg
-clientDetect editor cmds = makeRequest <?> (current editor `tag` oneOf _DetectCmd cmds) where 
-  makeRequest maybeEditor = do 
-    editor <- maybeEditor
-    return $ ClientDetect (editor ^. #name) mempty
+-- clientDetect :: Reflex t => Dynamic t (Maybe Editor) -> Event t [AppCommand] -> Event t ClientMsg
+-- clientDetect editor cmds = makeRequest <?> (current editor `tag` oneOf _DetectCmd cmds) where 
+--   makeRequest maybeEditor = do 
+--     editor <- maybeEditor
+--     return $ ClientDetect (editor ^. #name) mempty
 
 filterDocument :: Reflex t => Dynamic t (Maybe Document) -> Event t (DocName, a) -> Event t a
 filterDocument d = attachWithMaybe f (current d) where
@@ -472,8 +499,7 @@ bodyWidget host = mdo
  
   (opened, closed, serverMsg, serverErrors) <- network host clientMsg
   let clientMsg = toList <$> mergeList
-        [ clientDetect editor cmds
-        , clientNav
+        [ clientNav
         , clientConfig
         , ClientCollection <$ hello
         , ClientPreferences <$> prefsChanged
@@ -483,7 +509,7 @@ bodyWidget host = mdo
 
       clientConfig = ClientConfig <$> oneOf _ConfigCmd cmds
 
-  clientSaves <- saveDocument preferences editor (saveCmd cmds modified)
+  clientSaves <- saveDocument preferences editor (saveCmd cmds)
   (docSelected, loaded, clientNav) <- manageDocument (void hello) serverMsg (navigationCmd cmds)
 
   document <- holdDyn Nothing (Just <$> loaded)
@@ -495,7 +521,7 @@ bodyWidget host = mdo
 
       shortcut   = fan shortcuts
       cancel     = leftmost [select shortcut ShortCancel, clickOut]
-      detections = view #detections <$> (filterDocument document $ preview _ServerDetection <?> serverMsg)
+      detections = view #instances <$> (filterDocument document $ preview _ServerDetection <?> serverMsg)
 
       modified = maybe False isModified <$> editor
 
@@ -539,8 +565,8 @@ bodyWidget host = mdo
 
 runDialog :: AppBuilder t m => Dialog -> m (Event t ())
 runDialog (ClassDialog selection) = selectClassDialog (M.keysSet selection)
+runDialog (SaveDialog modified next) = saveDialog modified next
 runDialog (ErrorDialog code) = errorDialog code
-
 
 
 updatePrefs :: [PrefCommand] -> Preferences -> Preferences
@@ -575,7 +601,6 @@ updatePrefs cmds = flip (foldr updatePref) cmds where
   updatePref (SetTrainRatio r)   = #trainRatio .~ r
 
   updatePref (SetReviewing b)  = #reviewing .~ b
-
   updatePref (SetPrefs prefs) = const prefs
 
 
@@ -868,9 +893,9 @@ fileInfo isModified Document{name, info} = do
     fixed width = div [class_ =: "text-light", style_ =: [("width", width)]] . sequence_
 
 submitButtons :: forall t m. AppBuilder t m => ImageCat ->  m ()
-submitButtons cat = if isNew then new else confirm
+submitButtons cat = if isNew cat then new else confirm
   where
-    isNew = cat == CatNew || cat == CatDiscard
+   
     new = buttonGroup $ do
       discard     <- toolButton' "Discard" (categoryIcon CatDiscard)  "Mark image as discarded"
       submit      <- toolButton' "Submit" "chevron-right" "Submit image"

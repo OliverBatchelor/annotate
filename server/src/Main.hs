@@ -24,7 +24,7 @@ import qualified Network.Wai.Handler.WebSockets as WS
 import qualified Network.WebSockets             as WS
 
 import Servant
-import Servant.Utils.StaticFiles
+import Servant.Server.StaticFiles
 
 import Annotate.Common
 import qualified Annotate.Common as Ann
@@ -116,10 +116,13 @@ main = do
 
       atomically $ do
         config <- view #config <$> readLog store
-        existing <- M.keysSet . view #images <$> readLog store
+        existing <- view #images <$> readLog store
 
-        images <- unsafeIOToSTM (findNewImages config root existing)
-        updateLog store (CmdImages images)
+        images <- unsafeIOToSTM $ findNewImages config root 
+          (if updateImages then mempty else M.keysSet existing)
+
+        updateLog store (CmdUpdateImages images)
+      
 
       let port' = fromMaybe 3000 port
       atomically $ writeLog env ("Anotate server listening on port " <> show port')
