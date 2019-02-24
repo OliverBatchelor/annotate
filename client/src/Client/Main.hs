@@ -778,7 +778,7 @@ settingsTab = sidePane $ do
 
     labelled "Minimum threshold" $ do
       inp <- rangePreview printFloat (0.0, 0.5) 0.01 (view (#detection . #threshold) <$> prefs)
-      prefCommand (SetThreshold <$> inp)
+      prefCommand (SetMinThreshold <$> inp)
 
     labelled "Maximum detections" $ do
       inp <- rangePreview (T.pack . show) (0, 1000) 1 (view (#detection . #detections) <$> prefs)

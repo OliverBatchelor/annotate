@@ -1,7 +1,7 @@
 module Client.Widgets where
 
 import Annotate.Prelude hiding (div)
-import Annotate.Common (HexColour, showColour)
+import Annotate.Common (HexColour, showColour, clamp)
 import Client.Common
 
 import Reflex.Classes
@@ -222,7 +222,7 @@ labelled t inner = row "align-items-stretch " $ do
   label [class_ =: "grow-1 align-self-center m-0"] $ text t
   div [class_ =: "grow-2"] inner
 
-toView :: (Builder t m, Eq a) => (Event t a -> m (Dynamic t a)) -> Dynamic t a -> m (Event t a)
+toView :: (Builder t m, Eq a, Show a) => (Event t a -> m (Dynamic t a)) -> Dynamic t a -> m (Event t a)
 toView makeWidget value = do
     postBuild <- getPostBuild
 
@@ -239,7 +239,7 @@ filterEq :: (Eq a) => a -> a -> Maybe a
 filterEq x y = if x == y then Nothing else Just y
 
 
-rangeSlider :: (Builder t m, Read a, Show a, Num a) => (a, a) -> a -> a -> Event t a -> m (Dynamic t a)
+rangeSlider :: (Builder t m, Read a, Show a, Num a, Ord a) => (a, a) -> a -> a -> Event t a -> m (Dynamic t a)
 rangeSlider (l, u) step initial setter = do
 
   rec
@@ -255,7 +255,7 @@ rangeSlider (l, u) step initial setter = do
     where
       textValue = T.pack . show
 
-rangeView :: (Builder t m, Read a, Show a, Num a, Eq a) => (a, a) -> a -> Dynamic t a -> m (Event t a)
+rangeView :: (Builder t m, Read a, Show a, Num a, Eq a, Ord a) => (a, a) -> a -> Dynamic t a -> m (Event t a)
 rangeView range step = toView (rangeSlider range step (fst range))
 
 
@@ -273,7 +273,7 @@ grow3 = div [class_ =: "grow-3"]
 grow5 :: forall t m a. Builder t m => m a -> m a 
 grow5 = div [class_ =: "grow-5"]  
 
-rangePreview :: (Builder t m, Read a, Show a, Num a, Eq a) => (a -> Text) -> (a, a) -> a -> Dynamic t a -> m (Event t a)
+rangePreview :: (Builder t m, Read a, Show a, Num a, Eq a, Ord a) => (a -> Text) -> (a, a) -> a -> Dynamic t a -> m (Event t a)
 rangePreview showValue range step value = row "spacing-3 align-items-center" $ do
   inp <- grow5 $ rangeView range step value
   span [ class_ =: "grow-1 text-right" ] $ dynText $ (showValue <$> value)
