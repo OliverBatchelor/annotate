@@ -774,14 +774,26 @@ instance Migrate DocInfo where
   migrate DocInfo6{..} = DocInfo{..} where 
     image = ImageInfo{size=imageSize, creation=Nothing}
 
+data DetectionStats1 = DetectionStats1
+  { score     :: Float
+  , classes   :: Map ClassId Float
+  , counts    :: Maybe (Map ClassId Count)    
+  }
+
+instance Migrate DetectionStats where
+  type MigrateFrom DetectionStats = DetectionStats1
+  migrate DetectionStats1{..} = DetectionStats{..} where 
+    frameVariation = Nothing
+
+
 data DetectionStats0 = DetectionStats0
   { score       :: Float
   , classes  :: Map ClassId Float
-  } deriving (Generic, Eq, Show)  
+  } deriving (Generic, Eq, Show)
   
-instance Migrate DetectionStats where
-  type MigrateFrom DetectionStats = DetectionStats0
-  migrate DetectionStats0{..} = DetectionStats{..} where 
+instance Migrate DetectionStats1 where
+  type MigrateFrom DetectionStats1 = DetectionStats0
+  migrate DetectionStats0{..} = DetectionStats1{..} where 
     counts = Nothing
     
 data Detections0 = Detections0
@@ -896,15 +908,12 @@ $(deriveSafeCopy 0 'base ''Detections0)
 $(deriveSafeCopy 1 'extension ''Detections)
 
 $(deriveSafeCopy 0 'base ''DetectionStats0)
-$(deriveSafeCopy 1 'extension ''DetectionStats)
+$(deriveSafeCopy 1 'extension ''DetectionStats1)
 
-
-
+$(deriveSafeCopy 2 'extension ''DetectionStats)
 $(deriveSafeCopy 0 'base ''Count)
 
-
 $(deriveSafeCopy 0 'base ''Checkpoint)
-
 $(deriveSafeCopy 0 'base ''ImageCat)
 $(deriveSafeCopy 0 'base ''Submission0)
 $(deriveSafeCopy 1 'base ''Submission1)

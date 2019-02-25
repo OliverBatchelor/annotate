@@ -169,6 +169,7 @@ data DetectionStats = DetectionStats
   { score     :: Float
   , classes   :: Map ClassId Float
   , counts    :: Maybe (Map ClassId Count)
+  , frameVariation :: Maybe Float
   } deriving (Generic, Eq, Show)  
 
 data Detections = Detections 
@@ -676,7 +677,7 @@ instance Default DetectionParams where
   def = DetectionParams
     { nms = 0.5
     , threshold = 0.05
-    , detections = 100
+    , detections = 400
     }
 
 instance Default DetectionStats where
@@ -684,6 +685,7 @@ instance Default DetectionStats where
     { score      = 0
     , classes = mempty
     , counts = Nothing
+    , frameVariation = Nothing
     }
 
 newClass :: ClassId -> ClassConfig
