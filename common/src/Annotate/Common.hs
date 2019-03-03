@@ -158,18 +158,22 @@ data EditCmd = DocEdit Edit | DocUndo | DocRedo
 newtype NaturalKey = NaturalKey [Either Int Text]
   deriving (Ord, Eq, Generic, Show)
 
+type Count = (Float, Int)
 
-data Count = Count
-  { lower   :: (Float, Int)
-  , middle  :: (Float, Int)
-  , upper   :: (Float, Int)
-  } deriving (Generic, Eq, Show)  
+data Margins a = Margins
+  { lower   :: a
+  , middle  :: a
+  , upper   :: a
+  } deriving (Generic, Functor)  
+
+deriving instance Show a => Show (Margins a)
+deriving instance Eq a => Eq (Margins a)
 
 data DetectionStats = DetectionStats 
   { score       :: Float
   , classScore  ::  Map ClassId Float
-  , counts      :: Maybe Count
-  , classCounts :: Maybe (Map ClassId Count)
+  , counts      :: Maybe (Margins Int)
+  , classCounts :: Maybe (Map ClassId (Margins Count))
   , frameVariation :: Maybe Float
   } deriving (Generic, Eq, Show)  
 
@@ -540,7 +544,7 @@ instance FromJSON Config       where parseJSON = Aeson.genericParseJSON options
 
 
 instance FromJSON DetectionStats      where parseJSON = Aeson.genericParseJSON options
-instance FromJSON Count      where parseJSON = Aeson.genericParseJSON options
+instance FromJSON a => FromJSON (Margins a)     where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON DocInfo      where parseJSON = Aeson.genericParseJSON options
 instance FromJSON ImageInfo      where parseJSON = Aeson.genericParseJSON options
@@ -605,7 +609,7 @@ instance ToJSON Submission  where toJSON = Aeson.genericToJSON options
 instance ToJSON Config    where toJSON = Aeson.genericToJSON options
 
 instance ToJSON DetectionStats   where toJSON = Aeson.genericToJSON options
-instance ToJSON Count   where toJSON = Aeson.genericToJSON options
+instance ToJSON a => ToJSON (Margins a)   where toJSON = Aeson.genericToJSON options
 
 instance ToJSON TrainStats   where toJSON = Aeson.genericToJSON options
 

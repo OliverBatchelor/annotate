@@ -80,8 +80,8 @@ showModified info = do
   dynText (showTime <$> now <*> (view #modified <$> info))
 
 
-printCount :: Count -> Text
-printCount Count{..} = printThreshold middle --T.concat [printThreshold lower, " : ", printThreshold middle, " : ", printThreshold upper]
+printCount :: Margins Int -> Text
+printCount Margins{..} = T.concat [showText lower, ":", showText middle, ":", showText upper]
 
 printThreshold :: (Float, Int) -> Text
 printThreshold (t, n) = showText n <> "@" <> printFloat t

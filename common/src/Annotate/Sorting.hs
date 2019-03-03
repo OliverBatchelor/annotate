@@ -44,12 +44,15 @@ detectionScore = preview (#detections . traverse . #score)
 variationScore :: DocInfo -> Maybe Float
 variationScore = join . preview (#detections . traverse . #frameVariation)
 
-totalCounts :: DocInfo -> Maybe Count
+totalCounts :: DocInfo -> Maybe (Margins Int)
 totalCounts = join . preview (#detections . traverse . #counts)
 
 countVariation :: DocInfo -> Maybe Int
-countVariation = fmap range . join . preview (#detections . traverse . #counts)
-    where range Count{upper, lower} = abs (snd lower - snd upper)
+countVariation = fmap variation . join . preview (#detections . traverse . #classCounts)
+    where variation counts = sum (marginRange <$> counts)
+      
+marginRange :: Margins Count -> Int
+marginRange Margins{..} = abs (snd lower - snd upper)
 
 
 
@@ -64,7 +67,7 @@ compareWith rev key = (case key of
 
   SortCountVariation    -> compares countVariation
 
-  SortCounts    -> compares (fmap (view (#middle . _2)) . totalCounts)
+  SortCounts    -> compares (fmap (view #middle) . totalCounts)
   SortCreation     -> compares (preview (#image . #creation))
 
   SortLossMean    -> compares (negate . view (#training . #lossMean))

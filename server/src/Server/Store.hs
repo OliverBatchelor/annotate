@@ -818,23 +818,39 @@ instance Migrate DocInfo where
     image = ImageInfo{size=imageSize, creation=Nothing}
 
 
+type OldCount = Margins Count
+
+data DetectionStats3 = DetectionStats3
+  { score       :: Float
+  , classScore  ::  Map ClassId Float
+  , counts      :: Maybe OldCount
+  , classCounts :: Maybe (Map ClassId OldCount)
+  , frameVariation :: Maybe Float
+  } deriving (Generic, Eq, Show)  
+
+
 data DetectionStats2 = DetectionStats2
   { score     :: Float
   , classes   :: Map ClassId Float
-  , counts :: Maybe (Map ClassId Count)
+  , counts :: Maybe (Map ClassId OldCount)
   , frameVariation :: Maybe Float
   } deriving (Generic, Eq, Show)  
   
 data DetectionStats1 = DetectionStats1
   { score     :: Float
   , classes   :: Map ClassId Float
-  , counts    :: Maybe (Map ClassId Count)    
+  , counts    :: Maybe (Map ClassId OldCount)    
   }
 
-
 instance Migrate DetectionStats where
-  type MigrateFrom DetectionStats = DetectionStats2
-  migrate DetectionStats2{score, classes, counts, frameVariation} = DetectionStats
+  type MigrateFrom DetectionStats = DetectionStats3
+  migrate DetectionStats3{score, classScore, counts, classCounts, frameVariation} = DetectionStats
+    {score, classScore, counts = fmap (fmap snd) counts, classCounts, frameVariation} 
+
+
+instance Migrate DetectionStats3 where
+  type MigrateFrom DetectionStats3 = DetectionStats2
+  migrate DetectionStats2{score, classes, counts, frameVariation} = DetectionStats3
     {score, classScore = classes, counts = Nothing, classCounts = counts, frameVariation} 
 
 
@@ -978,9 +994,10 @@ $(deriveSafeCopy 1 'extension ''Detections)
 $(deriveSafeCopy 0 'base ''DetectionStats0)
 $(deriveSafeCopy 1 'extension ''DetectionStats1)
 $(deriveSafeCopy 2 'extension ''DetectionStats2)
-$(deriveSafeCopy 3 'extension ''DetectionStats)
+$(deriveSafeCopy 3 'extension ''DetectionStats3)
+$(deriveSafeCopy 4 'extension ''DetectionStats)
 
-$(deriveSafeCopy 0 'base ''Count)
+$(deriveSafeCopy 0 'base ''Margins)
 
 $(deriveSafeCopy 0 'base ''Checkpoint)
 $(deriveSafeCopy 0 'base ''ImageCat)
