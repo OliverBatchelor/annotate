@@ -148,7 +148,7 @@ data TrainImage = TrainImage
   , annotations :: [BasicAnnotation]
   , imageSize     :: (Int, Int)
   , imageCreation :: Maybe UTCTime
-
+  , naturalKey    :: NaturalKey
   , category    :: ImageCat
   , validArea   :: Maybe Box
   , history     :: [(UTCTime, HistoryEntry)]
@@ -352,7 +352,7 @@ parseNaturalKey = (NaturalKey <$> many part) <* eof where
 
   numeric = do 
     ds <- takeWhile1P (Just "digit") Char.isDigit
-    return (value ds, Text.pack ds)
+    return (value ds)
 
   value = foldl (\ x -> ((10 * x) +) . fromIntegral . Char.digitToInt) 0
 

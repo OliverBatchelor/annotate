@@ -99,11 +99,25 @@ data ClassConfig0 = ClassConfig0
   , shape :: ShapeConfig
   , colour :: HexColour
   } deriving (Generic, Show, Eq)
+  
+
+instance Migrate ClassConfig1 where
+  type MigrateFrom ClassConfig1 = ClassConfig0
+  migrate ClassConfig0{..} = ClassConfig1{..}
+    where weighting = 0.25
+
+
+data ClassConfig1 = ClassConfig1
+  { name :: Text
+  , shape :: ShapeConfig
+  , colour :: HexColour
+  , weighting :: Float
+  } deriving (Generic, Show, Eq)
 
 instance Migrate ClassConfig where
-  type MigrateFrom ClassConfig = ClassConfig0
-  migrate ClassConfig0{..} = ClassConfig{..}
-    where weighting = 0.25
+  type MigrateFrom ClassConfig = ClassConfig1
+  migrate ClassConfig1{..} = ClassConfig{..}
+    where countWeight = 1
 
 
 data DocInfo0 = DocInfo0
@@ -351,9 +365,22 @@ instance Migrate Command where
   migrate (CmdTraining1 ds)   = CmdTraining ds
 
 
+data ImageSelection0
+  = SelSequential0 Bool
+  | SelRandom0
+  | SelDetections0 Bool
+  | SelLoss0
+  deriving (Eq, Show, Generic)
+
+
 
 data ImageOrdering = OrderSequential | OrderMixed | OrderBackwards
   deriving (Show, Eq, Ord, Enum, Generic)
+
+
+
+
+
 
 data SortOptions0 = SortOptions0 
   { sortKey   :: SortKey
@@ -372,7 +399,7 @@ data SortOptions1 = SortOptions1
 
 data SortOptions3 = SortOptions3 
   { sortKey   :: SortKey
-  , selection :: ImageSelection
+  , selection :: ImageSelection0
   , reversed  :: Bool 
   , filtering :: FilterOption
   , negFilter :: Bool
@@ -382,12 +409,21 @@ data SortOptions3 = SortOptions3
 
 data SortOptions2 = SortOptions2 
   { sortKey   :: SortKey
-  , selection :: ImageSelection
+  , selection :: ImageSelection0
   , reversed  :: Bool 
   , filtering :: FilterOption
   , search    :: Text
   , restrictClass :: Maybe ClassId
   } deriving (Show, Generic, Eq)
+
+
+data SortOptions4 = SortOptions4
+  { sorting  :: (SortKey, Bool)
+  , selection :: ImageSelection0
+  , filtering :: (FilterOption, Bool)
+  , search    :: Text
+  , restrictClass :: Maybe ClassId
+  } deriving (Show, Generic, Eq)    
 
 
 data DisplayPreferences0 = DisplayPreferences0
@@ -533,14 +569,21 @@ instance Migrate Store where
     where preferences = mempty
 
 
-
 instance Migrate SortOptions where
-  type MigrateFrom SortOptions = SortOptions3
-  migrate SortOptions3{..} = SortOptions
+  type MigrateFrom SortOptions = SortOptions4
+  migrate SortOptions4{..} = SortOptions{..} where
+    selection = SelSequential
+    revSelection = False
+
+
+
+instance Migrate SortOptions4 where
+  type MigrateFrom SortOptions4 = SortOptions3
+  migrate SortOptions3{..} = SortOptions4
     { sorting = (sortKey, reversed)
     , filtering = (filtering, negFilter)
     , selection, search, restrictClass } 
-    
+        
 
 instance Migrate SortOptions3 where
   type MigrateFrom SortOptions3 = SortOptions2
@@ -550,7 +593,7 @@ instance Migrate SortOptions3 where
 instance Migrate SortOptions2 where
   type MigrateFrom SortOptions2 = SortOptions1
   migrate SortOptions1{..} = SortOptions2{..} where 
-    selection = SelSequential False
+    selection = SelSequential0 False
         
 
 instance Migrate SortOptions1 where
@@ -774,15 +817,30 @@ instance Migrate DocInfo where
   migrate DocInfo6{..} = DocInfo{..} where 
     image = ImageInfo{size=imageSize, creation=Nothing}
 
+
+data DetectionStats2 = DetectionStats2
+  { score     :: Float
+  , classes   :: Map ClassId Float
+  , counts :: Maybe (Map ClassId Count)
+  , frameVariation :: Maybe Float
+  } deriving (Generic, Eq, Show)  
+  
 data DetectionStats1 = DetectionStats1
   { score     :: Float
   , classes   :: Map ClassId Float
   , counts    :: Maybe (Map ClassId Count)    
   }
 
+
 instance Migrate DetectionStats where
-  type MigrateFrom DetectionStats = DetectionStats1
-  migrate DetectionStats1{..} = DetectionStats{..} where 
+  type MigrateFrom DetectionStats = DetectionStats2
+  migrate DetectionStats2{score, classes, counts, frameVariation} = DetectionStats
+    {score, classScore = classes, counts = Nothing, classCounts = counts, frameVariation} 
+
+
+instance Migrate DetectionStats2 where
+  type MigrateFrom DetectionStats2 = DetectionStats1
+  migrate DetectionStats1{..} = DetectionStats2{..} where 
     frameVariation = Nothing
 
 
@@ -871,13 +929,22 @@ instance Migrate Annotation where
 newtype NaturalKey0 = NaturalKey0 [Either Int Text]
   deriving (Ord, Eq, Generic, Show)
 
+newtype NaturalKey1 = NaturalKey1 [Either (Int, Text) Text]
+  deriving (Ord, Eq, Generic, Show)  
 
-instance Migrate NaturalKey where
-  type MigrateFrom NaturalKey = NaturalKey0
-  migrate (NaturalKey0 ks) = NaturalKey (migrate' <$> ks) where
+
+instance Migrate NaturalKey1 where
+  type MigrateFrom NaturalKey1 = NaturalKey0
+  migrate (NaturalKey0 ks) = NaturalKey1 (migrate' <$> ks) where
     migrate' (Left i)  = Left (i, Text.pack (show i))
     migrate' (Right t) = Right t
 
+instance Migrate NaturalKey where
+  type MigrateFrom NaturalKey = NaturalKey1
+  migrate (NaturalKey1 ks) = NaturalKey (migrate' <$> ks) where
+    migrate' (Left (i, t))  = Left i
+    migrate' (Right t) = Right t
+    
 
 $(deriveSafeCopy 0 'base ''DetectionTag)
 $(deriveSafeCopy 0 'base ''BasicAnnotation)
@@ -907,10 +974,12 @@ $(deriveSafeCopy 0 'base ''TrainSummary)
 $(deriveSafeCopy 0 'base ''Detections0)
 $(deriveSafeCopy 1 'extension ''Detections)
 
+
 $(deriveSafeCopy 0 'base ''DetectionStats0)
 $(deriveSafeCopy 1 'extension ''DetectionStats1)
+$(deriveSafeCopy 2 'extension ''DetectionStats2)
+$(deriveSafeCopy 3 'extension ''DetectionStats)
 
-$(deriveSafeCopy 2 'extension ''DetectionStats)
 $(deriveSafeCopy 0 'base ''Count)
 
 $(deriveSafeCopy 0 'base ''Checkpoint)
@@ -939,7 +1008,8 @@ $(deriveSafeCopy 13 'extension ''Document13)
 $(deriveSafeCopy 14 'extension ''Document)
 
 $(deriveSafeCopy 0 'base ''NaturalKey0)
-$(deriveSafeCopy 1 'extension ''NaturalKey)
+$(deriveSafeCopy 1 'extension ''NaturalKey1)
+$(deriveSafeCopy 2 'extension ''NaturalKey)
 
 $(deriveSafeCopy 3 'extension ''DocInfo3)
 $(deriveSafeCopy 4 'extension ''DocInfo4)
@@ -953,7 +1023,8 @@ $(deriveSafeCopy 0 'base ''ImageInfo)
 $(deriveSafeCopy 0 'base ''Config)
 
 $(deriveSafeCopy 0 'base ''ClassConfig0)
-$(deriveSafeCopy 1 'extension ''ClassConfig)
+$(deriveSafeCopy 1 'extension ''ClassConfig1)
+$(deriveSafeCopy 2 'extension ''ClassConfig)
 
 $(deriveSafeCopy 0 'base ''ShapeConfig)
 
@@ -1004,8 +1075,10 @@ $(deriveSafeCopy 0 'base ''SortOptions0)
 $(deriveSafeCopy 1 'extension ''SortOptions1)
 $(deriveSafeCopy 2 'extension ''SortOptions2)
 $(deriveSafeCopy 3 'extension ''SortOptions3)
-$(deriveSafeCopy 4 'extension ''SortOptions)
+$(deriveSafeCopy 4 'extension ''SortOptions4)
+$(deriveSafeCopy 5 'extension ''SortOptions)
 
+$(deriveSafeCopy 0 'base ''ImageSelection0)
 $(deriveSafeCopy 0 'base ''ImageSelection)
 
 
@@ -1024,15 +1097,23 @@ updateImageInfo (k, Just info) = M.alter f k where
   f Nothing      = Just (emptyImage k info)
   f (Just image) = Just (image & #info . #image .~ info) 
 
-
-
 updateDocument :: Document -> (Store -> Store)
 updateDocument doc = #images . at (doc ^. #name) .~ Just doc
+
+
+updateStats :: Maybe DetectionStats -> DetectionStats -> DetectionStats 
+updateStats Nothing stats = stats
+updateStats (Just stats) stats' = stats' 
+  { counts = stats' ^. #counts <|> stats ^. #counts 
+  , frameVariation = stats' ^. #frameVariation <|> stats ^. #frameVariation
+  }
 
 updateDetections :: (DocName, Detections) -> Map DocName Document -> Map DocName Document
 updateDetections (k, detections) = over (ix k) $ \doc -> doc 
   & #detections         .~ Just detections
-  & #info . #detections .~ Just (detections ^. #stats)
+  & #info . #detections .~ Just (updateStats (doc ^. (#info . #detections)) stats)
+    where stats = detections ^. #stats
+
 
 interp :: Fractional a => a -> a -> a -> a
 interp t x total = t * x + (1 - t) * total
@@ -1040,7 +1121,7 @@ interp t x total = t * x + (1 - t) * total
 trainingStats :: [TrainSummary] -> TrainStats 
 trainingStats training = TrainStats 
   { lossMean = sum losses / fromIntegral (length losses)
-  , lossRunning = maybe 0 (foldr1 (interp 0.2)) (nonEmpty losses)
+  , lossRunning = maybe 0 (foldr1 (interp 0.3)) (nonEmpty losses)
   } where 
     losses = view #loss <$> training
     
@@ -1222,6 +1303,7 @@ updateImage :: Document -> TrainImage
 updateImage Document{..} = TrainImage
   { imageFile = name
   , imageSize = info ^. #image . #size
+  , naturalKey = info ^. #naturalKey
   , imageCreation = info ^. #image . #creation
   , category  = info ^. #category
   , annotations = M.elems annotations

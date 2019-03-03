@@ -155,7 +155,7 @@ data EditCmd = DocEdit Edit | DocUndo | DocRedo
   deriving (Show, Eq, Generic)
 
 
-newtype NaturalKey = NaturalKey [Either (Int, Text) Text]
+newtype NaturalKey = NaturalKey [Either Int Text]
   deriving (Ord, Eq, Generic, Show)
 
 
@@ -166,11 +166,13 @@ data Count = Count
   } deriving (Generic, Eq, Show)  
 
 data DetectionStats = DetectionStats 
-  { score     :: Float
-  , classes   :: Map ClassId Float
-  , counts    :: Maybe (Map ClassId Count)
+  { score       :: Float
+  , classScore  ::  Map ClassId Float
+  , counts      :: Maybe Count
+  , classCounts :: Maybe (Map ClassId Count)
   , frameVariation :: Maybe Float
   } deriving (Generic, Eq, Show)  
+
 
 data Detections = Detections 
   { instances :: [Detection]
@@ -255,6 +257,7 @@ data ClassConfig = ClassConfig
   , shape :: ShapeConfig
   , colour :: HexColour
   , weighting :: Float
+  , countWeight :: Int
   } deriving (Generic, Show, Eq)
 
 
@@ -274,15 +277,22 @@ data SortKey
   | SortDetections
   | SortLossMean
   | SortLossRunning
+  | SortFrameVariation
+  | SortCreation
+  | SortCounts
+  | SortCountVariation
   deriving (Eq, Show, Generic)
 
 
 data ImageSelection 
-  = SelSequential Bool
+  = SelSequential
   | SelRandom
-  | SelDetections Bool
+  | SelDetections
   | SelLoss
+  | SelFrameVariation 
+  | SelCountVariation
   deriving (Eq, Show, Generic)
+
 
 
 data FilterOption 
@@ -304,6 +314,7 @@ instance Show FilterOption where
 data SortOptions = SortOptions 
   { sorting  :: (SortKey, Bool)
   , selection :: ImageSelection
+  , revSelection :: Bool
 
   , filtering :: (FilterOption, Bool)
   , search    :: Text
@@ -464,7 +475,10 @@ camel :: String -> String
 camel = Aeson.camelTo2 '_'
 
 options :: Aeson.Options
-options = Aeson.defaultOptions { Aeson.constructorTagModifier = dropCamel }      
+options = Aeson.defaultOptions 
+  { Aeson.constructorTagModifier = dropCamel
+  , Aeson.fieldLabelModifier = Aeson.camelTo2 '_' 
+  }
 
 instance FromJSON Hash32 where
   parseJSON (Aeson.String v) = return $ Hash32 $ read (Text.unpack v)
@@ -473,6 +487,19 @@ instance FromJSON Hash32 where
 instance ToJSON Hash32 where
   toJSON (Hash32 v) = Aeson.String (Text.pack (show v))
 
+
+instance ToJSON NaturalKey where
+  toJSON (NaturalKey xs) = toJSON (f <$> xs) where 
+    f (Left i)  = toJSON i
+    f (Right s) = toJSON s
+
+instance FromJSON NaturalKey where
+  parseJSON (Aeson.Array xs) = do 
+    values <- sequence (numOrInt <$> xs)
+    return (NaturalKey (toList values))
+      where numOrInt v = Left <$> parseJSON v <|> Right <$> parseJSON v
+
+  parseJSON _ = fail "expected array value"
 
 
 instance FromJSON ShapeConfig where parseJSON = Aeson.genericParseJSON options
@@ -503,7 +530,6 @@ instance FromJSON EditCmd where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON Navigation    where parseJSON = Aeson.genericParseJSON options
 instance FromJSON ConfigUpdate  where parseJSON = Aeson.genericParseJSON options
-instance FromJSON NaturalKey    where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON Document     where parseJSON = Aeson.genericParseJSON options
 
@@ -571,7 +597,6 @@ instance ToJSON EditCmd where toJSON = Aeson.genericToJSON options
 
 instance ToJSON Navigation    where toJSON = Aeson.genericToJSON options
 instance ToJSON ConfigUpdate  where toJSON = Aeson.genericToJSON options
-instance ToJSON NaturalKey    where toJSON = Aeson.genericToJSON options
 instance ToJSON Document  where toJSON = Aeson.genericToJSON options
 
 instance ToJSON SubmitType  where toJSON = Aeson.genericToJSON options
@@ -665,26 +690,26 @@ instance Default Preferences where
 instance Default SortOptions where
   def = SortOptions 
     { sorting = (SortName, False)
-    , selection = SelSequential False
+    , selection = SelSequential 
+    , revSelection = False
     , filtering = (FilterAll, False)
     , search = ""
     , restrictClass = Nothing
     }
 
-
-
 instance Default DetectionParams where
   def = DetectionParams
     { nms = 0.5
     , threshold = 0.05
-    , detections = 400
+    , detections = 500
     }
 
 instance Default DetectionStats where
   def = DetectionStats 
     { score      = 0
-    , classes = mempty
+    , classScore = mempty
     , counts = Nothing
+    , classCounts = Nothing
     , frameVariation = Nothing
     }
 
@@ -694,6 +719,7 @@ newClass k = ClassConfig
   , colour  = fromMaybe 0xFFFF00 $ preview (ix k) defaultColours
   , shape   = ConfigBox
   , weighting = 0.25
+  , countWeight = 1
   }
 
 fromBasic :: BasicAnnotation -> Annotation
@@ -763,11 +789,6 @@ instance (Hashable a, Ord a) => Ord (HashedKey a) where
 
 hashKeys :: (Ord k, Hashable k) => Map k a -> Map (HashedKey k) a
 hashKeys = M.mapKeys hashKey
-
-unNatural :: NaturalKey -> Text
-unNatural (NaturalKey xs) = Text.concat (show' <$> xs) where
-  show' (Left (i, t))  = t
-  show' (Right t) = t
 
 
 emptyCollection :: Collection

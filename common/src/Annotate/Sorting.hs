@@ -41,6 +41,18 @@ reverseOrdering EQ = EQ
 detectionScore :: DocInfo -> Maybe Float
 detectionScore = preview (#detections . traverse . #score)
 
+variationScore :: DocInfo -> Maybe Float
+variationScore = join . preview (#detections . traverse . #frameVariation)
+
+totalCounts :: DocInfo -> Maybe Count
+totalCounts = join . preview (#detections . traverse . #counts)
+
+countVariation :: DocInfo -> Maybe Int
+countVariation = fmap range . join . preview (#detections . traverse . #counts)
+    where range Count{upper, lower} = abs (snd lower - snd upper)
+
+
+
 compareWith ::  Bool -> SortKey -> (DocName, DocInfo) -> (DocName, DocInfo) -> Ordering
 compareWith rev key = (case key of
   SortCategory     -> compares (view #category)
@@ -48,6 +60,13 @@ compareWith rev key = (case key of
   SortModified     -> compares (view #modified)
 
   SortDetections   -> compares detectionScore
+  SortFrameVariation    -> compares variationScore
+
+  SortCountVariation    -> compares countVariation
+
+  SortCounts    -> compares (fmap (view (#middle . _2)) . totalCounts)
+  SortCreation     -> compares (preview (#image . #creation))
+
   SortLossMean    -> compares (negate . view (#training . #lossMean))
   SortLossRunning -> compares (negate . view (#training . #lossRunning))
 
@@ -116,28 +135,33 @@ sortImages :: (SortKey, Bool)  -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
 sortImages (sortKey, reversed) = sortBy (compareWith reversed sortKey)
 
 
-selectionKey :: ImageSelection -> (SortKey, Bool)
+selectionKey :: ImageSelection -> SortKey
 selectionKey = \case
-    SelSequential rev -> (SortName, rev)
-    SelRandom         -> (SortRandom, False)
-    SelDetections rev -> (SortDetections, rev)
-    SelLoss           -> (SortLossRunning, False)
+    SelSequential  -> SortName
+    SelRandom      -> SortRandom
+    SelDetections  -> SortDetections
+    SelFrameVariation   -> SortFrameVariation
+    SelCountVariation   -> SortCountVariation
+    SelLoss        -> SortLossRunning
 
 selectingMax :: ImageSelection -> Bool
 selectingMax = \case
     SelRandom       -> False
-    SelSequential _ -> False
-    _             -> True
+    SelSequential   -> False
+    _               -> True
 
-sortForSelection :: ImageSelection -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
-sortForSelection selection = sortImages (selectionKey selection)
+sortForSelection :: (ImageSelection, Bool) -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
+sortForSelection (selection, rev) = sortImages (selectionKey selection, rev)
 
+
+selectNext :: (ImageSelection, Bool) -> Maybe DocName -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
+selectNext (selection, rev) current = nextFrom  . sortForSelection (selection, rev) where
+   nextFrom = if selectingMax selection
+     then dropWhile ((== current) . Just . fst) 
+     else rotateFrom current
 
 nextImages :: SortOptions -> Maybe DocName -> [(DocName, DocInfo)] -> [(DocName, DocInfo)]
-nextImages SortOptions{..} current = nextFrom  . sortForSelection selection . filterImages filtering search
-    where nextFrom = if selectingMax selection
-            then dropWhile ((== current) . Just . fst) else rotateFrom current
-
+nextImages SortOptions{..} current = selectNext (selection, revSelection) current . filterImages filtering search
 
 
 searchImages :: Text ->  [(DocName, DocInfo)] -> [(DocName, DocInfo)]

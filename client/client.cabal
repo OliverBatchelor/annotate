@@ -81,6 +81,7 @@ library
                      , uri-encode
 
                      , linear
+                     , time
 
 
   if !impl(ghcjs)

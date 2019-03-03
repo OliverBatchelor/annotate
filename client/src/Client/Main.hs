@@ -3,7 +3,7 @@
 module Client.Main where
 
 import Annotate.Prelude hiding (div)
-import Annotate.Sorting (sortImages)
+import Annotate.Sorting (sortImages, totalCounts)
 
 import Client.Common
 
@@ -186,18 +186,28 @@ network host send = do
     close (True,  _, _)       = Nothing
     close (False, _, reason)  = Just reason
 
-around :: Int -> Int -> [a] -> ([a], [a])
-around i n xs = (reverse (take n (reverse prev)), drop 1 $ take (n + 1) after)
-  where (prev, after) = L.splitAt i xs
 
 neighbourFrames :: DocName -> Int -> Map DocName DocInfo -> ([Image], [Image])
-neighbourFrames k n images = around i n sorted where
-  i = fromMaybe 0 (L.findIndex ((== k) . fst) sorted)
+neighbourFrames k n images = trim $ L.break  ((== k) . fst) sorted where
+  trim = bimap (reverse . take n . reverse) (take n . drop 1)
   sorted = toImage <$> sortImages (SortName, False) (M.toList images)
   toImage (k, info) = (k, info ^. #image . #size)
   
-  
 
+nextFrames :: DocName -> Map DocName DocInfo -> [(DocName, DocInfo)]
+nextFrames k images = L.drop 1 $ L.dropWhile ((/= k) . fst) sorted
+  where sorted = sortImages (SortName, False) (M.toList images)
+
+nextFrame :: DocName -> Map DocName DocInfo -> Maybe DocName
+nextFrame k  = fmap fst . preview _head . nextFrames k
+
+prevFrames :: DocName -> Map DocName DocInfo -> [(DocName, DocInfo)]
+prevFrames k images = L.drop 1 $ L.dropWhile ((/= k) . fst) sorted
+  where sorted = sortImages (SortName, True) (M.toList images)
+
+prevFrame :: DocName -> Map DocName DocInfo -> Maybe DocName
+prevFrame k  = fmap fst . preview _head . prevFrames k
+  
 
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
             => Event t [AppCommand]
@@ -614,6 +624,7 @@ updateSort (SetNegFilter opt) = #filtering . _2 .~ opt
 
 updateSort (SetSearch t)   = #search .~ t
 updateSort (SetImageSelection s)   = #selection .~ s
+updateSort (SetReverseSelection b)   = #revSelection .~ b
 
   --updatePref _ = id
 
@@ -878,8 +889,12 @@ fileInfo isModified Document{name, info} = do
     feild [tinyIcon $ Static (categoryIcon' category), text (showText category)]
     feild [tinyIcon "shape", text (showText numAnnotations)]
 
-    forM_ detections $ \dets -> 
-      feild [tinyIcon "auto-fix", text (printFloat (dets ^. #score))]
+    forM_ (info ^. #image . #creation) $ \count -> 
+      fixed "200px" [tinyIcon "camera-outline", text (printDate count)]
+
+    forM_ (totalCounts info) $ \count -> 
+      feild [tinyIcon "auto-fix", text (printCount count)]
+    
 
     div [ hidden_ =: isNothing modified ] $
       fixed "200px" [tinyIcon "lead-pencil", showModified (pure info)]
@@ -888,7 +903,7 @@ fileInfo isModified Document{name, info} = do
 
   where
     DocInfo{..} = info
-    feild = fixed "75px"
+    feild = fixed "80px"
 
     fixed width = div [class_ =: "text-light", style_ =: [("width", width)]] . sequence_
 
@@ -897,28 +912,52 @@ submitButtons cat = if isNew cat then new else confirm
   where
    
     new = buttonGroup $ do
+      category <- categorySelect True
+
       discard     <- toolButton' "Discard" (categoryIcon CatDiscard)  "Mark image as discarded"
-      submit      <- toolButton' "Submit" "chevron-right" "Submit image"
+      submit      <- toolButton' "Submit " "check" "Submit image"
 
       command SubmitCmd $ 
         leftmost [ SubmitDiscard <$ discard, SubmitNew <$ submit ]
 
     confirm = buttonGroup $ do
-      category <- selectOption' [class_ =: "custom-select bg-secondary border-0", style_ =: [("height", "100%")]] commitCategories Nothing never
+      category <- categorySelect False
 
       discard  <- toolButton' "Discard" (categoryIcon CatDiscard)  "Mark image as discarded"
       confirm  <- toolButton' "Confirm" "check" "Confirm review" 
 
       command SubmitCmd $ 
-        leftmost [  SubmitDiscard <$ discard, SubmitConfirm <$> current category `tag` confirm  ]              
+        leftmost [  SubmitDiscard <$ discard, SubmitConfirm . Just <$> current category `tag` confirm  ]   
+        
+    categorySelect hidden = selectOption' 
+      [class_ =: "custom-select bg-secondary border-0", style_ =: [("height", "100%"), ("visibility", if hidden then "hidden" else "visible")]] 
+      commitCategories cat never
 
-commitCategories :: [(Text, Maybe ImageCat)]
-commitCategories = ("auto", Nothing) : fmap f [CatTrain, CatValidate, CatTest]
-    where f cat = (showText cat, Just cat)
+navButtons :: forall t m. AppBuilder t m => DocName ->  m ()
+navButtons k = buttonGroup $ do
+    prev     <- toolButton' "Prev" "chevron-left" "View previous image"
+    -- reload   <- toolButton' "Reload" "reload" "Reload current image"
+    next     <- toolButton' "Next" "chevron-right" "View next image"
+
+    images <- fmap (view #images) <$> view #collection
+
+    let request = leftmost 
+          [ nextFrame k <?> current images `tag` next
+          -- , const k <$> reload
+          , prevFrame k <?> current images `tag` prev
+          ]
+
+    logEvent request
+    openRequest request
+
+
+commitCategories :: [(Text, ImageCat)]
+commitCategories = f <$> [CatTrain, CatValidate, CatTest]
+    where f cat = (showText cat, cat)
 
 
 overlay :: forall t m. AppBuilder t m => AppEnv t -> m ()
-overlay AppEnv{shortcut, document, editor, modified, preferences} = row "expand  disable-cursor" $ do
+overlay AppEnv{shortcut, document, editor, modified, preferences, collection} = row "expand  disable-cursor" $ do
   sidebar
   column "expand" $
     sequence_ [header, spacer, footer]
@@ -958,13 +997,14 @@ overlay AppEnv{shortcut, document, editor, modified, preferences} = row "expand 
       --   command NavCmd $ leftmost [ NavBackward <$ prev, NavForward <$ next ]
 
       --   return ()
-
        
     footer' document = do 
       div [ class_ =: "grow" ] $  
         fileInfo modified document 
 
+      navButtons (document ^. #name)
       submitButtons (document ^. #info . #category)
+
 
     buttonRow = row "p-0 spacing-4"
     docOpen = isJust <$> editor

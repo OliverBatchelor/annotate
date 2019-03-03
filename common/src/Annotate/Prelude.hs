@@ -22,6 +22,7 @@ import Control.Monad.IO.Class as X
 
 import Data.Text as X (Text)
 import Data.Functor as X
+import Data.Bifunctor as X
 import Data.Functor.Compose as X (Compose(..))
 import Data.Functor.Identity as X (Identity(..))
 import Data.Functor.Contravariant as X

@@ -70,7 +70,7 @@ trainerLoop env@Env{store} conn = do
     store <- readLog store
     sendTrainer env (TrainerInit (store ^. #config))
 
-    for_ (store ^. #images) $ \doc -> when (isUsed doc) $ 
+    for_ (store ^. #images) $ \doc -> 
       void $ sendTrainer env (TrainerImport (doc ^. #name) (updateImage doc))
 
   runLoop

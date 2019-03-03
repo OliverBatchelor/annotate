@@ -89,6 +89,7 @@ data PrefCommand
 data SortCommand
   = SetSortKey SortKey
   | SetImageSelection ImageSelection
+  | SetReverseSelection Bool
   | SetReverse Bool
   | SetFilter FilterOption
   | SetNegFilter Bool

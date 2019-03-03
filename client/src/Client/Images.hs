@@ -23,6 +23,7 @@ import qualified Data.Map as M
 import qualified Data.Text as T
 
 import Data.Time.Format.Human 
+import Data.Time
 
 fixed :: Reflex t => Int -> Property t
 fixed n = style_ =: 
@@ -54,15 +55,14 @@ selectHeader sorting = tr [] $ do
         width n = style_ =: [("width", showText n <> "%")]
 
 
-showHeader :: AppBuilder t m => Dynamic t (SortKey, Bool) -> m ()
-showHeader sorting = tr [] $ do
+showHeader :: AppBuilder t m => Dynamic t SortKey -> m ()
+showHeader sortKey = tr [] $ do
     th [fixed 60] $ text "File"
     key <- th [fixed 40] $ 
       dynText (showSortKey <$> sortKey)
 
     return ()
       where
-        (sortKey, reversed) = split sorting
         width n = style_ =: [("width", showText n <> "%")]        
   
 approxLocale :: HumanTimeLocale
@@ -80,17 +80,34 @@ showModified info = do
   dynText (showTime <$> now <*> (view #modified <$> info))
 
 
-showField :: AppBuilder t m => Dynamic t (DocName, DocInfo) -> SortKey ->  m ()
+printCount :: Count -> Text
+printCount Count{..} = printThreshold middle --T.concat [printThreshold lower, " : ", printThreshold middle, " : ", printThreshold upper]
+
+printThreshold :: (Float, Int) -> Text
+printThreshold (t, n) = showText n <> "@" <> printFloat t
+
+printDate :: UTCTime -> Text
+printDate = fromString . formatTime defaultTimeLocale "%Y/%m/%d %H:%M"
+
+
+showField :: AppBuilder t m =>  Dynamic t (DocName, DocInfo) -> SortKey ->  m ()
 showField d key  = case key of
     SortName     -> return () -- dynText name
     SortRandom   -> return ()--dynText (showText . unHash . view #hashedName <$> info)
     SortCategory     -> dynText (showText . view #category <$> info)
     SortModified     -> showModified info
 
-    SortAnnotations  -> dynText (showText . view #numAnnotations <$> info)
-    SortDetections  -> dynText (fromMaybe "" . fmap printFloat . detectionScore <$> info)
+    SortCreation    -> dynText (fromMaybe "" . fmap printDate . view (#image . #creation)  <$> info)
 
-    SortLossMean    -> dynText (printFloat . view (#training . #lossMean) <$> info)
+    SortAnnotations   -> dynText (showText . view #numAnnotations <$> info)
+    SortDetections    -> dynText (fromMaybe "" . fmap printFloat . detectionScore <$> info)
+    SortFrameVariation    -> dynText (fromMaybe "" . fmap printFloat . variationScore <$> info)
+
+    SortCountVariation    -> dynText (fromMaybe "" . fmap showText . countVariation <$> info)
+
+    SortCounts    -> dynText (fromMaybe "" . fmap printCount . totalCounts <$> info)
+
+    SortLossMean        -> dynText (printFloat . view (#training . #lossMean) <$> info)
     SortLossRunning     -> dynText (printFloat . view (#training . #lossRunning) <$> info)
     where
       (name, info) = split d
@@ -116,21 +133,22 @@ showImage sortKey maybeRow selected = do
       
 selectionDesc :: ImageSelection -> Text
 selectionDesc = \case 
-  SelSequential False -> "forwards"
-  SelSequential True  -> "backwards"
-  SelRandom           -> "random"
-  SelDetections True  -> "most detections"
-  SelLoss             -> "training error"
-  SelDetections False -> "least detections"
-  
+  SelSequential   -> "in sequence"
+  SelRandom       -> "pseudo random"
+  SelDetections   -> "most detections"
+  SelLoss         -> "training error"
+  SelCountVariation    -> "count variation"      
+  SelFrameVariation    -> "frame variation"      
+
 
 allSelection :: [(Text, ImageSelection)]
 allSelection = withDesc <$>
-  [ SelSequential False
-  , SelSequential True
+  [ SelSequential 
   , SelRandom
-  , SelDetections True
+  , SelDetections 
   , SelLoss
+  , SelCountVariation
+  , SelFrameVariation
   ] where withDesc s = (selectionDesc s, s)
 
 showSortKey :: SortKey -> Text
@@ -143,6 +161,11 @@ showSortKey = \case
   SortDetections  -> "Detection Score"
   SortLossMean    -> "Mean Loss"
   SortLossRunning -> "Running Loss"
+  SortFrameVariation   -> "Frame Variation"
+  SortCountVariation   -> "Count Variation"
+  SortCounts      -> "Detection Count"
+  SortCreation   -> "Creation Time"
+
 
 allFilters :: [(Text, FilterOption)]
 allFilters =
@@ -162,9 +185,13 @@ allSorts :: [(Text, SortKey)]
 allSorts = 
   [ ("name",     SortName)
   , ("category", SortCategory)
+  , ("creation time", SortCreation)
   , ("modified", SortModified)
   , ("annotations", SortAnnotations)
   , ("detection score", SortDetections)
+  , ("detection count", SortCounts)
+  , ("frame variation", SortFrameVariation)
+  , ("frame variation", SortCountVariation)
   , ("train error", SortLossRunning)
   , ("random", SortRandom)
   ]
@@ -173,6 +200,8 @@ allSorts =
 enabled_ :: Attribute Bool
 enabled_ = contramap not disabled_
 
+selectOpts :: SortOptions -> (ImageSelection, Bool)
+selectOpts SortOptions{selection, revSelection} = (selection, revSelection)
 
 imagesTab :: forall t m. AppBuilder t m => m ()
 imagesTab = sidePane $ do
@@ -181,7 +210,7 @@ imagesTab = sidePane $ do
   prefs       <- view #preferences 
 
   opts <- holdUniqDyn $ view #sortOptions <$> prefs
-  selectionMethod <- holdUniqDyn $ view #selection <$> opts
+  selectionMethod <- holdUniqDyn $ selectOpts <$> opts
 
   let filtered = filterOpts <$> opts <*> (M.toList <$> images)
       (filtering, invert) = split (view #filtering <$> opts)
@@ -201,14 +230,16 @@ imagesTab = sidePane $ do
       imageList 12 opts selected (sortImages <$> (view #sorting  <$> opts) <*> filtered)
         
     selectionTab = column "expand" $ do 
-      previewList 12 selectionMethod (sortForSelection <$> selectionMethod <*> filtered)
+      previewList 12 (fst <$> selectionMethod) (selectNext <$> selectionMethod <*> selected <*> filtered)
       spacer
 
       row "justify-content-between align-items-center" $ do
         grow $ text "Selection method" 
-        grow $ do 
-          imgSelection <- selectView allSelection selectionMethod
-          sortCommand (SetImageSelection <$> imgSelection)
+        imgSelection <- grow $  selectView allSelection (fst <$> selectionMethod)
+        sortCommand (SetImageSelection <$> imgSelection)
+        
+        rev <- toggleButtonView ("sort-descending", "sort-ascending") (snd <$> selectionMethod)     
+        sortCommand (SetReverseSelection <$> rev)
     
       return ()
 
@@ -321,7 +352,7 @@ previewList size  selectionMethod images = void $ do
     thead [] $ showHeader sorting
 
     tbody [] $ 
-      dyn' never $ ffor sorting $ \(k, _) -> do
+      dyn' never $ ffor sorting $ \k -> do
         dynList (showImage' k) (padNothing size <$> images)
 
       where 

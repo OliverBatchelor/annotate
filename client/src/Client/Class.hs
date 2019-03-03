@@ -117,6 +117,10 @@ editClass conf = do
         e <- rangePreview printFloat (0.01, 1.0) 0.01 weighting
         holdDyn (fromMaybe 0.25 (view #weighting <$> conf)) e
 
+      countWeight <- labelled "Count Weight" $ do 
+        e <- rangePreview showText (0, 10) 1 countWeight
+        holdDyn (fromMaybe 1 (view #countWeight <$> conf)) e
+  
 
     update <- row "" $ do
       spacer
@@ -127,6 +131,7 @@ editClass conf = do
           <*> (fromDesc <$> current (_selectElement_value shape))
           <*> pure (fromMaybe def $ view #colour <$> conf)
           <*> current weighting
+          <*> current countWeight
 
     return $ value `tag` update
 
