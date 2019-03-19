@@ -21,6 +21,10 @@ import Control.Lens (makePrisms)
 import Debug.Trace
 
 
+data EditError = MissingKey AnnotationId | EmptyUndos | EmptyRedos
+  deriving (Show, Generic)
+
+
 type DocPart = (AnnotationId, Maybe Int)
 
 mergeParts :: DocParts -> DocParts -> DocParts
@@ -82,11 +86,27 @@ reviewDetections = flip (foldr addReview) where
 
   setReview d = #detection .~ Just (Review, d)
     
+
+openSession :: DocName -> UTCTime -> OpenSession -> Editor 
+openSession name time open@OpenSession{..} = Editor 
+  { name 
+  , annotations = annotations'
+  , validArea = Nothing
+  , history = [(time, HistoryOpen open)]
+  , undos = []
+  , redos = []
+  } where
+
+    annotations = fromBasic <$> initial
+    annotations' = case openType of
+      OpenNew d        ->  fromDetections 0 (d ^. #instances)
+      OpenReview d     ->  reviewDetections (d ^. #instances) annotations
+      OpenDisconnected ->  annotations
+
+
 insertAuto :: (Ord k, Num k) => a -> Map k a -> Map k a
 insertAuto a m = M.insert k a m
-    where k = 1 + fromMaybe 0 (maxKey m)
-
-    
+    where k = 1 + fromMaybe 0 (maxKey m)  
        
 
 thresholdDetection :: Float -> Annotation -> Bool
@@ -152,9 +172,13 @@ lookupTargets Editor{annotations} targets = M.fromList modified where
   lookup' m k = (k, M.lookup k m)
 
 applyCmd :: EditCmd -> Editor -> Editor
-applyCmd cmd doc = fromMaybe doc (snd <$> applyCmd' cmd doc)
+applyCmd cmd doc = case (snd <$> applyCmd' cmd doc) of
+  Left err      -> doc --error (show cmd <> ": " <> show err) 
+  Right editor  -> editor
 
-applyCmd' :: EditCmd -> Editor -> Maybe (DocumentPatch', Editor)
+
+
+applyCmd' :: EditCmd -> Editor -> Either EditError (DocumentPatch', Editor)
 applyCmd' DocUndo doc = applyUndo doc
 applyCmd' DocRedo doc = applyRedo doc
 applyCmd' (DocEdit e) doc = applyEdit e doc
@@ -169,7 +193,7 @@ patchDocument (PatchAnns' p)  = over #annotations (patchMap p)
 patchDocument (PatchArea' b) = #validArea .~ b
 
 
-applyEdit :: Edit -> Editor -> Maybe (DocumentPatch', Editor)
+applyEdit :: Edit -> Editor -> Either EditError  (DocumentPatch', Editor)
 applyEdit e doc = do
   (inverse, patch) <- patchInverse doc (editPatch e doc)
   return (patch, patchDocument patch doc
@@ -177,18 +201,26 @@ applyEdit e doc = do
     & #undos %~ (inverse :))
 
 
-applyUndo :: Editor -> Maybe (DocumentPatch', Editor)
+takeUndo :: Editor -> Either EditError (DocumentPatch, [DocumentPatch])
+takeUndo doc = maybeError EmptyUndos $ uncons (doc ^. #undos)
+
+takeRedo :: Editor -> Either EditError (DocumentPatch, [DocumentPatch])
+takeRedo doc = maybeError EmptyRedos $ uncons (doc ^. #redos)
+
+
+
+applyUndo :: Editor -> Either EditError  (DocumentPatch', Editor)
 applyUndo doc = do
-  (e, undos) <- uncons (doc ^. #undos)
+  (e, undos) <- takeUndo doc
   (inverse, patch) <- patchInverse doc e
   return (patch, patchDocument patch doc
     & #undos .~ undos
     & #redos %~ (inverse :))
 
 
-applyRedo :: Editor -> Maybe (DocumentPatch', Editor)
+applyRedo :: Editor -> Either EditError  (DocumentPatch', Editor)
 applyRedo doc = do
-  (e, redos) <- uncons (doc ^. #redos)
+  (e, redos) <- takeRedo doc 
   (inverse, patch) <- patchInverse doc e
   return (patch, patchDocument patch doc
     & #redos .~ redos
@@ -360,7 +392,14 @@ editPatch = \case
   EditSetArea area            -> setAreaEdit area
   EditConfirmDetection ids    -> confirmDetectionEdit ids
 
-patchInverse :: Editor -> DocumentPatch -> Maybe (DocumentPatch, DocumentPatch')
+maybeError :: err -> Maybe a -> Either err a
+maybeError _ (Just a) = Right a
+maybeError err _      = Left err
+
+
+lookupAnn k m  = maybeError (MissingKey k) (M.lookup k m)
+
+patchInverse :: Editor -> DocumentPatch -> Either EditError (DocumentPatch, DocumentPatch')
 patchInverse doc (PatchAnns e) = do
   undoPatch  <- itraverse (patchAnnotations (doc ^. #annotations)) e
   return (PatchAnns (fst <$> undoPatch), PatchAnns' $ snd <$> undoPatch)
@@ -369,12 +408,12 @@ patchInverse doc (PatchArea b) =
   return (PatchArea (doc ^. #validArea), PatchArea' b)
 
 
-patchAnnotations :: AnnotationMap -> AnnotationId -> AnnotationPatch ->  Maybe (AnnotationPatch, Maybe Annotation)
+patchAnnotations :: AnnotationMap -> AnnotationId -> AnnotationPatch -> Either EditError (AnnotationPatch, Maybe Annotation)
 patchAnnotations anns k action  =  case action of
   Add ann   -> return (Delete, Just ann)
   Delete    -> do
-    ann <- M.lookup k anns
+    ann <- lookupAnn k anns
     return (Add ann, Nothing)
   Modify ann -> do
-    ann' <- M.lookup k anns
+    ann' <- lookupAnn k anns
     return (Modify ann', Just ann)

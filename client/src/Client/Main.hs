@@ -255,24 +255,12 @@ setClassCommand doc (selection, classId) =
   guard (S.size selection > 0) $> DocEdit (EditSetClass classId selection)
 
 
+ 
 loadedDocument :: Preferences -> Document -> UTCTime -> Editor
-loadedDocument prefs doc@Document{name, info, annotations, detections, validArea} time = Editor
-    { name 
-    , annotations = initial
-    , validArea
-    , history = [(time, HistoryOpen open)]
-    , undos = []
-    , redos = []
-    } where
-      
-    (openType, initial) = case detections of 
-      Just d -> if isNew (info ^. #category)
-        then (OpenNew d, fromDetections 0 (d ^. #instances))
-        else (OpenReview d, reviewDetections (d ^. #instances) annotations')
-      Nothing -> (OpenDisconnected, annotations')
-
-    annotations' = fromBasic <$> annotations
-    open = OpenSession annotations (prefs ^. #thresholds . _1) openType
+loadedDocument prefs doc@Document{name, info, detections, annotations} time = openSession name time $ 
+  OpenSession annotations (prefs ^. #thresholds . _1) $ case detections of 
+    Just d -> if isNew (info ^. #category) then (OpenNew d) else (OpenReview d)
+    Nothing -> OpenDisconnected
     
 delayEvent :: Builder t m => Event t a -> m (Event t a)
 delayEvent e = performEvent (return <$> e)
@@ -703,9 +691,9 @@ trainerTab' status = do
         trainerCommand (UserPause <$ stop)    
 
     -- review  <- toolButton   (pure isConnected) "Review" "rotate-left" "Review all"
-    -- detect  <- toolButton   (pure isConnected) "Detect" "auto-fix" "Detect new"
+    detect  <- toolButton   (pure isConnected) "Detect" "auto-fix" "Evaluate detections across all images"
+    trainerCommand $ leftmost [UserDetect <$ detect]
 
-    -- trainerCommand $ leftmost [UserReview <$ review, UserDetect <$ detect]
   where
     isConnected = not (hasKey DisconnectedKey status)
     isPaused = hasKey PausedKey status

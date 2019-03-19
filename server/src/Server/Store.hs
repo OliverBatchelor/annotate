@@ -1,16 +1,23 @@
 module Server.Store where
 
-
 import Annotate.Prelude
 import Server.Common
 
 import qualified Data.Map as M
+import qualified Data.Set as S
+
 import Data.SafeCopy
 
 import Control.Concurrent.Log
 import qualified Data.Text as Text
 
-import Data.List (transpose, (!!))
+import Data.List (transpose, (!!), takeWhile, dropWhile, scanl)
+import Control.Lens (hasn't, _Cons)
+
+import Data.Maybe (fromJust)
+
+import Annotate.Editor
+
 
 data OldHistoryEntry = HistOpen | HistSubmit | HistEdit DocumentPatch | HistUndo | HistRedo
   deriving (Show, Eq, Generic)
@@ -50,8 +57,6 @@ data HistoryEntry0
   | HistoryOpenNew0 [Detection]
   | HistoryOpenReview0 [Detection]
     deriving (Show, Eq, Generic)  
-
-
   
 
 
@@ -69,20 +74,19 @@ migrateHistory history = catMaybes (f' <$> history)
     f (HistoryOpenReview0 d) = Just $ HistoryOpen (openSession $ OpenReview (detections' d))
     f _ = Nothing    
 
+    openSession :: OpenType -> OpenSession
+    openSession t = OpenSession 
+      { openType = t
+      , threshold = 0.5
+      , initial = mempty
+      } 
 
-openSession :: OpenType -> OpenSession
-openSession t = OpenSession 
-  { openType = t
-  , threshold = 0.5
-  , initial = mempty
-  } 
-
-detections' :: [Detection] -> Detections
-detections' instances = Detections 
-  { instances = instances
-  , networkId = def
-  , stats = def
-  }
+    detections' :: [Detection] -> Detections
+    detections' instances = Detections 
+      { instances = instances
+      , networkId = def
+      , stats = def
+      }
 
     -- data HistoryEntry 
     -- = HistoryEdit Edit 
@@ -1308,7 +1312,7 @@ importCollection TrainCollection{..} = Store
 importImage :: TrainImage -> (DocName, Document)
 importImage TrainImage{..} = (imageFile, document) where
   document = emptyDoc imageFile info
-    & #annotations .~ M.fromList (zip [0..] annotations)
+    & #annotations .~ annotations
     & #validArea   .~ validArea
 
   info = (defaultInfo imageFile image)
@@ -1323,11 +1327,121 @@ updateImage Document{..} = TrainImage
   , naturalKey = info ^. #naturalKey
   , imageCreation = info ^. #image . #creation
   , category  = info ^. #category
-  , annotations = M.elems annotations
+  , annotations = annotations
   , validArea = validArea
   , history = []
   , detections = detections
   } 
+
+
+type HistoryPair = (UTCTime, HistoryEntry)
+type Session = (UTCTime, OpenSession, [HistoryPair])
+
+type SessionResult = (Session, Map AnnotationId BasicAnnotation)
+
+historySessions :: Document -> [SessionResult]
+historySessions doc = zip sessions (drop 1 results <> [view #annotations doc])
+  where
+    sessions = dropDuplicates .  historySessions' . reverse $ view #history doc
+    results  = view (_2 . #initial) <$>  sessions 
+
+dropDuplicates :: [Session] -> [Session]
+dropDuplicates (x:y:xs) = if view _1 y > view _1 x 
+  then x:dropDuplicates (y:xs)
+  else dropDuplicates (y:xs)
+dropDuplicates xs = xs
+
+historySessions' :: [HistoryPair] -> [Session]
+historySessions' ((t, HistoryOpen open):entries) = ((t, open, entries') : historySessions' rest)  where
+  (entries', rest) = (takeWhile notOpen entries, dropWhile notOpen entries)
+  notOpen = hasn't (_2 . _HistoryOpen)
+historySessions' _ = []
+
+editCmd :: HistoryPair -> Maybe EditCmd
+editCmd (_, HistoryUndo) = Just DocUndo
+editCmd (_, HistoryRedo) = Just DocRedo
+editCmd (_, HistoryEdit e) = Just (DocEdit e)
+editCmd _ = Nothing
+
+replay :: Session -> Editor
+replay (t, open, entries) = foldl (flip applyCmd) editor cmds where
+  editor = openSession "" t open 
+  cmds   = catMaybes $ editCmd <$> entries
+
+replays :: Session -> (Editor, [(EditCmd, Editor)])
+replays (t, open, entries) = (editor, zip cmds editors) where
+  editor = openSession "" t open 
+  cmds   = catMaybes $ editCmd <$> entries
+  editors = drop 1 $ scanl (flip applyCmd) editor cmds
+  
+
+diffMaps m1 m2 = M.mapMaybe id $ M.intersectionWith maybeEq m1 m2
+  where maybeEq x y = if x ~= y then Nothing else Just (x, y)
+
+-- checkReplay :: SessionResult -> Bool
+checkReplay (session, result) = (subset ~= result, missing, diffMaps subset result) where
+  replayed  =  fmap toBasic $ view #annotations (replay session)
+  subset =  replayed `M.intersection` result
+
+  missing = replayed `M.difference` result
+
+-- indexes = ["/home/oliver/indexes/apples.db", 
+
+
+
+sessionThreshold :: Session -> Float
+sessionThreshold (_, open, entries) = fromMaybe (view #threshold open) (maybeLast thresholds) where
+  thresholds = catMaybes $ preview (_2 . _HistoryThreshold) <$> entries
+  maybeLast xs = preview (_Cons . _1) (reverse xs)
+
+testSessions file = do
+  (Right (Store{..})) <- readLogFile file
+
+  for_ images $ \image -> do
+    let
+      sessions = historySessions image
+    for_ sessions $ \session -> do
+      let (success, missing, pairs) = checkReplay session
+
+      when (not $ success) $ do 
+        print (image ^. #name, image ^. (#info . #category))      
+
+        -- print "differs:"
+        -- traverse_ print (M.toList pairs)
+
+        -- print "missing:"
+        -- traverse_ print (M.toList missing)
+
+        -- let 
+        --   ((_, open, entries), anns) = session
+        --   (initial, steps) = replays (fst session)
+
+        -- for_ sessions $ \((t, open, entries), anns) -> do
+        --   print "*********"
+        --   traverse_ print (catMaybes $ editCmd <$> entries)          
+        -- traverse_ print (catMaybes $ editCmd <$> entries)
+        -- print (S.union ids1 ids2 `S.difference` ids2)
+
+        -- print "*********"
+
+        -- let exists = over _2 (M.lookup 93 . view #annotations) <$> steps
+        -- traverse_ print exists
+        
+        -- print "*********"
+
+        -- for_ sessions $ \((t, open, entries), anns) -> do
+        --   traverse_ print (catMaybes $ editCmd <$> entries)
+
+          -- traverse_ print (M.keysSet . snd <$> sessions)
+
+
+
+    -- 
+
+  -- traverse_ print results
+  -- return sessions
+
+
 
 exportImage :: Document -> TrainImage
 exportImage doc = (updateImage doc) {history = doc ^. #history}

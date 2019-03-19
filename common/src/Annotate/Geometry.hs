@@ -1,5 +1,6 @@
 module Annotate.Geometry
   ( module Linear.V2
+  , module Linear.V3
   , module Linear.Vector
   , module Annotate.Geometry
   , module Linear.Metric
@@ -8,11 +9,15 @@ module Annotate.Geometry
 import Annotate.Prelude
 
 import Linear.V2
+import Linear.V3
 import Linear.Vector
 import Linear.Metric
 
 import Control.Lens (iso, Simple, Iso)
 import Data.List.NonEmpty (NonEmpty(..))
+
+import qualified Data.Map as M
+import qualified Data.List.NonEmpty as NE
 
 import Data.Semigroup
 
@@ -28,6 +33,52 @@ newtype WideLine = WideLine { points :: NonEmpty Circle} deriving (Generic, Show
 data Segment = Segment { point1 :: Position, point2 :: Position } deriving (Generic, Show, Eq)
 
 data Range = Range { lower :: Float, upper :: Float } deriving (Generic, Eq, Show)
+
+infix 4 ~=
+
+class Eq a => ApproxEq a where
+  (~=) :: a -> a -> Bool
+  
+
+instance ApproxEq Float where
+  (~=) a b = abs (a - b) < 1e-3
+    
+  
+instance (ApproxEq a) => ApproxEq (V2 a) where
+  (~=) (V2 x y) (V2 x' y') = x ~= x' && y ~= y'
+
+instance (ApproxEq a) => ApproxEq (V3 a) where
+  (~=) (V3 x y z) (V3 x' y' z') = x ~= x' && y ~= y' && z ~= z'
+    
+
+instance  ApproxEq Box where
+  (~=) (Box l u) (Box l' u') = l ~= l' && u ~= u'
+
+instance  ApproxEq Range where
+  (~=) (Range l u) (Range l' u') = l ~= l' && u ~= u'  
+
+instance  ApproxEq Circle where
+  (~=) (Circle c r) (Circle c' r') = c ~= c' && r ~= r'
+
+instance  ApproxEq Extents where
+  (~=) (Extents c e) (Extents c' e') = c ~= c' && e ~= e'
+
+instance  ApproxEq Polygon where
+  (~=) (Polygon p) (Polygon p') =  length p == length p' && and (NE.zipWith (~=) p p')
+  
+instance  ApproxEq WideLine where
+  (~=) (WideLine l) (WideLine l') = length l == length l' && and (NE.zipWith (~=) l l')
+    
+instance  ApproxEq Segment where
+  (~=) (Segment s e) (Segment s' e') = s ~= s' && e ~= e'
+
+instance (Ord k, ApproxEq a) => ApproxEq (Map k a) where
+  (~=) m m' = all eq (M.toList m)
+    where eq (k, a) = maybe False (~= a) (M.lookup k m')
+
+instance (ApproxEq a) => ApproxEq [a] where
+  (~=) xs xs' = and (zipWith (~=) xs xs')
+    
 
 scaleBox :: Vec -> Box -> Box
 scaleBox scale = over boxExtents

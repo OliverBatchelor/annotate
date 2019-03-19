@@ -191,7 +191,7 @@ allSorts =
   , ("detection score", SortDetections)
   , ("detection count", SortCounts)
   , ("frame variation", SortFrameVariation)
-  , ("frame variation", SortCountVariation)
+  , ("count variation", SortCountVariation)
   , ("train error", SortLossRunning)
   , ("random", SortRandom)
   ]

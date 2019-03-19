@@ -47,12 +47,19 @@ data Shape = ShapeBox     Box
      deriving (Generic, Show, Eq)
 
 
+instance ApproxEq Shape where
+  (~=) (ShapeBox b) (ShapeBox b') = b ~= b'
+  (~=) (ShapeCircle b) (ShapeCircle b') = b ~= b'
+  (~=) (ShapePolygon b) (ShapePolygon b') = b ~= b'
+  (~=) (ShapeLine b) (ShapeLine b') = b ~= b'
+  (~=) _ _ = False
+
+
 data ShapeKey a where
   BoxKey      :: ShapeKey Box
   CircleKey   :: ShapeKey Circle
   PolygonKey  :: ShapeKey Polygon
   LineKey     :: ShapeKey WideLine
-
 
 deriving instance Eq a => Eq (ShapeKey a)
 
@@ -90,7 +97,8 @@ data DetectionTag
   | Deleted 
   | Confirmed
     deriving (Generic, Show, Eq)
-  
+
+
 data Annotation = Annotation
   { shape :: Shape
   , label :: ClassId
@@ -101,6 +109,13 @@ data BasicAnnotation = BasicAnnotation
   { shape :: Shape
   , label :: ClassId
   } deriving (Generic, Show, Eq)
+
+instance ApproxEq Annotation where
+  (~=) (Annotation s l d) (Annotation s' l' d') = s ~= s' && l == l' && d == d'
+
+instance ApproxEq BasicAnnotation where
+  (~=) (BasicAnnotation s l) (BasicAnnotation s' l') = s ~= s' && l == l'
+  
 
 type AnnotationMap = Map AnnotationId Annotation
 
@@ -801,6 +816,7 @@ emptyCollection = Collection mempty
 
 
 makePrisms ''Navigation
+makePrisms ''HistoryEntry
 
 makePrisms ''ClientMsg
 makePrisms ''ServerMsg

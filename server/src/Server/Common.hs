@@ -145,7 +145,7 @@ data FromTrainer
 -- Input/export types
 data TrainImage = TrainImage
   { imageFile   :: DocName
-  , annotations :: [BasicAnnotation]
+  , annotations :: Map AnnotationId BasicAnnotation
   , imageSize     :: (Int, Int)
   , imageCreation :: Maybe UTCTime
   , naturalKey    :: NaturalKey
