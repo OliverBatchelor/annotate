@@ -1406,42 +1406,6 @@ testSessions file = do
       when (not $ success) $ do 
         print (image ^. #name, image ^. (#info . #category))      
 
-        -- print "differs:"
-        -- traverse_ print (M.toList pairs)
-
-        -- print "missing:"
-        -- traverse_ print (M.toList missing)
-
-        -- let 
-        --   ((_, open, entries), anns) = session
-        --   (initial, steps) = replays (fst session)
-
-        -- for_ sessions $ \((t, open, entries), anns) -> do
-        --   print "*********"
-        --   traverse_ print (catMaybes $ editCmd <$> entries)          
-        -- traverse_ print (catMaybes $ editCmd <$> entries)
-        -- print (S.union ids1 ids2 `S.difference` ids2)
-
-        -- print "*********"
-
-        -- let exists = over _2 (M.lookup 93 . view #annotations) <$> steps
-        -- traverse_ print exists
-        
-        -- print "*********"
-
-        -- for_ sessions $ \((t, open, entries), anns) -> do
-        --   traverse_ print (catMaybes $ editCmd <$> entries)
-
-          -- traverse_ print (M.keysSet . snd <$> sessions)
-
-
-
-    -- 
-
-  -- traverse_ print results
-  -- return sessions
-
-
 
 exportImage :: Document -> TrainImage
 exportImage doc = (updateImage doc) {history = doc ^. #history}
