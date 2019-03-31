@@ -15,6 +15,7 @@ data Options = Options
   , exportJson :: Maybe String
   , importJson :: Maybe String
   , updateImages     :: Bool
+  , verifyStore      :: Bool
   } deriving (Data, Typeable, Show)
 
 
@@ -28,6 +29,7 @@ options =
           , port       = def  &= help "port to run server on"
           , importJson     = def  &= help "import state from JSON file" &= name "import"
           , exportJson     = def  &= help "export state to JSON file"   &= name "export"
+          , verifyStore    = def  &= help "verify store before export"   &= name "verify"
           , updateImages   = def  &= help "update image metadata"   &= name "update"
           } &= summary "Annotation server"
 

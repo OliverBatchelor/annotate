@@ -34,16 +34,40 @@ data Edit0
   | EditConfirmDetection0 (Set AnnotationId)    
 
 
+data Edit1
+  = EditSetClass1 ClassId (Set AnnotationId)
+  | EditDeleteParts1 DocParts
+  | EditTransformParts1 Rigid DocParts
+  | EditClearAll1
+  | EditDetection1 [Detection]
+  | EditSetArea1 (Maybe Box)
+  | EditAdd1 [BasicAnnotation]
+  | EditConfirmDetection1 (Map AnnotationId Bool)
+  deriving (Generic, Show, Eq)  
+
+
+instance Migrate Edit1 where
+  type MigrateFrom Edit1 = Edit0
+  migrate (EditSetClass0 k s) = EditSetClass1 k s 
+  migrate (EditDeleteParts0 k)  = EditDeleteParts1 k 
+  migrate (EditTransformParts0 k s) = EditTransformParts1 k s 
+  migrate EditClearAll0  = EditClearAll1
+  migrate (EditDetection0 _) = EditClearAll1 
+  migrate (EditSetArea0 b) = EditSetArea1 b
+  migrate (EditAdd0 a) = EditAdd1 a
+  migrate (EditConfirmDetection0 s) = EditConfirmDetection1 (setToMap True s)
+
+
 instance Migrate Edit where
-  type MigrateFrom Edit = Edit0
-  migrate (EditSetClass0 k s) = EditSetClass k s 
-  migrate (EditDeleteParts0 k)  = EditDeleteParts k 
-  migrate (EditTransformParts0 k s) = EditTransformParts k s 
-  migrate EditClearAll0  = EditClearAll
-  migrate (EditDetection0 _) = EditClearAll 
-  migrate (EditSetArea0 b) = EditSetArea b
-  migrate (EditAdd0 a) = EditAdd a
-  migrate (EditConfirmDetection0 s) = EditConfirmDetection (setToMap True s)
+  type MigrateFrom Edit = Edit1
+  migrate (EditSetClass1 k s) = EditSetClass k s 
+  migrate (EditDeleteParts1 k)  = EditDeleteParts k 
+  migrate (EditTransformParts1 k s) = EditTransformParts k s 
+  migrate EditClearAll1  = EditClearAll
+  migrate (EditDetection1 _) = error "deprecated" 
+  migrate (EditSetArea1 b) = error "deprecated" 
+  migrate (EditAdd1 a) = EditAdd a
+  migrate (EditConfirmDetection1 s) = EditConfirmDetection s
 
 
 
@@ -196,10 +220,23 @@ data DocInfo6 = DocInfo6
   } deriving (Generic, Eq, Show)
 
 
+
+
+
+data Document14 = Document14
+  { name  :: DocName
+  , info  :: DocInfo
+  , annotations    :: BasicAnnotationMap
+  , validArea      :: Maybe Box
+  , history       :: [(UTCTime, HistoryEntry)]
+  , detections     :: Maybe Detections
+  , training       :: [TrainSummary]
+  } deriving (Generic, Show)  
+
 data Document13 = Document13
   { name  :: DocName
   , info  :: DocInfo
-  , annotations    :: Map AnnotationId BasicAnnotation
+  , annotations    :: BasicAnnotationMap
   , validArea      :: Maybe Box
   , history       :: [(UTCTime, HistoryEntry0)]
   , detections     :: Maybe Detections
@@ -209,7 +246,7 @@ data Document13 = Document13
 data Document12 = Document12
   { name  :: DocName
   , info  :: DocInfo
-  , annotations :: Map AnnotationId BasicAnnotation
+  , annotations :: BasicAnnotationMap
   , validArea   :: Maybe Box
   , history :: [(UTCTime, HistoryEntry0)]
   , detections :: Maybe Detections
@@ -220,7 +257,7 @@ data Document12 = Document12
 data Document11 = Document11
   { name  :: DocName
   , info  :: DocInfo
-  , annotations :: Map AnnotationId BasicAnnotation
+  , annotations :: BasicAnnotationMap
   , validArea   :: Maybe Box
   , history :: [(UTCTime, HistoryEntry0)]
   , detections :: Maybe Detections
@@ -229,7 +266,7 @@ data Document11 = Document11
 data Document10 = Document10
   { name  :: DocName
   , info  :: DocInfo
-  , annotations :: Map AnnotationId BasicAnnotation
+  , annotations :: BasicAnnotationMap
   , validArea   :: Maybe Box
 
   , history :: [(UTCTime, HistoryEntry0)]
@@ -659,9 +696,18 @@ instance Migrate Preferences1 where
       margin = 0.1
       border = 1
    
+
+data Submission2 = Submission2
+  { name        :: DocName
+  , annotations :: BasicAnnotationMap
+  , validArea   :: Maybe Box
+  , history :: [(UTCTime, HistoryEntry)]
+  , method :: SubmitType
+  } deriving (Generic, Show)    
+
 data Submission1 = Submission1
   { name        :: DocName
-  , annotations :: Map AnnotationId BasicAnnotation
+  , annotations :: BasicAnnotationMap
   , validArea   :: Maybe Box
   , history :: [(UTCTime, HistoryEntry0)]
   , method :: SubmitType
@@ -669,15 +715,49 @@ data Submission1 = Submission1
 
 data Submission0 = Submission0
   { name        :: DocName
-  , annotations :: Map AnnotationId BasicAnnotation
+  , annotations :: BasicAnnotationMap
   , validArea   :: Maybe Box
   , history :: [(UTCTime, HistoryEntry0)]
   , category :: Maybe ImageCat
   } deriving (Generic, Show)      
 
+
+
+migrateSessions :: [HistoryPair] -> [Session]
+migrateSessions = dropDuplicates .  historySessions' . reverse
+
+
+historySessions' :: [HistoryPair] -> [Session]
+historySessions' [] = []
+historySessions' (e:entries) = case e of 
+  (t, HistoryOpen open) -> (makeSession open t entries' : historySessions' rest)  where
+    (entries', rest) = (takeWhile notOpen entries, dropWhile notOpen entries)
+    notOpen          = hasn't (_2 . _HistoryOpen)
+  _ -> error "historySessions: missing open"
+
+dropDuplicates :: [Session] -> [Session]
+dropDuplicates (x:y:xs) = if view #time y > view #time x 
+  then x:dropDuplicates (y:xs)
+  else dropDuplicates (y:xs)
+dropDuplicates xs = xs
+
+migrateSession :: [HistoryPair] ->  Session
+migrateSession ((t, HistoryOpen open):entries) = makeSession open t entries
+migrateSession _ = error "migrateSession: missing open"
+
+makeSession ::  OpenSession -> UTCTime -> [HistoryPair] -> Session
+makeSession OpenSession{..} t entries = Session 
+  { initial, time = t, history = entries, open = openType, threshold = threshold }
+
+
 instance Migrate Submission where
-  type MigrateFrom Submission = Submission1
-  migrate Submission1{..} = Submission{name, annotations, 
+  type MigrateFrom Submission = Submission2
+  migrate Submission2{..} = Submission{name, method, session = migrateSession history, annotations}
+
+
+instance Migrate Submission2 where
+  type MigrateFrom Submission2 = Submission1
+  migrate Submission1{..} = Submission2{name, annotations, 
     validArea, method, history = migrateHistory history} 
     
   
@@ -703,8 +783,16 @@ instance Migrate SubmitType where
   migrate SubmitAutoSave0 = SubmitAutoSave
 
 instance Migrate Document where
-  type MigrateFrom Document = Document13
-  migrate Document13{..} = Document{name, history = migrateHistory history, 
+  type MigrateFrom Document = Document14
+  migrate Document14{..} = (case checkReplays doc of 
+    True  -> doc 
+    False -> doc { sessions = [] })
+      where doc = Document{name, sessions = migrateSessions history, 
+        detections, info, annotations, training}
+
+instance Migrate Document14 where
+  type MigrateFrom Document14 = Document13
+  migrate Document13{..} = Document14{name, history = migrateHistory history, 
     validArea, detections, info, annotations, training}
 
 
@@ -1007,7 +1095,8 @@ $(deriveSafeCopy 0 'base ''Checkpoint)
 $(deriveSafeCopy 0 'base ''ImageCat)
 $(deriveSafeCopy 0 'base ''Submission0)
 $(deriveSafeCopy 1 'base ''Submission1)
-$(deriveSafeCopy 2 'extension ''Submission)
+$(deriveSafeCopy 2 'base ''Submission2)
+$(deriveSafeCopy 3 'extension ''Submission)
 
 $(deriveSafeCopy 0 'base ''SubmitType0)
 $(deriveSafeCopy 1 'extension ''SubmitType)
@@ -1025,8 +1114,9 @@ $(deriveSafeCopy 10 'extension ''Document10)
 $(deriveSafeCopy 11 'extension ''Document11)
 $(deriveSafeCopy 12 'extension ''Document12)
 $(deriveSafeCopy 13 'extension ''Document13)
+$(deriveSafeCopy 14 'extension ''Document14)
 
-$(deriveSafeCopy 14 'extension ''Document)
+$(deriveSafeCopy 15 'extension ''Document)
 
 $(deriveSafeCopy 0 'base ''NaturalKey0)
 $(deriveSafeCopy 1 'extension ''NaturalKey1)
@@ -1050,13 +1140,15 @@ $(deriveSafeCopy 2 'extension ''ClassConfig)
 $(deriveSafeCopy 0 'base ''ShapeConfig)
 
 $(deriveSafeCopy 0 'base ''Edit0)
-$(deriveSafeCopy 1 'extension ''Edit)
+$(deriveSafeCopy 1 'extension ''Edit1)
+$(deriveSafeCopy 2 'extension ''Edit)
 
 $(deriveSafeCopy 0 'base ''OldHistoryEntry)
 $(deriveSafeCopy 0 'base ''HistoryEntry0)
 $(deriveSafeCopy 0 'base ''HistoryEntry)
 
 $(deriveSafeCopy 0 'base ''OpenSession)
+$(deriveSafeCopy 0 'base ''Session)
 $(deriveSafeCopy 0 'base ''OpenType)
 
 
@@ -1162,8 +1254,7 @@ emptyDoc k info = Document
   { name = k
   , info = info 
   , annotations = mempty 
-  , validArea = Nothing 
-  , history = [] 
+  , sessions = [] 
   , detections = Nothing
   , training = []
   }
@@ -1184,30 +1275,19 @@ assignCat trainRatio n = if n `mod` (trainRatio + 1) == 0
   else CatTrain
 
 
--- minValue :: (Ord a, Foldable t) => t (k, a) -> k
--- minValue = fst . minimumBy (comparing snd)
-
--- initCounts :: Ord k => [(k, Int)] -> Map k (Int, Int)
--- initCounts ratios = (0, ) <$> M.fromList ratios
+checkSubmission :: Submission -> Document -> Maybe ErrCode
+checkSubmission Submission{session, annotations} doc = ErrSubmit <$> 
+    (check (session ^. #initial ~= doc ^. #annotations) "Failed to match initial annotations (double submit?)"
+    <|> check (checkReplay (session, annotations)) "Annotation replay failed consistency")
   
--- incCount ::  Map k (Int, Int) -> k -> Map k (Int, Int)
--- incCount m k = adjust (+1) k m
+  where check b msg = if b then Just msg else Nothing
 
--- nextBalanced :: Map k (Int, Int) -> k
--- nextBalanced m = minValue (uncurry (%) <$> m)
 
--- repeatedly :: (a -> a) -> Int -> a -> a
--- repeatedly f n x = iterate f x !! n
+checkStore :: Store -> [(DocName, ImageCat)]
+checkStore Store{images} = M.toList $ view (#info . #category) <$> 
+  M.filter (not . checkReplays) images
 
--- balanceCount :: (Ord a) => [(k, Int)] -> [k] -> Map k (Int, Int)
--- balanceCount ratios = foldl incCount (initCounts ratios)
 
--- makeBalanced :: Ord k => [(k, Int)] -> Int -> [k]
--- makeBalanced ratios n = repeatedly update n (initCounts ratios)
---   where 
---     update (ks, counts) = (k : ks,  incCount counts k)
---       where k = nextBalanced counts
-  
 
 lookupPreferences :: Store -> UserId -> Preferences
 lookupPreferences store user = fromMaybe def (store ^. #preferences . at user)
@@ -1216,7 +1296,7 @@ submitDocument :: UserId -> UTCTime -> Submission -> (Store -> Store)
 submitDocument user time Submission{..} store = store & #images . ix name %~ \doc -> 
   case method of
     SubmitNew     -> doc 
-        & #history .~ []
+        & #sessions .~ []
         & storeChanges 
         & #info . #category .~ (selectCategory user store) 
         & #info . #reviews .~ 0
@@ -1234,8 +1314,7 @@ submitDocument user time Submission{..} store = store & #images . ix name %~ \do
   where 
     storeChanges doc = doc 
       & #annotations .~ annotations
-      & #validArea .~ validArea
-      & #history %~ (history <>)
+      & #sessions %~ (`snoc` session)
 
       & #info %~ \info -> info 
         & #modified .~ Just time
@@ -1313,7 +1392,6 @@ importImage :: TrainImage -> (DocName, Document)
 importImage TrainImage{..} = (imageFile, document) where
   document = emptyDoc imageFile info
     & #annotations .~ annotations
-    & #validArea   .~ validArea
 
   info = (defaultInfo imageFile image)
     {modified = Nothing, category = category, numAnnotations = length annotations, image = image}
@@ -1328,84 +1406,10 @@ updateImage Document{..} = TrainImage
   , imageCreation = info ^. #image . #creation
   , category  = info ^. #category
   , annotations = annotations
-  , validArea = validArea
-  , history = []
+  , sessions = []
   , detections = detections
   } 
 
 
-type HistoryPair = (UTCTime, HistoryEntry)
-type Session = (UTCTime, OpenSession, [HistoryPair])
-
-type SessionResult = (Session, Map AnnotationId BasicAnnotation)
-
-historySessions :: Document -> [SessionResult]
-historySessions doc = zip sessions (drop 1 results <> [view #annotations doc])
-  where
-    sessions = dropDuplicates .  historySessions' . reverse $ view #history doc
-    results  = view (_2 . #initial) <$>  sessions 
-
-dropDuplicates :: [Session] -> [Session]
-dropDuplicates (x:y:xs) = if view _1 y > view _1 x 
-  then x:dropDuplicates (y:xs)
-  else dropDuplicates (y:xs)
-dropDuplicates xs = xs
-
-historySessions' :: [HistoryPair] -> [Session]
-historySessions' ((t, HistoryOpen open):entries) = ((t, open, entries') : historySessions' rest)  where
-  (entries', rest) = (takeWhile notOpen entries, dropWhile notOpen entries)
-  notOpen = hasn't (_2 . _HistoryOpen)
-historySessions' _ = []
-
-editCmd :: HistoryPair -> Maybe EditCmd
-editCmd (_, HistoryUndo) = Just DocUndo
-editCmd (_, HistoryRedo) = Just DocRedo
-editCmd (_, HistoryEdit e) = Just (DocEdit e)
-editCmd _ = Nothing
-
-replay :: Session -> Editor
-replay (t, open, entries) = foldl (flip applyCmd) editor cmds where
-  editor = openSession "" t open 
-  cmds   = catMaybes $ editCmd <$> entries
-
-replays :: Session -> (Editor, [(EditCmd, Editor)])
-replays (t, open, entries) = (editor, zip cmds editors) where
-  editor = openSession "" t open 
-  cmds   = catMaybes $ editCmd <$> entries
-  editors = drop 1 $ scanl (flip applyCmd) editor cmds
-  
-
-diffMaps m1 m2 = M.mapMaybe id $ M.intersectionWith maybeEq m1 m2
-  where maybeEq x y = if x ~= y then Nothing else Just (x, y)
-
--- checkReplay :: SessionResult -> Bool
-checkReplay (session, result) = (subset ~= result, missing, diffMaps subset result) where
-  replayed  =  fmap toBasic $ view #annotations (replay session)
-  subset =  replayed `M.intersection` result
-
-  missing = replayed `M.difference` result
-
--- indexes = ["/home/oliver/indexes/apples.db", 
-
-
-
-sessionThreshold :: Session -> Float
-sessionThreshold (_, open, entries) = fromMaybe (view #threshold open) (maybeLast thresholds) where
-  thresholds = catMaybes $ preview (_2 . _HistoryThreshold) <$> entries
-  maybeLast xs = preview (_Cons . _1) (reverse xs)
-
-testSessions file = do
-  (Right (Store{..})) <- readLogFile file
-
-  for_ images $ \image -> do
-    let
-      sessions = historySessions image
-    for_ sessions $ \session -> do
-      let (success, missing, pairs) = checkReplay session
-
-      when (not $ success) $ do 
-        print (image ^. #name, image ^. (#info . #category))      
-
-
 exportImage :: Document -> TrainImage
-exportImage doc = (updateImage doc) {history = doc ^. #history}
+exportImage doc = (updateImage doc) {sessions = doc ^. #sessions}

@@ -257,21 +257,31 @@ setClassCommand doc (selection, classId) =
 
  
 loadedDocument :: Preferences -> Document -> UTCTime -> Editor
-loadedDocument prefs doc@Document{name, info, detections, annotations} time = openSession name time $ 
-  OpenSession annotations (prefs ^. #thresholds . _1) $ case detections of 
-    Just d -> if isNew (info ^. #category) then (OpenNew d) else (OpenReview d)
-    Nothing -> OpenDisconnected
+loadedDocument prefs Document{..} time = openSession name $ Session 
+  { open = case detections of 
+      Just d -> if isNew (info ^. #category) then (OpenNew d) else (OpenReview d)
+      Nothing -> OpenDisconnected
+  , threshold = prefs ^. #thresholds . _1
+  , initial = annotations
+  , history = []
+  , time
+  }
+ 
     
 delayEvent :: Builder t m => Event t a -> m (Event t a)
 delayEvent e = performEvent (return <$> e)
 
 
-appendHistory ::  (UTCTime, HistoryEntry) -> [(UTCTime, HistoryEntry)] -> [(UTCTime, HistoryEntry)]
-appendHistory e@(time, HistoryThreshold t) = \case 
+appendHistory :: (UTCTime, HistoryEntry) -> Editor -> Editor
+appendHistory e = over (#session . #history) (appendEntry e)
+
+appendEntry ::  (UTCTime, HistoryEntry) -> [(UTCTime, HistoryEntry)] -> [(UTCTime, HistoryEntry)]
+appendEntry e@(time, HistoryThreshold t) = \case 
     ((_, HistoryThreshold _):es) -> (e:es)
     es                      -> (e:es)
-    
-appendHistory e = cons e
+appendEntry e = cons e
+
+
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => Dynamic t Viewport 
@@ -294,10 +304,21 @@ documentEditor viewport input cmds document = do
   let editor0 = loadedDocument prefs0 document loadTime
 
   rec
-    editor <- holdDyn editor0 edited
+    editor <- holdDyn editor0 $ leftmost 
+      [ attachWith (flip appendHistory) (current editor) entry
+      , edited
+      ]
+
+
+    entry <- withTime $ leftmost 
+      [ historyEntry <$> editCmd 
+      , HistoryThreshold . fst <$> updated thresholds
+      ]
+
     env   <- ask
-           
-    let (patch, edited) = split (attachWithMaybe (flip applyCmd') (current editor) editCmd)      
+              
+    let (errors, patches) = splitEither $ flip applyCmd' <$> current editor <@> editCmd
+        (patch, edited)   = split patches
 
         clearCmd      = clearAnnotations <$ oneOf _ClearCmd cmds
         setClassCmd   = attachWithMaybe setClassCommand (current editor) (oneOf _ClassCmd cmds)
@@ -308,11 +329,10 @@ documentEditor viewport input cmds document = do
   -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $ oneOf _SelectCmd cmds
 
-  entry <- withTime $ leftmost 
-    [ historyEntry <$> editCmd 
-    , HistoryThreshold . fst <$> updated thresholds
-    ]
-  history <- foldDyn appendHistory (editor0 ^. #history) entry
+  logEvent errors
+
+
+  -- history <- foldDyn appendHistory (editor0 ^. #history) entry
 
   rec
     annotations  <- holdIncremental (editor0 ^. #annotations) (annotationsPatch <?> patch)
@@ -341,18 +361,14 @@ documentEditor viewport input cmds document = do
       , viewport     = viewport
       }
     
-
-
-  return (action, (withHistory <$> editor <*> history), sceneEvents, selection)
-    where 
-      withHistory editor entries = Just (editor & #history .~ entries)
+  return (action, Just <$> editor, sceneEvents, selection)
+      -- withHistory editor entries = Just (editor & #session . #history .~ entries)
 
  
-
 pendingEdit :: Editor -> Action -> Maybe DocumentPatch'
 pendingEdit doc action = do
   edit <- action ^. #edit
-  fst <$> applyEdit edit doc
+  fst <$> preview _Right (applyEdit edit doc)
 
 
 oneOf :: Reflex t => Getting (First a) s a -> Event t [s] -> Event t a
@@ -435,13 +451,11 @@ saveCmd cmds = leftmost [oneOf _SubmitCmd cmds, snd <?> oneOf _OpenCmd cmds]
 submission :: Preferences -> (UTCTime, SubmitType) -> Editor -> Submission
 submission prefs (time, method) Editor{..} = Submission
   { name
-  , history  = (time, HistoryClose) : history
-  , annotations = anns
-  , validArea
+  , session     = over #history (reverse . cons (time, HistoryClose)) session
+  , annotations = thresholdDetections (prefs ^. #thresholds . _1) annotations 
   , method 
-  } where 
-    anns = toBasic <$> M.filter (thresholdDetection (prefs ^. #thresholds . _1)) annotations
-
+  } 
+    
 
 withTime :: GhcjsBuilder t m => Event t a -> m (Event t (UTCTime, a))
 withTime e = performEvent $ ffor e $ \a -> do

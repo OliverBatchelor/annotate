@@ -31,13 +31,16 @@ import Data.Semigroup as X (Semigroup(..), (<>))
 import Data.Foldable as X
 import Data.Traversable as X
 
+import Data.Align as X (Align(..), align, alignWith) 
+import Data.These as X (These(..)) 
+
 import Control.Lens as X
   ( (%~), (^.), (^?), (.~), (&), (<&>)
   , over, view, preview, set
   , Lens, Lens', Traversal, Traversal'
   , at, ix, _1, _2, _3, _4
   , _Just, _Nothing, _Left, _Right
-  , cons, _head
+  , cons, snoc, _head
   , imap, ifor, itraverse, ifor_, itraverse_
   )
 import Data.Aeson as X

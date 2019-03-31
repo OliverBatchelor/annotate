@@ -21,6 +21,7 @@ import qualified Data.List.NonEmpty as NE
 
 import Data.Semigroup
 
+
 type Vec = V2 Float
 
 data Box = Box { lower :: Vec, upper :: Vec } deriving (Generic, Show, Eq)
@@ -72,12 +73,16 @@ instance  ApproxEq WideLine where
 instance  ApproxEq Segment where
   (~=) (Segment s e) (Segment s' e') = s ~= s' && e ~= e'
 
+approxMatchF :: (Align f, ApproxEq a, Foldable f) => f a -> f a -> Bool
+approxMatchF fa fb = and (alignWith approxMatch fa fb) where
+  approxMatch (These a b) = a ~= b
+  approxMatch _ = False
+  
 instance (Ord k, ApproxEq a) => ApproxEq (Map k a) where
-  (~=) m m' = all eq (M.toList m)
-    where eq (k, a) = maybe False (~= a) (M.lookup k m')
+  (~=) = approxMatchF
 
 instance (ApproxEq a) => ApproxEq [a] where
-  (~=) xs xs' = and (zipWith (~=) xs xs')
+  (~=) = approxMatchF
     
 
 scaleBox :: Vec -> Box -> Box

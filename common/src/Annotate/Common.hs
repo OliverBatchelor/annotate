@@ -118,6 +118,7 @@ instance ApproxEq BasicAnnotation where
   
 
 type AnnotationMap = Map AnnotationId Annotation
+type BasicAnnotationMap = Map AnnotationId BasicAnnotation
 
 type DocParts = Map AnnotationId (Set Int)
 type Rigid = (Float, Vec)
@@ -127,12 +128,10 @@ data Edit
   | EditDeleteParts DocParts
   | EditTransformParts Rigid DocParts
   | EditClearAll
-  | EditDetection [Detection]
-  | EditSetArea (Maybe Box)
   | EditAdd [BasicAnnotation]
   | EditConfirmDetection (Map AnnotationId Bool)
-
   deriving (Generic, Show, Eq)
+
 
 data AnnotationPatch
   = Add Annotation
@@ -143,15 +142,26 @@ data AnnotationPatch
 
 data DocumentPatch
     = PatchAnns (Map AnnotationId AnnotationPatch)
-    | PatchArea (Maybe Box)
+    -- | PatchArea (Maybe Box)
   deriving (Eq, Show, Generic)
 
 
 data OpenType = OpenNew Detections | OpenReview Detections | OpenDisconnected 
   deriving (Show,  Generic)
 
-data OpenSession = OpenSession 
+
+data Session = Session 
   { initial    :: Map AnnotationId BasicAnnotation
+  , threshold  :: Float
+  , open       :: OpenType
+  , time       :: UTCTime
+  , history    :: [HistoryPair]
+  } deriving (Show, Generic)
+
+type HistoryPair = (UTCTime, HistoryEntry)  
+
+data OpenSession = OpenSession 
+  { initial    :: BasicAnnotationMap
   , threshold  :: Float
   , openType :: OpenType
   }   deriving (Show,  Generic)
@@ -185,10 +195,10 @@ deriving instance Show a => Show (Margins a)
 deriving instance Eq a => Eq (Margins a)
 
 data DetectionStats = DetectionStats 
-  { score       :: Float
+  { score       ::  Float
   , classScore  ::  Map ClassId Float
-  , counts      :: Maybe (Margins Int)
-  , classCounts :: Maybe (Map ClassId (Margins Count))
+  , counts      ::  Maybe (Margins Int)
+  , classCounts ::  Maybe (Map ClassId (Margins Count))
   , frameVariation :: Maybe Float
   } deriving (Generic, Eq, Show)  
 
@@ -209,10 +219,9 @@ data SubmitType
   
 data Submission = Submission 
   { name        :: DocName
-  , annotations :: Map AnnotationId BasicAnnotation
-  , validArea   :: Maybe Box
-  , history :: [(UTCTime, HistoryEntry)]
-  , method :: SubmitType
+  , annotations :: BasicAnnotationMap
+  , session     :: Session
+  , method      :: SubmitType
   } deriving (Generic, Show)
 
 data TrainSummary = TrainSummary 
@@ -222,9 +231,10 @@ data TrainSummary = TrainSummary
 data Document = Document
   { name  :: DocName
   , info  :: DocInfo
-  , annotations    :: Map AnnotationId BasicAnnotation
-  , validArea      :: Maybe Box
-  , history       :: [(UTCTime, HistoryEntry)]
+
+  , annotations    :: BasicAnnotationMap
+  , sessions       :: [Session]
+
   , detections     :: Maybe Detections
   , training       :: [TrainSummary]
   } deriving (Generic, Show)
@@ -391,6 +401,9 @@ data ErrCode
   | ErrNotRunning
   | ErrTrainer Text
   | ErrEnd NavId
+
+  | ErrSubmit Text
+
     deriving (Generic, Show, Eq)
 
 type NavId = Int
@@ -475,7 +488,7 @@ data ConfigUpdate
 data ClientMsg 
   = ClientNav NavId Navigation
   | ClientSubmit Submission
-  | ClientDetect DocName (Map AnnotationId BasicAnnotation)
+  | ClientDetect DocName (BasicAnnotationMap)
   | ClientConfig ConfigUpdate
   | ClientPreferences Preferences
   | ClientCollection
@@ -542,6 +555,7 @@ instance FromJSON Detections   where parseJSON = Aeson.genericParseJSON options
 instance FromJSON AnnotationPatch where parseJSON = Aeson.genericParseJSON options
 instance FromJSON HistoryEntry    where parseJSON = Aeson.genericParseJSON options
 instance FromJSON OpenSession    where parseJSON = Aeson.genericParseJSON options
+instance FromJSON Session    where parseJSON = Aeson.genericParseJSON options
 instance FromJSON OpenType    where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON Edit    where parseJSON = Aeson.genericParseJSON options
@@ -609,6 +623,7 @@ instance ToJSON AnnotationPatch where toJSON = Aeson.genericToJSON options
 instance ToJSON HistoryEntry    where toJSON = Aeson.genericToJSON options
 
 instance ToJSON OpenSession where toJSON = Aeson.genericToJSON options
+instance ToJSON Session where toJSON = Aeson.genericToJSON options
 instance ToJSON OpenType where toJSON = Aeson.genericToJSON options
 
 instance ToJSON Edit    where toJSON = Aeson.genericToJSON options

@@ -734,7 +734,7 @@ sceneView scene@Scene{..} = do
         props     <- shapeProperties classMap thresholds reviewing instanceCols (isSelected k) k <$> holdUpdated ann
         fmap (arrange k) <$> shapeView props ann)
 
-      maskOut (snd image) (view #validArea <$> currentEdit)
+      -- maskOut (snd image) (view #validArea <$> currentEdit)
       action <- actions scene
       return (action, minElem <?> events)
       

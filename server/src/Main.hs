@@ -102,6 +102,9 @@ main = do
     Just file -> do
       state <- atomically $ readLog store
 
+      for_ (checkStore state) $ \(image, cat) ->
+        putStrLn $ "Verify failed: " <> show image <> ":" <> show cat
+
       putStrLn $ "Exporting store to: " <> file
       BS.writeFile file (encodePretty (exportCollection state))
 

@@ -35,25 +35,14 @@ mergeParts = M.unionWith mappend
 -- used for patching the AnnotationMap to update the view.
 data DocumentPatch'
   = PatchAnns' (Map AnnotationId (Maybe Annotation))
-  | PatchArea' (Maybe Box)
      deriving (Show, Eq, Generic)
-
-
--- data OpenMethod = OpenReview [Detections] | OpenNew [Detections] | OpenEdit
---   deriving (Eq, Enum, Generic, Show)
-
--- instance Show OpenType where
---   show OpenReview = "Review"
---   show OpenNew    = "New"
---   show OpenEdit   = "Edit"
 
 data Editor = Editor
   { name  :: DocName
   , undos :: [DocumentPatch]
   , redos :: [DocumentPatch]
   , annotations :: AnnotationMap
-  , validArea :: Maybe Box
-  , history :: [(UTCTime, HistoryEntry)]
+  , session :: Session
   } deriving (Generic, Show)
 
 makePrisms ''DocumentPatch'
@@ -87,21 +76,22 @@ reviewDetections = flip (foldr addReview) where
   setReview d = #detection .~ Just (Review, d)
     
 
-openSession :: DocName -> UTCTime -> OpenSession -> Editor 
-openSession name time open@OpenSession{..} = Editor 
-  { name 
-  , annotations = annotations'
-  , validArea = Nothing
-  , history = [(time, HistoryOpen open)]
+
+openSession :: DocName -> Session ->  Editor 
+openSession name session = Editor 
+  { name
+  , annotations = initialAnnotations session
+  , session
   , undos = []
   , redos = []
-  } where
+  } 
 
-    annotations = fromBasic <$> initial
-    annotations' = case openType of
-      OpenNew d        ->  fromDetections 0 (d ^. #instances)
-      OpenReview d     ->  reviewDetections (d ^. #instances) annotations
-      OpenDisconnected ->  annotations
+initialAnnotations :: Session -> AnnotationMap
+initialAnnotations Session{initial, open} = case open of
+    OpenNew d        ->  fromDetections 0 (d ^. #instances)
+    OpenReview d     ->  reviewDetections (d ^. #instances) (fromBasic <$> initial)
+    OpenDisconnected ->  fromBasic <$> initial
+
 
 
 insertAuto :: (Ord k, Num k) => a -> Map k a -> Map k a
@@ -118,6 +108,8 @@ thresholdDetection t Annotation{detection} = case detection of
 
   Nothing -> True
 
+thresholdDetections :: Float -> AnnotationMap -> BasicAnnotationMap
+thresholdDetections t = fmap toBasic . M.filter (thresholdDetection t) 
   
 
 allAnnotations :: Editor -> [AnnotationId]
@@ -133,7 +125,6 @@ maxEdits =  maybeMaximum . fmap maxEdit
 
 maxEdit :: DocumentPatch -> Maybe AnnotationId
 maxEdit (PatchAnns e) = maxKey e
-maxEdit _        = Nothing
 
 
 maybeMaximum :: (Ord k) => [Maybe k] -> Maybe k
@@ -190,7 +181,7 @@ maybePatchDocument (Just p) = patchDocument p
 
 patchDocument :: DocumentPatch' -> Editor -> Editor
 patchDocument (PatchAnns' p)  = over #annotations (patchMap p)
-patchDocument (PatchArea' b) = #validArea .~ b
+-- patchDocument (PatchArea' b) = #validArea .~ b
 
 
 applyEdit :: Edit -> Editor -> Either EditError  (DocumentPatch', Editor)
@@ -339,8 +330,7 @@ deletePartsEdit ::   DocParts -> Editor -> DocumentPatch
 deletePartsEdit = modifyShapes deleteParts
 
 
-setAreaEdit :: Maybe Box -> Editor -> DocumentPatch
-setAreaEdit b _ = PatchArea b
+
 
 
 transformPartsEdit ::  Rigid -> DocParts -> Editor ->  DocumentPatch
@@ -353,10 +343,6 @@ clearAllEdit :: Editor -> DocumentPatch
 clearAllEdit doc = PatchAnns $ const Delete <$> doc ^. #annotations
 
 
-detectionEdit :: [Detection] -> Editor -> DocumentPatch
-detectionEdit detections doc = replace (fromDetections (nextId doc) detections) doc
-
-
 replace :: AnnotationMap -> Editor -> DocumentPatch
 replace anns  Editor{annotations}  = PatchAnns $ changes <$> align annotations anns where
   changes (These _ ann) = Modify ann
@@ -366,7 +352,7 @@ replace anns  Editor{annotations}  = PatchAnns $ changes <$> align annotations a
 
 confirmDetectionEdit :: Map AnnotationId Bool -> Editor -> DocumentPatch
 confirmDetectionEdit ids doc = PatchAnns $ M.intersectionWith f ids (doc ^. #annotations) where
-  f = const (Modify . confirmDetection)
+  f _ ann =  Modify (confirmDetection x)
 
 confirmDetection :: Annotation -> Annotation
 confirmDetection = #detection . traverse . _1 .~ Confirmed
@@ -387,9 +373,7 @@ editPatch = \case
   EditDeleteParts parts       -> deletePartsEdit parts
   EditTransformParts t parts  -> transformPartsEdit t parts
   EditClearAll                -> clearAllEdit
-  EditDetection detections    -> detectionEdit detections
   EditAdd anns                -> addEdit anns
-  EditSetArea area            -> setAreaEdit area
   EditConfirmDetection ids    -> confirmDetectionEdit ids
 
 maybeError :: err -> Maybe a -> Either err a
@@ -404,8 +388,8 @@ patchInverse doc (PatchAnns e) = do
   undoPatch  <- itraverse (patchAnnotations (doc ^. #annotations)) e
   return (PatchAnns (fst <$> undoPatch), PatchAnns' $ snd <$> undoPatch)
 
-patchInverse doc (PatchArea b) =
-  return (PatchArea (doc ^. #validArea), PatchArea' b)
+-- patchInverse doc (PatchArea b) =
+--   return (PatchArea (doc ^. #validArea), PatchArea' b)
 
 
 patchAnnotations :: AnnotationMap -> AnnotationId -> AnnotationPatch -> Either EditError (AnnotationPatch, Maybe Annotation)
@@ -417,3 +401,43 @@ patchAnnotations anns k action  =  case action of
   Modify ann -> do
     ann' <- lookupAnn k anns
     return (Modify ann', Just ann)
+
+
+lastThreshold :: Session -> Float
+lastThreshold Session{threshold, history} = fromMaybe threshold (maybeLast thresholds) where
+  thresholds = catMaybes $ preview (_2 . _HistoryThreshold) <$> history
+  maybeLast xs = preview (_Cons . _1) (reverse xs)
+
+
+editCmd :: HistoryPair -> Maybe EditCmd
+editCmd (_, HistoryUndo) = Just DocUndo
+editCmd (_, HistoryRedo) = Just DocRedo
+editCmd (_, HistoryEdit e) = Just (DocEdit e)
+editCmd _ = Nothing
+
+replay :: Session -> Editor
+replay session = foldl (flip applyCmd) editor cmds where
+  editor = openSession "" session
+  cmds   = catMaybes (editCmd <$> session ^. #history)
+
+-- replays :: Session -> (Editor, [(EditCmd, Editor)])
+-- replays (t, open, entries) = (editor, zip cmds editors) where
+--   editor = openSession "" t open 
+--   cmds   = catMaybes $ editCmd <$> entries
+--   editors = drop 1 $ scanl (flip applyCmd) editor cmds
+
+checkReplay :: (Session, BasicAnnotationMap) -> Bool
+checkReplay (session, result) = replayed ~= result where
+  replayed  =  thresholdDetections t (view #annotations (replay session))
+  t = lastThreshold session
+
+
+sessionResults :: [Session] -> BasicAnnotationMap -> [(Session, BasicAnnotationMap)]
+sessionResults sessions final = zip sessions (drop 1 results <> [final])
+  where results  = view #initial <$> sessions 
+
+
+checkReplays :: Document -> Bool
+checkReplays doc = all checkReplay results
+  where results = sessionResults (doc ^. #sessions) (view #annotations doc)
+

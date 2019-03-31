@@ -127,7 +127,7 @@ data ToTrainer
   | TrainerUpdate DocName SubmitType (Maybe TrainImage)
   | TrainerImport DocName TrainImage
 
-  | TrainerDetect DetectRequest DocName (Map AnnotationId BasicAnnotation) DetectionParams
+  | TrainerDetect DetectRequest DocName (BasicAnnotationMap) DetectionParams
   | UserCommand UserCommand
     deriving (Show, Generic)
 
@@ -145,13 +145,12 @@ data FromTrainer
 -- Input/export types
 data TrainImage = TrainImage
   { imageFile   :: DocName
-  , annotations :: Map AnnotationId BasicAnnotation
+  , annotations :: BasicAnnotationMap
   , imageSize     :: (Int, Int)
   , imageCreation :: Maybe UTCTime
   , naturalKey    :: NaturalKey
   , category    :: ImageCat
-  , validArea   :: Maybe Box
-  , history     :: [(UTCTime, HistoryEntry)]
+  , sessions     :: [Session]
   , detections  :: Maybe Detections
   } deriving (Show,  Generic)
 

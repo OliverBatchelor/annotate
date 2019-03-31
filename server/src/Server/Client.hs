@@ -76,6 +76,12 @@ clientLoop env conn = do
         clientLog env (" <- " <> truncate (show msg))
         processMsg env msg
   
+broadcastSubmission :: Env -> DocName -> SubmitType -> STM ()
+broadcastSubmission env k method = do
+  mDoc <- lookupDocument (upcast env) k       
+  for_ mDoc $ \doc -> do
+    sendTrainer (upcast env)  (TrainerUpdate k method  (Just (exportImage doc)))
+    broadcastInfo (upcast env) k (doc ^. #info)
 
 processMsg :: ClientEnv -> ClientMsg -> STM ()
 processMsg env@ClientEnv{store, clientId, userId} msg = do
@@ -87,12 +93,13 @@ processMsg env@ClientEnv{store, clientId, userId} msg = do
         NavNext  -> navNext env navId
 
     ClientSubmit submission -> void $ do
-      updateLog store (CmdSubmit userId submission time)
       mDoc <- lookupDocument (upcast env) (submission ^. #name)   
+      for_ mDoc $ \doc -> case checkSubmission submission doc of 
+        Just err -> sendClient env (ServerError err)
+        Nothing -> do
+          updateLog store (CmdSubmit userId submission time)
+          broadcastSubmission (upcast env) (submission ^. #name) (submission ^. #method)
       
-      for_ mDoc $ \doc -> do
-        sendTrainer (upcast env)  (TrainerUpdate (submission ^. #name) (submission ^. #method)  (Just (exportImage doc)))
-        broadcastInfo (upcast env) (submission ^. #name) (doc ^. #info)
 
     ClientDetect k review -> do
       prefs <- userPreferences userId <$> readLog store
@@ -121,7 +128,7 @@ bestNetwork Env{store} = bestModel . view #trainer <$> readLog store
 
 
 
-detectRequest :: ClientEnv -> DetectRequest -> DocName -> Map AnnotationId BasicAnnotation -> STM Bool
+detectRequest :: ClientEnv -> DetectRequest -> DocName -> BasicAnnotationMap -> STM Bool
 detectRequest env@ClientEnv{userId, store} req k review = do
   prefs <- userPreferences userId <$> readLog store
   sendTrainer (upcast env) (TrainerDetect req k review (prefs ^. #detection))
@@ -141,7 +148,7 @@ navTo env navId k = do
         then void $ detectRequest env (DetectLoad navId (env ^. #clientId)) k (reviewAnnotations doc)
         else sendClient env (ServerDocument navId doc)
 
-reviewAnnotations :: Document -> Map AnnotationId BasicAnnotation
+reviewAnnotations :: Document -> BasicAnnotationMap
 reviewAnnotations doc = case doc ^. #info . #category of
   CatNew      -> mempty
   CatDiscard  -> mempty
