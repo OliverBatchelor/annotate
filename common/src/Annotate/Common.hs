@@ -95,7 +95,7 @@ data DetectionTag
   | Review
   | Missed
   | Deleted 
-  | Confirmed
+  | Confirmed Bool
     deriving (Generic, Show, Eq)
 
 
@@ -136,7 +136,9 @@ data Edit
 data AnnotationPatch
   = Add Annotation
   | Delete
-  | Modify Annotation
+  | Transform Rigid (Set Int)
+  | SetTag DetectionTag
+  | SetClass ClassId
   deriving (Generic, Show, Eq)
 
 
@@ -837,4 +839,4 @@ makePrisms ''ClientMsg
 makePrisms ''ServerMsg
 makePrisms ''Shape
 
-
+makePrisms ''DetectionTag

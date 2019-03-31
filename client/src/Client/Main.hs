@@ -146,6 +146,7 @@ errorMessage (ErrNotFound _ doc) = ("File not found", "File \"" <> doc <> "\" no
 errorMessage ErrNotRunning = ("Trainer error", "Trainer process not started.")
 errorMessage (ErrTrainer msg) = ("Trainer error", msg)
 errorMessage (ErrEnd _) = ("Finished", "No more new images available.")
+errorMessage (ErrSubmit msg) = ("Consistency check", msg)
 
 
 printLog :: (MonadIO m, Show a) => a -> m ()

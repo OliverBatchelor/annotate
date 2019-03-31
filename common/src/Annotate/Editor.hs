@@ -21,7 +21,7 @@ import Control.Lens (makePrisms)
 import Debug.Trace
 
 
-data EditError = MissingKey AnnotationId | EmptyUndos | EmptyRedos
+data EditError = MissingKey AnnotationId | EmptyUndos | EmptyRedos | NoDetection AnnotationId
   deriving (Show, Generic)
 
 
@@ -103,7 +103,7 @@ thresholdDetection :: Float -> Annotation -> Bool
 thresholdDetection t Annotation{detection} = case detection of 
   Just (tag, Detection{confidence}) -> 
           tag == Detected && confidence >= t 
-          || tag == Confirmed
+          || has _Confirmed tag
           || tag == Review
 
   Nothing -> True
@@ -266,19 +266,19 @@ transformPoint centre (s, t) =  (+ t) . (+ centre) . (^* s) . subtract centre
 
 
 transformVertices :: Rigid -> NonEmpty Position -> NonEmpty Position
-transformVertices  rigid points = transformPoint centre rigid <$> points
+transformVertices  t points = transformPoint centre t <$> points
     where centre = boxCentre (getBounds points)
 
 
 transformPolygonParts :: Rigid -> Set Int -> Polygon -> Polygon
-transformPolygonParts rigid indexes (Polygon points) = Polygon $ fromMaybe points $ do
+transformPolygonParts t indexes (Polygon points) = Polygon $ fromMaybe points $ do
   centre <- boxCentre . getBounds <$> nonEmpty (subset indexes points)
-  return  (over (_subset indexes) (transformPoint centre rigid) points)
+  return  (over (_subset indexes) (transformPoint centre t) points)
 
 
 transformLineParts :: Rigid -> Set Int -> WideLine -> WideLine
-transformLineParts rigid indexes (WideLine circles) =  WideLine $
-  over (_subset indexes) (transformCircle rigid) circles
+transformLineParts t indexes (WideLine circles) =  WideLine $
+  over (_subset indexes) (transformCircle t) circles
 
 
 transformCircle :: Rigid -> Circle -> Circle
@@ -289,73 +289,45 @@ transformBox (s, t) = over boxExtents
   (\Extents{..} -> Extents (centre + t) (extents ^* s))
 
 
+invert :: Rigid -> Rigid
+invert (s, t) = (1/s, -t)
+
+
 transformShape :: Rigid -> Shape -> Shape
-transformShape rigid = \case
-  ShapeCircle c      -> ShapeCircle       $ transformCircle rigid c
-  ShapeBox b      -> ShapeBox       $ transformBox rigid b
-  ShapePolygon poly -> ShapePolygon $ poly & over #points (transformVertices rigid)
-  ShapeLine line -> ShapeLine       $ line & over #points (fmap (transformCircle rigid))
+transformShape t = \case
+  ShapeCircle c     -> ShapeCircle  $ transformCircle t c
+  ShapeBox b        -> ShapeBox     $ transformBox t b
+  ShapePolygon poly -> ShapePolygon $ poly & over #points (transformVertices t)
+  ShapeLine line    -> ShapeLine    $ line & over #points (fmap (transformCircle t))
 
 
 transformParts :: Rigid -> Set Int -> Shape -> Shape
-transformParts rigid parts = \case
-  ShapeCircle c      -> ShapeCircle $ transformCircle rigid c
-  ShapeBox b        -> ShapeBox     $ transformBoxParts rigid parts b
-  ShapePolygon poly -> ShapePolygon $ transformPolygonParts rigid parts poly
-  ShapeLine line    -> ShapeLine    $ transformLineParts rigid parts line
+transformParts t parts = \case
+  ShapeCircle c      -> ShapeCircle $ transformCircle t c
+  ShapeBox b        -> ShapeBox     $ transformBoxParts t parts b
+  ShapePolygon poly -> ShapePolygon $ transformPolygonParts t parts poly
+  ShapeLine line    -> ShapeLine    $ transformLineParts t parts line
 
 
 
-deleteParts :: Set Int -> Shape -> Maybe Shape
+-- deleteParts :: Set Int -> Shape -> Maybe Shape
+-- deleteParts parts = \case
+--   ShapeCircle _     -> Nothing
+--   ShapeBox _        -> Nothing
+--   ShapePolygon (Polygon points)  -> ShapePolygon . Polygon <$> nonEmpty (without parts points)
+--   ShapeLine    (WideLine points) -> ShapeLine . WideLine   <$> nonEmpty (without parts points)
+
+
+deleteParts :: Set Int -> Shape -> AnnotationPatch
 deleteParts parts = \case
-  ShapeCircle _     -> Nothing
-  ShapeBox _        -> Nothing
-  ShapePolygon (Polygon points)  -> ShapePolygon . Polygon <$> nonEmpty (without parts points)
-  ShapeLine    (WideLine points) -> ShapeLine . WideLine   <$> nonEmpty (without parts points)
-
-
-
-modifyShapes :: (a -> Shape -> Maybe Shape) ->  Map AnnotationId a -> Editor ->  DocumentPatch
-modifyShapes f m doc = PatchAnns $ M.intersectionWith f' m (doc ^. #annotations) where
-  f' a annot  = case f a (annot ^. #shape) of
-    Nothing    -> Delete
-    Just shape -> Modify (annot & #shape .~ shape)
-
-
-setClassEdit ::  ClassId -> Set AnnotationId -> Editor -> DocumentPatch
-setClassEdit classId parts doc = PatchAnns $ M.intersectionWith f (setToMap' parts) (doc ^. #annotations) where
-  f _ annot = Modify (annot & #label .~ classId)
-
-deletePartsEdit ::   DocParts -> Editor -> DocumentPatch
-deletePartsEdit = modifyShapes deleteParts
+  ShapeCircle _     -> Delete
+  ShapeBox _        -> Delete
+  ShapePolygon (Polygon points)  -> error "TODO: deleteParts"
+  ShapeLine    (WideLine points) -> error "TODO: deleteParts"
 
 
 
 
-
-transformPartsEdit ::  Rigid -> DocParts -> Editor ->  DocumentPatch
-transformPartsEdit  rigid = modifyShapes (\parts -> Just . transformParts rigid parts)
-
-transformEdit ::  Rigid -> Set AnnotationId -> Editor ->  DocumentPatch
-transformEdit  rigid ids  = modifyShapes (const $ Just . transformShape rigid) (setToMap' ids)
-
-clearAllEdit :: Editor -> DocumentPatch
-clearAllEdit doc = PatchAnns $ const Delete <$> doc ^. #annotations
-
-
-replace :: AnnotationMap -> Editor -> DocumentPatch
-replace anns  Editor{annotations}  = PatchAnns $ changes <$> align annotations anns where
-  changes (These _ ann) = Modify ann
-  changes (This _)   = Delete
-  changes (That ann) = Add ann
-
-
-confirmDetectionEdit :: Map AnnotationId Bool -> Editor -> DocumentPatch
-confirmDetectionEdit ids doc = PatchAnns $ M.intersectionWith f ids (doc ^. #annotations) where
-  f _ ann =  Modify (confirmDetection x)
-
-confirmDetection :: Annotation -> Annotation
-confirmDetection = #detection . traverse . _1 .~ Confirmed
 
 
 addEdit :: [BasicAnnotation] -> Editor ->  DocumentPatch
@@ -366,6 +338,30 @@ patchMap :: (Ord k) =>  Map k (Maybe a) -> Map k a -> Map k a
 patchMap patch m = m `diff` patch <> M.mapMaybe id adds where
   adds = patch `M.difference` m
   diff = M.differenceWith (flip const)
+
+
+editAnnotations :: (a -> Annotation -> AnnotationPatch) ->  Map AnnotationId a -> Editor ->  DocumentPatch
+editAnnotations f m doc = PatchAnns $ M.intersectionWith f m (doc ^. #annotations)
+
+editShapes :: (a -> Shape -> AnnotationPatch) ->  Map AnnotationId a -> Editor ->  DocumentPatch
+editShapes f  = editAnnotations f' 
+  where f' a = f a . view #shape
+  
+setClassEdit ::  ClassId -> Set AnnotationId -> Editor -> DocumentPatch
+setClassEdit classId parts = editAnnotations (const (const (SetClass classId))) (setToMap' parts)
+
+deletePartsEdit ::   DocParts -> Editor -> DocumentPatch
+deletePartsEdit = editShapes deleteParts
+
+transformPartsEdit ::  Rigid -> DocParts -> Editor ->  DocumentPatch
+transformPartsEdit t = editAnnotations (\parts _ -> Transform t parts)
+
+clearAllEdit :: Editor -> DocumentPatch
+clearAllEdit doc = PatchAnns $ const Delete <$> doc ^. #annotations
+
+  
+confirmDetectionEdit :: Map AnnotationId Bool -> Editor -> DocumentPatch
+confirmDetectionEdit = editAnnotations $ \b -> const (SetTag (Confirmed b))
 
 editPatch :: Edit -> Editor -> DocumentPatch
 editPatch = \case
@@ -380,8 +376,11 @@ maybeError :: err -> Maybe a -> Either err a
 maybeError _ (Just a) = Right a
 maybeError err _      = Left err
 
-
+lookupAnn :: AnnotationId -> Map AnnotationId a -> Either EditError a
 lookupAnn k m  = maybeError (MissingKey k) (M.lookup k m)
+
+
+
 
 patchInverse :: Editor -> DocumentPatch -> Either EditError (DocumentPatch, DocumentPatch')
 patchInverse doc (PatchAnns e) = do
@@ -392,16 +391,29 @@ patchInverse doc (PatchAnns e) = do
 --   return (PatchArea (doc ^. #validArea), PatchArea' b)
 
 
+
+
 patchAnnotations :: AnnotationMap -> AnnotationId -> AnnotationPatch -> Either EditError (AnnotationPatch, Maybe Annotation)
 patchAnnotations anns k action  =  case action of
   Add ann   -> return (Delete, Just ann)
   Delete    -> do
     ann <- lookupAnn k anns
     return (Add ann, Nothing)
-  Modify ann -> do
-    ann' <- lookupAnn k anns
-    return (Modify ann', Just ann)
+  Transform t parts -> do
+    ann <- lookupAnn k anns
+    return  (Transform (invert t) parts, 
+      Just (over #shape (transformParts t parts) ann))
 
+  SetClass c -> do
+    ann <- lookupAnn k anns
+    return (SetClass (ann ^. #label), Just (ann & #label .~ c))
+  SetTag tag -> do
+    ann <- lookupAnn k anns
+    (tag', _) <- maybeError (NoDetection k) (ann ^. #detection)
+    return (SetTag tag', Just (ann & #detection . traverse . _1 .~ tag))
+  
+
+  
 
 lastThreshold :: Session -> Float
 lastThreshold Session{threshold, history} = fromMaybe threshold (maybeLast thresholds) where

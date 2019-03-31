@@ -1275,12 +1275,14 @@ assignCat trainRatio n = if n `mod` (trainRatio + 1) == 0
   else CatTrain
 
 
+
+
 checkSubmission :: Submission -> Document -> Maybe ErrCode
 checkSubmission Submission{session, annotations} doc = ErrSubmit <$> 
-    (check (session ^. #initial ~= doc ^. #annotations) "Failed to match initial annotations (double submit?)"
+    (check (session ^. #initial ~= doc ^. #annotations) "Failed to match initial annotations"
     <|> check (checkReplay (session, annotations)) "Annotation replay failed consistency")
   
-  where check b msg = if b then Just msg else Nothing
+  where check b msg = if not b then Just msg else Nothing
 
 
 checkStore :: Store -> [(DocName, ImageCat)]
@@ -1413,3 +1415,6 @@ updateImage Document{..} = TrainImage
 
 exportImage :: Document -> TrainImage
 exportImage doc = (updateImage doc) {sessions = doc ^. #sessions}
+
+
+

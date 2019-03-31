@@ -336,7 +336,7 @@ isShown Annotation{detection} review (higher, lower) = fromMaybe (False, False) 
     Review      -> (False, False)
     Missed      -> (not (review && confidence >= lower), True)
     Detected    -> (not (review && confidence >= lower || confidence >= higher), confidence < higher)
-    Confirmed   -> (False, False)
+    Confirmed _ -> (False, False)
 
 
 
@@ -590,7 +590,7 @@ actions scene@Scene{..} = holdWorkflow $
     docCommand (const DocUndo) (select shortcut ShortUndo)
     docCommand (const DocRedo) (select shortcut ShortRedo)
 
-    return (defaultCursor, leftmost [beginSelectRect, beginDragSelection, beginDraw, beginPan, selectArea <$ select shortcut ShortArea])
+    return (defaultCursor, leftmost [beginSelectRect, beginDragSelection, beginDraw, beginPan])
 
   -- Translate dragged annotations
   drag origin doc target
@@ -628,20 +628,20 @@ actions scene@Scene{..} = holdWorkflow $
     return ("crosshair", base <$ finish )
 
 
-  selectArea = editAction $ do
-    let  imageBox = Box (V2 0 0) (fromDim (snd image))
-         maybeIntersection b = do
-            guard (boxArea b > eps)
-            boxIntersection imageBox b
+  -- selectArea = editAction $ do
+  --   let  imageBox = Box (V2 0 0) (fromDim (snd image))
+  --        maybeIntersection b = do
+  --           guard (boxArea b > eps)
+  --           boxIntersection imageBox b
 
-    selectedArea <- switchHold def $ ffor mouseDownAt $ \p1 ->
-      (maybeIntersection . makeBox p1 <$> mouse)
+  --   selectedArea <- switchHold def $ ffor mouseDownAt $ \p1 ->
+  --     (maybeIntersection . makeBox p1 <$> mouse)
 
-    let doneEdit      = current selectedEdit `tag` mouseUp LeftButton
-        selectedEdit = (Just . EditSetArea) <$> selectedArea
+  --   let doneEdit      = current selectedEdit `tag` mouseUp LeftButton
+  --       selectedEdit = (Just . EditSetArea) <$> selectedArea
 
-    editCommand (filterMaybe doneEdit)
-    return ("crosshair", selectedEdit, base <$ doneEdit)
+  --   editCommand (filterMaybe doneEdit)
+  --   return ("crosshair", selectedEdit, base <$ doneEdit)
 
 
   rectSelect p1 = action $ do
