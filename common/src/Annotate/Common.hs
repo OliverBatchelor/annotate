@@ -763,7 +763,7 @@ fromBasic BasicAnnotation{..} = Annotation{..} where
   detection = Nothing
 
 toBasic :: Annotation -> BasicAnnotation
-toBasic Annotation{..} = BasicAnnotation{..}  
+toBasic Annotation{shape, label} = BasicAnnotation{shape, label}  
 
 
 
@@ -840,3 +840,5 @@ makePrisms ''ServerMsg
 makePrisms ''Shape
 
 makePrisms ''DetectionTag
+makePrisms ''DocumentPatch
+makePrisms ''AnnotationPatch

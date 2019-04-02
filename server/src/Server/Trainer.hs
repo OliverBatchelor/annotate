@@ -1,7 +1,7 @@
 module Server.Trainer where
 
 import Server.Common
-import Server.Store (exportImage, updateImage)
+import Server.Export (exportImage, updateImage)
 -- import Server.Client (detectNext)
 import Server.Document
 

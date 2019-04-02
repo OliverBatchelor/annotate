@@ -19,7 +19,7 @@ executable server
   ghc-options:         -O2 -threaded -rtsopts -with-rtsopts=-N -optl-static -optl-pthread
   main-is:             Main.hs
   other-modules:        Server.Client, Server.Common, Server.Document,
-                        Server.Options, Server.Store, Server.Trainer,
+                        Server.Options, Server.Store, Server.Trainer, Server.Export,
                         Image
 
   default-extensions:  NoImplicitPrelude, DuplicateRecordFields,

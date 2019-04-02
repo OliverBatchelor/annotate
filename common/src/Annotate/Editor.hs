@@ -47,7 +47,11 @@ data Editor = Editor
 
 makePrisms ''DocumentPatch'
 makePrisms ''EditCmd
-makePrisms ''DocumentPatch
+
+
+isAnnotated :: Document -> Bool
+isAnnotated = not . isNew . view (#info . #category)
+
 
 isNew :: ImageCat -> Bool
 isNew cat = cat == CatNew || cat == CatDiscard
@@ -199,6 +203,11 @@ takeRedo :: Editor -> Either EditError (DocumentPatch, [DocumentPatch])
 takeRedo doc = maybeError EmptyRedos $ uncons (doc ^. #redos)
 
 
+applyPatch :: DocumentPatch -> Editor -> Either EditError (DocumentPatch, Editor)
+applyPatch e editor = do
+  (inverse, patch) <- patchInverse editor e
+  return (inverse, patchDocument patch editor)
+
 
 applyUndo :: Editor -> Either EditError  (DocumentPatch', Editor)
 applyUndo doc = do
@@ -223,8 +232,9 @@ toEnumSet = S.mapMonotonic toEnum . S.filter (\i -> i >= lower && i <= upper)
   where (lower, upper) = (fromEnum (minBound :: a), fromEnum (maxBound :: a))
 
 
-transformBoxParts :: Rigid -> Set Int -> Box -> Box
-transformBoxParts rigid parts = transformCorners rigid (toEnumSet parts)
+transformBoxParts :: Rigid -> Set Int -> Box -> (Box, Set Int)
+transformBoxParts t parts box = (box', S.mapMonotonic fromEnum corners) where
+  (box', corners) = transformCorners t (toEnumSet parts) box
 
 sides :: Set Corner -> (Bool, Bool, Bool, Bool)
 sides corners =
@@ -234,19 +244,39 @@ sides corners =
     , corner BottomLeft  || corner BottomRight
     ) where corner = flip S.member corners
 
-transformCorners :: Rigid -> Set Corner -> Box -> Box
-transformCorners (s, V2 tx ty) corners = translateBox  . scaleBox scale where
+flipH :: Corner -> Corner
+flipH TopLeft = TopRight
+flipH TopRight = TopLeft
+flipH BottomLeft = BottomRight
+flipH BottomRight = BottomLeft
+
+flipV :: Corner -> Corner
+flipV TopLeft = BottomLeft
+flipV TopRight = BottomRight
+flipV BottomLeft = TopLeft
+flipV BottomRight = TopRight
+
+
+
+remapCorners :: Set Corner -> Box -> (Box, Set Corner)
+remapCorners corners (Box l u) = (getBounds [l, u], remapped) where
+  remapped = S.fromList (mapCorner <$> S.toList corners)
+
+  (V2 fx fy) = liftI2 (>) l u
+  mapCorner = if fx then flipH else id . if fy then flipV else id
+
+
+transformCorners :: Rigid -> Set Corner -> Box -> (Box, Set Corner)
+transformCorners (s, V2 tx ty) corners = remapCorners corners . translateBox  . scaleBox scale where
   scale = V2 (if left && right then s else 1)
              (if top && bottom then s else 1)
 
-  translateBox (Box (V2 lx ly) (V2 ux uy)) = getBounds
-    [ V2 (lx + mask left * tx) (ly + mask top * ty)
-    , V2 (ux + mask right * tx) (uy + mask bottom * ty)
-    ]
+  translateBox (Box (V2 lx ly) (V2 ux uy)) = Box
+      (V2 (lx + mask left * tx) (ly + mask top * ty))
+      (V2 (ux + mask right * tx) (uy + mask bottom * ty))
 
   mask b = if b then 1 else 0
   (left, right, top, bottom) = sides corners
-
 
 _subset indexes = traversed . ifiltered (const . flip S.member indexes)
 
@@ -301,12 +331,14 @@ transformShape t = \case
   ShapeLine line    -> ShapeLine    $ line & over #points (fmap (transformCircle t))
 
 
-transformParts :: Rigid -> Set Int -> Shape -> Shape
+transformParts :: Rigid -> Set Int -> Shape -> (Shape, Set Int)
 transformParts t parts = \case
-  ShapeCircle c      -> ShapeCircle $ transformCircle t c
-  ShapeBox b        -> ShapeBox     $ transformBoxParts t parts b
-  ShapePolygon poly -> ShapePolygon $ transformPolygonParts t parts poly
-  ShapeLine line    -> ShapeLine    $ transformLineParts t parts line
+  ShapeCircle c      -> (ShapeCircle $ transformCircle t c, parts)
+  ShapeBox b        -> (ShapeBox b', parts')
+    where (b', parts') = transformBoxParts t parts b
+
+  ShapePolygon poly -> (ShapePolygon $ transformPolygonParts t parts poly, parts)
+  ShapeLine line    -> (ShapeLine    $ transformLineParts t parts line, parts)
 
 
 
@@ -401,8 +433,8 @@ patchAnnotations anns k action  =  case action of
     return (Add ann, Nothing)
   Transform t parts -> do
     ann <- lookupAnn k anns
-    return  (Transform (invert t) parts, 
-      Just (over #shape (transformParts t parts) ann))
+    let (shape', parts') = transformParts t parts (ann ^. #shape)
+    return  (Transform (invert t) parts', Just (ann & #shape .~ shape'))
 
   SetClass c -> do
     ann <- lookupAnn k anns
@@ -427,29 +459,34 @@ editCmd (_, HistoryRedo) = Just DocRedo
 editCmd (_, HistoryEdit e) = Just (DocEdit e)
 editCmd _ = Nothing
 
-replay :: Session -> Editor
-replay session = foldl (flip applyCmd) editor cmds where
+replay :: Session -> (Editor, BasicAnnotationMap)
+replay session = (editor', result) where
+  cmds   = catMaybes (editCmd <$> session ^. #history)
+  editor = openSession "" session
+  editor' = foldl (flip applyCmd) editor cmds
+  result = thresholdDetections (lastThreshold session) (editor' ^. #annotations)
+
+
+replays :: Session -> (Editor, [(EditCmd, Editor)])
+replays session = (editor, zip cmds editors) where
   editor = openSession "" session
   cmds   = catMaybes (editCmd <$> session ^. #history)
-
--- replays :: Session -> (Editor, [(EditCmd, Editor)])
--- replays (t, open, entries) = (editor, zip cmds editors) where
---   editor = openSession "" t open 
---   cmds   = catMaybes $ editCmd <$> entries
---   editors = drop 1 $ scanl (flip applyCmd) editor cmds
+  editors = drop 1 $ scanl (flip applyCmd) editor cmds
 
 checkReplay :: (Session, BasicAnnotationMap) -> Bool
-checkReplay (session, result) = replayed ~= result where
-  replayed  =  thresholdDetections t (view #annotations (replay session))
-  t = lastThreshold session
+checkReplay (session, result) = snd (replay session) ~= result 
 
 
 sessionResults :: [Session] -> BasicAnnotationMap -> [(Session, BasicAnnotationMap)]
 sessionResults sessions final = zip sessions (drop 1 results <> [final])
   where results  = view #initial <$> sessions 
 
+documentSessions :: Document -> [(Session, BasicAnnotationMap)]
+documentSessions Document{sessions, annotations} = sessionResults sessions annotations
+
 
 checkReplays :: Document -> Bool
-checkReplays doc = all checkReplay results
-  where results = sessionResults (doc ^. #sessions) (view #annotations doc)
+checkReplays = all checkReplay . documentSessions
+
+
 

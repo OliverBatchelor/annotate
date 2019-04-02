@@ -31,6 +31,7 @@ import qualified Annotate.Common as Ann
 import qualified Server.Options as Opt
 
 import Server.Store
+import Server.Export
 import Server.Client
 import Server.Trainer
 

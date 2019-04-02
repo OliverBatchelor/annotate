@@ -15,7 +15,6 @@ import Data.List (transpose, (!!), takeWhile, dropWhile, scanl)
 import Control.Lens (hasn't, _Cons)
 
 import Data.Maybe (fromJust)
-
 import Annotate.Editor
 
 
@@ -1373,48 +1372,3 @@ initialStore config = Store
   , trainer = def
   , preferences = mempty
   }
-
-
-exportCollection :: Store -> TrainCollection
-exportCollection Store{..} = TrainCollection
-  { config = config
-  , images = M.elems (exportImage <$> images)
-  }
-
-
-importCollection :: TrainCollection -> Store
-importCollection TrainCollection{..} = Store
-  { config = config
-  , images = M.fromList (importImage <$> images)
-  , trainer = def
-  , preferences = def
-  }
-
-importImage :: TrainImage -> (DocName, Document)
-importImage TrainImage{..} = (imageFile, document) where
-  document = emptyDoc imageFile info
-    & #annotations .~ annotations
-
-  info = (defaultInfo imageFile image)
-    {modified = Nothing, category = category, numAnnotations = length annotations, image = image}
-
-  image = ImageInfo {size = imageSize, creation = imageCreation}
-
-updateImage :: Document -> TrainImage
-updateImage Document{..} = TrainImage
-  { imageFile = name
-  , imageSize = info ^. #image . #size
-  , naturalKey = info ^. #naturalKey
-  , imageCreation = info ^. #image . #creation
-  , category  = info ^. #category
-  , annotations = annotations
-  , sessions = []
-  , detections = detections
-  } 
-
-
-exportImage :: Document -> TrainImage
-exportImage doc = (updateImage doc) {sessions = doc ^. #sessions}
-
-
-

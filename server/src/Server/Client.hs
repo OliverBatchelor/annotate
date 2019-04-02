@@ -17,6 +17,7 @@ import qualified Network.WebSockets             as WS
 
 import Server.Document
 import Server.Store
+import Server.Export
 
 nextClient :: Map ClientId Client -> ClientId
 nextClient m = fromMaybe 0 (succ . fst . fst <$>  M.maxViewWithKey m)

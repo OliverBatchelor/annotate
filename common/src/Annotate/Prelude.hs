@@ -40,7 +40,7 @@ import Control.Lens as X
   , Lens, Lens', Traversal, Traversal'
   , at, ix, _1, _2, _3, _4
   , _Just, _Nothing, _Left, _Right
-  , cons, snoc, _head
+  , cons, snoc, _head, _tail, _last
   , imap, ifor, itraverse, ifor_, itraverse_
   )
 import Data.Aeson as X
@@ -80,6 +80,7 @@ import Prelude as X (
   Integer, Char, Float, Int, Double, String, FilePath, IO,
   curry, uncurry, flip, const, fst, snd, fromIntegral,
   round, floor,
+  foldl, foldr, scanl, scanr,
   ($), undefined, error, subtract, print, putStr, putStrLn)
 
 import Data.String as X (IsString(..))

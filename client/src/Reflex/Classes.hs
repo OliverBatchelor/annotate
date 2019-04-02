@@ -202,7 +202,6 @@ instance (Reflex t, SwitchHold t a, SwitchHold t b, SwitchHold t c, SwitchHold t
 
 instance Reflex t => SwitchHold t (Dynamic t a) where
   switchHold d ed = do
-
     let eb = current <$> ed
 
     b <- switchHold (current d) eb

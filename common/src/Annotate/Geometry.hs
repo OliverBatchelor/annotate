@@ -78,6 +78,12 @@ approxMatchF fa fb = and (alignWith approxMatch fa fb) where
   approxMatch (These a b) = a ~= b
   approxMatch _ = False
   
+
+approxDiffF :: (ApproxEq a, Ord k) => Map k a -> Map k a -> Map k (These a a)
+approxDiffF ma mb = M.filter (not . approxMatch) (align ma mb) where
+  approxMatch (These a b) = a ~= b
+  approxMatch _ = False
+
 instance (Ord k, ApproxEq a) => ApproxEq (Map k a) where
   (~=) = approxMatchF
 
