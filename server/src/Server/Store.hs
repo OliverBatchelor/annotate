@@ -1150,7 +1150,6 @@ $(deriveSafeCopy 0 'base ''OpenSession)
 $(deriveSafeCopy 0 'base ''Session)
 $(deriveSafeCopy 0 'base ''OpenType)
 
-
 $(deriveSafeCopy 0 'base ''DocumentPatch)
 $(deriveSafeCopy 0 'base ''AnnotationPatch)
 

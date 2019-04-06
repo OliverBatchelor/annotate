@@ -142,6 +142,28 @@ data FromTrainer
     deriving (Show, Generic)
 
 
+data AnnCreated 
+  = CreatedAdd
+  | CreatedConfirm Detection
+  | CreatedDetect Detection
+  deriving (Show, Generic)
+
+
+data AnnStatus
+  = StatusActive BasicAnnotation
+  | StatusDeleted 
+  | StatusThresholded
+  deriving (Show, Generic)
+
+data AnnSummary = AnnSummary 
+  { createdBy    :: AnnCreated
+  , transformed  :: Bool
+  , changedClass :: Bool
+  , status       :: AnnStatus
+  , actions      :: Int
+  } deriving (Show, Generic)
+
+
 -- Input/export types
 data TrainImage = TrainImage
   { imageFile   :: DocName
@@ -151,6 +173,7 @@ data TrainImage = TrainImage
   , naturalKey    :: NaturalKey
   , category    :: ImageCat
   , sessions     :: [Session]
+  , summaries    :: [AnnSummary]
   , detections  :: Maybe Detections
   } deriving (Show,  Generic)
 
@@ -182,12 +205,20 @@ instance FromJSON FromTrainer where parseJSON = Aeson.genericParseJSON options
 instance FromJSON TrainCollection where parseJSON = Aeson.genericParseJSON options
 instance FromJSON TrainImage where parseJSON = Aeson.genericParseJSON options
 
+instance FromJSON AnnSummary where parseJSON = Aeson.genericParseJSON options
+instance FromJSON AnnStatus where parseJSON = Aeson.genericParseJSON options
+instance FromJSON AnnCreated where parseJSON = Aeson.genericParseJSON options
+
+
 instance ToJSON DetectRequest where toJSON = Aeson.genericToJSON options
 instance ToJSON ToTrainer where toJSON = Aeson.genericToJSON options
 instance ToJSON FromTrainer where toJSON = Aeson.genericToJSON options
 instance ToJSON TrainCollection where toJSON = Aeson.genericToJSON options
 instance ToJSON TrainImage where toJSON = Aeson.genericToJSON options
 
+instance ToJSON AnnSummary where toJSON = Aeson.genericToJSON options
+instance ToJSON AnnStatus where toJSON = Aeson.genericToJSON options
+instance ToJSON AnnCreated where toJSON = Aeson.genericToJSON options
 
 
 -- Collection of miscellaneous utilities / common functions
