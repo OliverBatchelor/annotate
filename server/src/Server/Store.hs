@@ -721,7 +721,6 @@ data Submission0 = Submission0
   } deriving (Generic, Show)      
 
 
-
 migrateSessions :: [HistoryPair] -> [Session]
 migrateSessions = dropDuplicates .  historySessions' . reverse
 
@@ -742,7 +741,7 @@ dropDuplicates xs = xs
 
 migrateSession :: [HistoryPair] ->  Session
 migrateSession ((t, HistoryOpen open):entries) = makeSession open t entries
-migrateSession _ = error "migrateSession: missing open"
+migrateSession entries = error $ "migrateSession: missing open, " <> show entries
 
 makeSession ::  OpenSession -> UTCTime -> [HistoryPair] -> Session
 makeSession OpenSession{..} t entries = Session 
@@ -751,7 +750,7 @@ makeSession OpenSession{..} t entries = Session
 
 instance Migrate Submission where
   type MigrateFrom Submission = Submission2
-  migrate Submission2{..} = Submission{name, method, session = migrateSession history, annotations}
+  migrate Submission2{..} = Submission{name, method, session = migrateSession (reverse history), annotations}
 
 
 instance Migrate Submission2 where
@@ -1268,11 +1267,9 @@ countSubmitted = M.size . M.filter notNew
 
 
 assignCat :: Int -> Int -> ImageCat
-assignCat trainRatio n = if n `mod` (trainRatio + 1) == 0 
+assignCat trainRatio n = if n `mod` (trainRatio + 1) == trainRatio 
   then CatValidate
   else CatTrain
-
-
 
 
 checkSubmission :: Submission -> Document -> Maybe ErrCode
@@ -1286,7 +1283,6 @@ checkSubmission Submission{session, annotations} doc = ErrSubmit <$>
 checkStore :: Store -> [(DocName, ImageCat)]
 checkStore Store{images} = M.toList $ view (#info . #category) <$> 
   M.filter (not . checkReplays) images
-
 
 
 lookupPreferences :: Store -> UserId -> Preferences
