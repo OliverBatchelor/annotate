@@ -7,12 +7,11 @@
     client = ./client;
     stm-persist = ./stm-persist;
     reflex-html = ./reflex-html;
-    stitch = ./stitch;
+    #stitch = ./stitch;
   };
 
   shells = {
-#    ghc = ["common" "server" "client"];
-    ghc8_2_1 = ["common" "server" "client"];
+    ghc = ["common" "server" "client"];
     ghcjs = ["common" "client"];
   };
 })

@@ -34,7 +34,6 @@ import qualified Data.Sequence as Seq
 import Data.Dependent.Sum
 import Data.GADT.Compare
 
-
 data Updated t a = Updated { initial :: a, updates :: Event t a } deriving Generic
 data Patched t p = Patched (PatchTarget p) (Event t p) deriving Generic
 
@@ -60,11 +59,8 @@ runWithReplace' e = snd <$> runWithReplace blank e
 instance Reflex t => Default (Event t a) where
   def = never
 
-
 instance (Reflex t, Default a) => Default (Behavior t a) where
   def = pure def
-
-
 
 replaceHold :: (Adjustable t m, SwitchHold t a, MonadHold t m) => m a -> Event t (m a) -> m a
 replaceHold initial e = uncurry switchHold =<< runWithReplace initial e
@@ -78,14 +74,12 @@ runWithClose e = do
   return result
     where closed = return never
 
-
 active :: (MonadHold t m, DomBuilder t m, PostBuild t m) => Active t (m (Event t a)) -> m (Event t a)
 active (Static m) = m
 active (Dyn d) = dyn' never d
 
 dyn' :: (MonadHold t m, DomBuilder t m, PostBuild t m, SwitchHold t a) => a -> Dynamic t (m a) -> m a
 dyn' a d = dyn d >>= switchHold a
-
 
 holdDynUniq :: (MonadFix m, MonadHold t m, Eq a, Reflex t)
             => a -> Event t a -> m (Dynamic t a)
@@ -267,11 +261,11 @@ instance Reflex t => Sample t Dynamic where
 (<#>) :: Reflex t => Event t (a -> b) -> Behavior t a -> Event t b
 (<#>) e b = attachWith (\a f -> f a) b e
 
-filterMaybe :: FunctorMaybe f => f (Maybe a) -> f a
+filterMaybe :: Filterable f => f (Maybe a) -> f a
 filterMaybe = fmapMaybe id
 
 
-(<?>) :: FunctorMaybe f => (a -> Maybe b) -> f a -> f b
+(<?>) :: Filterable f => (a -> Maybe b) -> f a -> f b
 (<?>) = fmapMaybe
 
 (<??>) :: Reflex t => Behavior t (a -> Maybe b) -> Event t a -> Event t b
@@ -279,7 +273,7 @@ filterMaybe = fmapMaybe id
 
 
 
-(?>) :: FunctorMaybe f => Getting (First a) s a -> f s -> f a
+(?>) :: Filterable f => Getting (First a) s a -> f s -> f a
 (?>) getter f = preview getter <?> f
 
 infixl 4 ?>
@@ -288,14 +282,14 @@ infixl 4 <??>
 
 infixl 4 <#>
 
-instance (Reflex t, Num a) => Num (Dynamic t a) where
-  (+) = liftA2 (+)
-  (-) = liftA2 (-)
-  (*) = liftA2 (*)
-  negate  = fmap negate
-  abs     = fmap abs
-  signum  = fmap signum
-  fromInteger = pure . fromInteger
+--instance (Reflex t, Num a) => Num (Dynamic t a) where
+--  (+) = liftA2 (+)
+--  (-) = liftA2 (-)
+--  (*) = liftA2 (*)
+--  negate  = fmap negate
+--  abs     = fmap abs
+--  signum  = fmap signum
+--  fromInteger = pure . fromInteger
 
 defaults :: (Monoid a) => a -> Bool -> a
 defaults a b = if b then a else mempty

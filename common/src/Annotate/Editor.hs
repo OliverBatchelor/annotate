@@ -8,7 +8,6 @@ import qualified Data.Set as S
 import Annotate.Common
 
 import Data.List (uncons)
-import Data.Maybe (catMaybes)
 
 import Control.Lens hiding (uncons, without)
 import Data.List.NonEmpty (nonEmpty)

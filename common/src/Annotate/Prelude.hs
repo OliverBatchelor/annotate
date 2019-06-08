@@ -47,9 +47,10 @@ import Data.Aeson as X
   (ToJSON(..), FromJSON(..), FromJSONKey(..), ToJSONKey(..)
   , decode, decode', encode, decodeStrict, decodeStrict', eitherDecode, eitherDecodeStrict)
 
-import Data.List as X (reverse, intersperse, filter, zip, zip3, zipWith, zipWith3, lookup, take, drop, elem, uncons, repeat, replicate)
+import Data.List as X (reverse, intersperse,  zip, zip3, zipWith, zipWith3, lookup, take, drop, elem, uncons, repeat, replicate)
 import Data.List.NonEmpty as X (NonEmpty(..), nonEmpty)
-import Data.Maybe as X (fromMaybe, maybe, catMaybes, Maybe (..), maybeToList, isJust, isNothing)
+import Data.Maybe as X (fromMaybe, maybe, Maybe (..), maybeToList, isJust, isNothing)
+import Data.Witherable as X (Filterable(..), Witherable(..))
 import Data.Either as X (either, Either (..), isLeft, isRight)
 
 import Data.Int as X
