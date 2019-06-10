@@ -53,19 +53,19 @@ data Checkpoint = Checkpoint
   } deriving (Show, Eq, Generic)
 
 
-data Command where
-  CmdCategory     :: DocName -> ImageCat -> Command
-  CmdUpdate       :: Document -> UTCTime  -> Command
-  CmdModified     :: DocName -> UTCTime -> Command
-  CmdImages       :: [(DocName, DocInfo)] -> Command
-  CmdClass        :: ClassId -> Maybe ClassConfig -> Command
-  CmdSetRoot      :: Text -> Command
-  CmdCheckpoint   :: Checkpoint -> Command
-  CmdPreferences  :: UserId -> Preferences -> Command
-  CmdDetections   :: Map DocName Detections -> Command
-  CmdSubmit       :: UserId -> Submission -> UTCTime  -> Command
-  CmdTraining     :: Map DocName [TrainSummary] -> Command
-  CmdUpdateImages :: [(DocName, Maybe ImageInfo)] -> Command
+data Command
+ = CmdCategory DocName ImageCat 
+ | CmdUpdate        Document  UTCTime 
+ | CmdModified      DocName   UTCTime 
+ | CmdImages        [(DocName, DocInfo)] 
+ | CmdClass         ClassId  (Maybe ClassConfig)
+ | CmdSetRoot       Text  
+ | CmdCheckpoint    Checkpoint 
+ | CmdPreferences   UserId  Preferences 
+ | CmdDetections    (Map DocName Detections) 
+ | CmdSubmit        UserId Submission UTCTime  
+ | CmdTraining      (Map DocName [TrainSummary])
+ | CmdUpdateImages  [(DocName, Maybe ImageInfo)] 
     deriving (Show, Generic)
 
 

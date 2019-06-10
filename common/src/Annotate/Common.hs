@@ -573,7 +573,6 @@ instance FromJSON Submission     where parseJSON = Aeson.genericParseJSON option
 
 instance FromJSON Config       where parseJSON = Aeson.genericParseJSON options
 
-
 instance FromJSON DetectionStats      where parseJSON = Aeson.genericParseJSON options
 instance FromJSON a => FromJSON (Margins a)     where parseJSON = Aeson.genericParseJSON options
 
@@ -600,8 +599,6 @@ instance FromJSON ImageSelection   where parseJSON = Aeson.genericParseJSON opti
 instance FromJSON TrainerActivity where parseJSON = Aeson.genericParseJSON options
 instance FromJSON UserCommand where parseJSON = Aeson.genericParseJSON options
 instance FromJSON TrainSummary where parseJSON = Aeson.genericParseJSON options
-
-
 
 instance ToJSON ShapeConfig  where toJSON = Aeson.genericToJSON options
 instance ToJSON ClassConfig  where toJSON = Aeson.genericToJSON options
@@ -660,7 +657,6 @@ instance ToJSON ImageSelection  where toJSON = Aeson.genericToJSON options
 
 instance ToJSON Progress      where toJSON = Aeson.genericToJSON options
 instance ToJSON TrainerStatus where toJSON = Aeson.genericToJSON options
-
 
 instance ToJSON TrainerActivity   where toJSON = Aeson.genericToJSON options
 instance ToJSON UserCommand       where toJSON = Aeson.genericToJSON options

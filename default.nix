@@ -8,6 +8,7 @@
     stm-persist = ./stm-persist;
     reflex-html = ./reflex-html;
     #stitch = ./stitch;
+    flat = ./flat;
   };
 
   shells = {

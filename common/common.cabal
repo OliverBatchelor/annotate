@@ -18,10 +18,10 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Annotate.Common, 
-                       Annotate.Editor, 
-                       Annotate.Geometry, 
+                       Annotate.Editor,
+                       Annotate.Geometry,
                        Annotate.Sorting,
-                       Annotate.Prelude, 
+                       Annotate.Prelude,
                        Annotate.Colour
                        
   default-extensions:  DuplicateRecordFields, TemplateHaskell, FlexibleInstances, FlexibleContexts,
@@ -34,7 +34,7 @@ library
   build-depends:       base >=4.9 && <5,
                        aeson >= 1.0, mtl, containers, lens, generic-lens >= 1.1.0,
                        time, linear, text, semigroupoids, contravariant, dependent-map, dependent-sum, these,
-                       data-default, hashable, fuzzy, dependent-sum-template, ieee754, witherable 
+                       data-default, hashable, fuzzy, dependent-sum-template, ieee754, witherable, flat
 
   hs-source-dirs:      src
   default-language:    Haskell2010
