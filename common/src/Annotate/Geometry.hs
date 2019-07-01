@@ -224,21 +224,3 @@ type Vector = V2 Float
 
 type Size = V2 Float
 
-
-instance FromJSON Box
-instance FromJSON Circle
-instance FromJSON Polygon
-instance FromJSON WideLine
-instance FromJSON Segment
-
-instance FromJSON Extents
-instance FromJSON a => FromJSON (V2 a)
-
-instance ToJSON Box
-instance ToJSON Circle
-instance ToJSON Polygon
-instance ToJSON WideLine
-instance ToJSON Segment
-
-instance ToJSON Extents
-instance ToJSON a => ToJSON (V2 a)

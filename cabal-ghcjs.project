@@ -1,10 +1,6 @@
 compiler: ghcjs
 
 packages:
-  common/
-  server/
-  client/
-  stm-persist/
-  reflex-html/
-
+  common
+  client
 

@@ -22,7 +22,8 @@ library
                        Annotate.Geometry,
                        Annotate.Sorting,
                        Annotate.Prelude,
-                       Annotate.Colour
+                       Annotate.Colour,
+                       Annotate.TH
                        
   default-extensions:  DuplicateRecordFields, TemplateHaskell, FlexibleInstances, FlexibleContexts,
                        GADTs, MultiParamTypeClasses, TypeApplications, OverloadedStrings,
@@ -34,7 +35,7 @@ library
   build-depends:       base >=4.9 && <5,
                        aeson >= 1.0, mtl, containers, lens, generic-lens >= 1.1.0,
                        time, linear, text, semigroupoids, contravariant, dependent-map, dependent-sum, these,
-                       data-default, hashable, fuzzy, dependent-sum-template, ieee754, witherable, flat
+                       data-default, hashable, fuzzy, dependent-sum-template, ieee754, witherable,  template-haskell
 
   hs-source-dirs:      src
   default-language:    Haskell2010

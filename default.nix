@@ -1,18 +1,26 @@
-{}:
+{ reflex-platform ? import ./reflex-platform {} }:
 
-(import ./reflex-platform {}).project ({ pkgs, ... }: {
-  packages = {
-    common = ./common;
-    server = ./server;
-    client = ./client;
-    stm-persist = ./stm-persist;
-    reflex-html = ./reflex-html;
-    #stitch = ./stitch;
-    flat = ./flat;
+reflex-platform.project ({ pkgs, ... }: {
+
+  overrides = self: super: {
+    bytes = pkgs.haskell.lib.dontCheck super.bytes;
+    generic-lens = pkgs.haskell.lib.dontCheck super.generic-lens;
+    linear = pkgs.haskell.lib.dontCheck super.linear;
+    flat = pkgs.haskell.lib.dontCheck super.flat;
   };
 
+  packages = {
+    common = ./common;
+    client = ./client;
+    server = ./server;
+    reflex-html = ./reflex-html;
+    stm-persist = ./stm-persist;
+  };
+
+
   shells = {
-    ghc = ["common" "server" "client"];
+    ghc = ["common" "client" "server"];
     ghcjs = ["common" "client"];
   };
 })
+

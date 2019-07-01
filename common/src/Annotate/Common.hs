@@ -22,8 +22,17 @@ import qualified Data.Text as Text
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 
+--import qualified Data.Flat as Flat
+--import Data.Flat (Flat)
+
+import Data.Time.Calendar (Day(..))
+import Data.Maybe (fromJust)
+
+
 import Data.List (splitAt, elemIndex,  dropWhile)
 import Data.GADT.Compare.TH
+
+import Annotate.TH
 
 
 type AnnotationId = Int
@@ -459,7 +468,7 @@ data StatusKey a where
   PausedKey       :: StatusKey ()
   TrainingKey    :: StatusKey Progress
     
-  
+
 trainerKey :: TrainerStatus -> DSum StatusKey Identity
 trainerKey StatusDisconnected = DisconnectedKey :=> Identity ()
 trainerKey StatusPaused       = PausedKey   :=> Identity ()
@@ -498,169 +507,6 @@ data ClientMsg
       deriving (Generic, Show)
 
 
-dropCamel :: String -> String
-dropCamel name = case f name of 
-  ""     -> error ("empty JSON constructor after prefix removed: " <> name)
-  result -> result
-  where
-    f = drop 1 . dropWhile (/= '_') . camel 
-
-camel :: String -> String 
-camel = Aeson.camelTo2 '_'
-
-options :: Aeson.Options
-options = Aeson.defaultOptions 
-  { Aeson.constructorTagModifier = dropCamel
-  , Aeson.fieldLabelModifier = Aeson.camelTo2 '_' 
-  }
-
-instance FromJSON Hash32 where
-  parseJSON (Aeson.String v) = return $ Hash32 $ read (Text.unpack v)
-  parseJSON _          = fail "expected string value"
-
-instance ToJSON Hash32 where
-  toJSON (Hash32 v) = Aeson.String (Text.pack (show v))
-
-
-instance ToJSON NaturalKey where
-  toJSON (NaturalKey xs) = toJSON (f <$> xs) where 
-    f (Left i)  = toJSON i
-    f (Right s) = toJSON s
-
-instance FromJSON NaturalKey where
-  parseJSON (Aeson.Array xs) = do 
-    values <- sequence (numOrInt <$> xs)
-    return (NaturalKey (toList values))
-      where numOrInt v = Left <$> parseJSON v <|> Right <$> parseJSON v
-
-  parseJSON _ = fail "expected array value"
-
-
-instance FromJSON ShapeConfig where parseJSON = Aeson.genericParseJSON options
-instance FromJSON ClassConfig where parseJSON = Aeson.genericParseJSON options
-
-instance FromJSON DetectionParams where parseJSON = Aeson.genericParseJSON options
-instance FromJSON AssignmentMethod where parseJSON = Aeson.genericParseJSON options
-
-instance FromJSON Preferences where parseJSON = Aeson.genericParseJSON options
-instance FromJSON DisplayPreferences where parseJSON = Aeson.genericParseJSON options
-
-instance FromJSON ImageCat    where parseJSON = Aeson.genericParseJSON options
-instance FromJSON Shape       where parseJSON = Aeson.genericParseJSON options
-instance FromJSON Annotation      where parseJSON = Aeson.genericParseJSON options
-instance FromJSON BasicAnnotation where parseJSON = Aeson.genericParseJSON options
-instance FromJSON DetectionTag        where parseJSON = Aeson.genericParseJSON options
-instance FromJSON Detection   where parseJSON = Aeson.genericParseJSON options
-instance FromJSON Detections   where parseJSON = Aeson.genericParseJSON options
-
-
-instance FromJSON AnnotationPatch where parseJSON = Aeson.genericParseJSON options
-instance FromJSON HistoryEntry    where parseJSON = Aeson.genericParseJSON options
-instance FromJSON OpenSession    where parseJSON = Aeson.genericParseJSON options
-instance FromJSON Session    where parseJSON = Aeson.genericParseJSON options
-instance FromJSON OpenType    where parseJSON = Aeson.genericParseJSON options
-
-instance FromJSON Edit    where parseJSON = Aeson.genericParseJSON options
-instance FromJSON EditCmd where parseJSON = Aeson.genericParseJSON options
-
-instance FromJSON Navigation    where parseJSON = Aeson.genericParseJSON options
-instance FromJSON ConfigUpdate  where parseJSON = Aeson.genericParseJSON options
-
-instance FromJSON Document     where parseJSON = Aeson.genericParseJSON options
-
-instance FromJSON SubmitType     where parseJSON = Aeson.genericParseJSON options
-instance FromJSON Submission     where parseJSON = Aeson.genericParseJSON options
-
-instance FromJSON Config       where parseJSON = Aeson.genericParseJSON options
-
-instance FromJSON DetectionStats      where parseJSON = Aeson.genericParseJSON options
-instance FromJSON a => FromJSON (Margins a)     where parseJSON = Aeson.genericParseJSON options
-
-instance FromJSON DocInfo      where parseJSON = Aeson.genericParseJSON options
-instance FromJSON ImageInfo      where parseJSON = Aeson.genericParseJSON options
-
-instance FromJSON TrainStats      where parseJSON = Aeson.genericParseJSON options
-instance FromJSON Collection   where parseJSON = Aeson.genericParseJSON options
-instance FromJSON ServerMsg    where parseJSON = Aeson.genericParseJSON options
-instance FromJSON ClientMsg    where parseJSON = Aeson.genericParseJSON options
-instance FromJSON ErrCode      where parseJSON = Aeson.genericParseJSON options
-
-
-instance FromJSON Progress      where parseJSON = Aeson.genericParseJSON options
-instance FromJSON TrainerStatus where parseJSON = Aeson.genericParseJSON options
-
-
-instance FromJSON SortKey       where parseJSON = Aeson.genericParseJSON options
-instance FromJSON FilterOption  where parseJSON = Aeson.genericParseJSON options
-instance FromJSON SortOptions   where parseJSON = Aeson.genericParseJSON options
-instance FromJSON ImageSelection   where parseJSON = Aeson.genericParseJSON options
-
-
-instance FromJSON TrainerActivity where parseJSON = Aeson.genericParseJSON options
-instance FromJSON UserCommand where parseJSON = Aeson.genericParseJSON options
-instance FromJSON TrainSummary where parseJSON = Aeson.genericParseJSON options
-
-instance ToJSON ShapeConfig  where toJSON = Aeson.genericToJSON options
-instance ToJSON ClassConfig  where toJSON = Aeson.genericToJSON options
-
-instance ToJSON DetectionParams where toJSON = Aeson.genericToJSON options
-instance ToJSON AssignmentMethod     where toJSON = Aeson.genericToJSON options
-instance ToJSON DisplayPreferences     where toJSON = Aeson.genericToJSON options
-instance ToJSON Preferences     where toJSON = Aeson.genericToJSON options
-
-instance ToJSON ImageCat    where toJSON = Aeson.genericToJSON options
-instance ToJSON Shape       where toJSON = Aeson.genericToJSON options  
-instance ToJSON Annotation  where toJSON = Aeson.genericToJSON options
-instance ToJSON BasicAnnotation where toJSON = Aeson.genericToJSON options
-
-instance ToJSON DetectionTag  where toJSON = Aeson.genericToJSON options
-instance ToJSON Detection where toJSON = Aeson.genericToJSON options
-instance ToJSON Detections where toJSON = Aeson.genericToJSON options
-
-
-instance ToJSON AnnotationPatch where toJSON = Aeson.genericToJSON options
-instance ToJSON HistoryEntry    where toJSON = Aeson.genericToJSON options
-
-instance ToJSON OpenSession where toJSON = Aeson.genericToJSON options
-instance ToJSON Session where toJSON = Aeson.genericToJSON options
-instance ToJSON OpenType where toJSON = Aeson.genericToJSON options
-
-instance ToJSON Edit    where toJSON = Aeson.genericToJSON options
-instance ToJSON EditCmd where toJSON = Aeson.genericToJSON options
-
-instance ToJSON Navigation    where toJSON = Aeson.genericToJSON options
-instance ToJSON ConfigUpdate  where toJSON = Aeson.genericToJSON options
-instance ToJSON Document  where toJSON = Aeson.genericToJSON options
-
-instance ToJSON SubmitType  where toJSON = Aeson.genericToJSON options
-instance ToJSON Submission  where toJSON = Aeson.genericToJSON options
-
-instance ToJSON Config    where toJSON = Aeson.genericToJSON options
-
-instance ToJSON DetectionStats   where toJSON = Aeson.genericToJSON options
-instance ToJSON a => ToJSON (Margins a)   where toJSON = Aeson.genericToJSON options
-
-instance ToJSON TrainStats   where toJSON = Aeson.genericToJSON options
-
-instance ToJSON DocInfo   where toJSON = Aeson.genericToJSON options
-instance ToJSON ImageInfo   where toJSON = Aeson.genericToJSON options
-
-instance ToJSON Collection  where toJSON = Aeson.genericToJSON options
-instance ToJSON ServerMsg   where toJSON = Aeson.genericToJSON options
-instance ToJSON ClientMsg   where toJSON = Aeson.genericToJSON options
-instance ToJSON ErrCode     where toJSON = Aeson.genericToJSON options
-
-instance ToJSON SortKey  where toJSON = Aeson.genericToJSON options
-instance ToJSON FilterOption where toJSON = Aeson.genericToJSON options
-instance ToJSON SortOptions  where toJSON = Aeson.genericToJSON options
-instance ToJSON ImageSelection  where toJSON = Aeson.genericToJSON options
-
-instance ToJSON Progress      where toJSON = Aeson.genericToJSON options
-instance ToJSON TrainerStatus where toJSON = Aeson.genericToJSON options
-
-instance ToJSON TrainerActivity   where toJSON = Aeson.genericToJSON options
-instance ToJSON UserCommand       where toJSON = Aeson.genericToJSON options
-instance ToJSON TrainSummary where toJSON = Aeson.genericToJSON options
 
 
 instance Default NaturalKey where
@@ -838,3 +684,154 @@ makePrisms ''Shape
 makePrisms ''DetectionTag
 makePrisms ''DocumentPatch
 makePrisms ''AnnotationPatch
+
+
+
+dropCamel :: String -> String
+dropCamel name = case f name of 
+  ""     -> error ("empty JSON constructor after prefix removed: " <> name)
+  result -> result
+  where
+    f = drop 1 . dropWhile (/= '_') . camel 
+
+camel :: String -> String 
+camel = Aeson.camelTo2 '_'
+
+options :: Aeson.Options
+options = Aeson.defaultOptions 
+  { Aeson.constructorTagModifier = dropCamel
+  , Aeson.fieldLabelModifier = Aeson.camelTo2 '_' 
+  }
+
+instance FromJSON Hash32 where
+  parseJSON (Aeson.String v) = return $ Hash32 $ read (Text.unpack v)
+  parseJSON _          = fail "expected string value"
+
+instance ToJSON Hash32 where
+  toJSON (Hash32 v) = Aeson.String (Text.pack (show v))
+
+instance ToJSON NaturalKey where
+  toJSON (NaturalKey xs) = toJSON (f <$> xs) where 
+    f (Left i)  = toJSON i
+    f (Right s) = toJSON s
+
+instance FromJSON NaturalKey where
+  parseJSON (Aeson.Array xs) = do 
+    values <- sequence (numOrInt <$> xs)
+    return (NaturalKey (toList values))
+      where numOrInt v = Left <$> parseJSON v <|> Right <$> parseJSON v
+
+  parseJSON _ = fail "expected array value"
+
+
+{-
+instance Flat Hash32
+instance Flat NaturalKey  
+
+instance Flat DiffTime where
+  encode = Flat.encode . diffTimeToPicoseconds
+  decode = picosecondsToDiffTime <$> Flat.decode
+
+  size dt = Flat.size (diffTimeToPicoseconds dt)
+
+instance Flat UTCTime where
+  encode (UTCTime (ModifiedJulianDay d) dt) = Flat.encode (d, dt)
+  decode = do 
+    (d, dt) <- Flat.decode 
+    return (UTCTime (ModifiedJulianDay d) dt)
+
+  size (UTCTime (ModifiedJulianDay d) dt) bits = Flat.size (d, dt) bits
+
+instance Flat a => Flat (Margins a)
+
+instance Flat a => Flat (Set a) where
+  encode = Flat.encode . S.toAscList
+  decode = S.fromDistinctAscList <$> Flat.decode
+  size  s = Flat.size (S.toAscList s)
+
+
+instance Flat a => Flat (NonEmpty a) where
+  encode = Flat.encode . toList
+  decode = fromJust . nonEmpty <$> Flat.decode
+  size  s = Flat.size (toList s)  
+
+instance Flat a => Flat (V2 a)
+-}
+
+instance FromJSON a => FromJSON (V2 a)
+instance ToJSON a => ToJSON (V2 a)
+
+
+makeInstances 
+  [ ''ShapeConfig
+  , ''ClassConfig
+  , ''DetectionParams
+  , ''AssignmentMethod
+  , ''Preferences
+  , ''DisplayPreferences
+  , ''Shape 
+  , ''Annotation     
+  , ''BasicAnnotation
+  , ''DetectionTag       
+  , ''Detection  
+  , ''Detections  
+
+
+  , ''AnnotationPatch
+  , ''HistoryEntry   
+  , ''OpenSession   
+  , ''Session   
+  , ''OpenType   
+
+  , ''Edit   
+  , ''EditCmd
+
+  , ''Navigation   
+  , ''ConfigUpdate 
+
+  , ''Document    
+
+  , ''SubmitType    
+  , ''Submission    
+
+  , ''Config      
+
+  , ''DetectionStats     
+
+  , ''DocInfo     
+  , ''ImageInfo     
+
+  , ''TrainStats     
+  , ''Collection  
+  , ''ServerMsg   
+  , ''ClientMsg   
+  , ''ErrCode     
+
+  , ''Progress     
+  , ''TrainerStatus
+
+
+  , ''SortKey      
+  , ''FilterOption 
+  , ''SortOptions  
+  , ''ImageSelection  
+
+  , ''ImageCat
+
+
+  , ''TrainerActivity
+  , ''UserCommand
+  , ''TrainSummary
+
+  , ''Box
+  , ''Circle
+  , ''Polygon
+  , ''WideLine
+  , ''Segment
+  
+  , ''Extents
+  ]
+
+
+instance FromJSON a => FromJSON (Margins a) where parseJSON = Aeson.genericParseJSON options
+instance ToJSON a => ToJSON (Margins a)     where toJSON    = Aeson.genericToJSON options

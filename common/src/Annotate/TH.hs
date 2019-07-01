@@ -8,15 +8,22 @@ import Language.Haskell.TH
 import Language.Haskell.TH.Quote
 import Language.Haskell.TH.Syntax
 
--- instance FromJSON ShapeConfig where parseJSON = Aeson.genericParseJSON options
-mkElems ::  Maybe String -> [ElementType] -> Q [Dec]
-mkElems ns elems = concat <$> traverse gen elems  where
-    gen (E name) = concat <$> traverse (\f -> f ns name) [mkElem', mkElem_, mkElem]
-    gen (C name) = mkChild_ ns name
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Types as Aeson
 
-helper :: String -> Type -> Exp -> [Dec]
-helper elemName typ f = [ SigD n typ, ValD (VarP n) (NormalB f) [], PragmaD (InlineP n Inline FunLike AllPhases) ]
-  where n = mkName elemName
+--import qualified Data.Flat as Flat
 
-mkElem' :: Maybe String -> String -> Q [Dec]
-mkElem' ns elemName = helper (elemName <> "'") <$> [t| Elem' |] <*> [| makeElem' ns elemName  |]
+makeInstances :: [Name] -> Q [Dec]
+makeInstances types = concat <$> traverse jsonInstance types
+
+
+
+jsonInstance :: Name -> Q [Dec]
+jsonInstance name = [d| 
+      instance Aeson.FromJSON $t where parseJSON = Aeson.genericParseJSON options 
+      instance Aeson.ToJSON $t   where toJSON = Aeson.genericToJSON options
+
+ --     instance Flat.Flat $t 
+  |] 
+ 
+    where t = return $ ConT name
