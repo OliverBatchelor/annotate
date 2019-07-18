@@ -27,6 +27,7 @@ import Scene.Viewport
 import Scene.View
 import Scene.Types
 import Scene.Events
+import Scene.Canvas
 
 import Scene.Events
 
@@ -64,19 +65,13 @@ import Stitch.Combinators
 import Linear.V3 (V3(..))
 
 
-main :: JSM ()
-main = Main.mainWidgetWithHead' (headWidget, bodyWidget)
+main :: Text -> JSM ()
+main host = Main.mainWidgetWithHead' (headWidget host, bodyWidget)
 
 
 
-headWidget :: forall t m. GhcjsBuilder t m => AppEnv t -> m Text
-headWidget env = do
-
-#ifdef DEBUG
-   let host = "localhost:3000"
-#else
-   host <- getLocationHost
-#endif
+headWidget :: forall t m. GhcjsBuilder t m => Text -> AppEnv t -> m Text
+headWidget host env = do
 
    Html.style [] $ text appStyle
    Html.style [] $ text bootstrap
@@ -221,15 +216,18 @@ sceneWidget cmds loaded = do
   dim <- holdDyn (800, 600) (view (#info . #image . #size) <$> loaded)
   viewport <- viewControls cmds dim
 
-
   rec 
     input <- holdInputs (current viewport) sceneEvents =<< windowInputs element
     let (action, maybeDoc, sceneEvents, selection) = r
  
+    -- element' <- canvas_ [class_ =: "expand"] 
+    sceneCanvas viewport action maybeDoc
+    -- logEvent (updated $ input ^. #mouse)
+
     (element, r) <- Svg.svg' [class_ =: "expand enable-cursor view", tabindex_ =: 0, version_ =: "2.0"] $ do
 
         focusOn element (oneOf _SubmitCmd cmds)
-        sceneDefines viewport =<< view #preferences
+        -- sceneDefines viewport =<< view #preferences
 
         inViewport viewport $ replaceHold'
             (documentEditor viewport input cmds <$> loaded)

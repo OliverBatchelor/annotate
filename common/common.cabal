@@ -33,7 +33,7 @@ library
                        TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving, TupleSections,
                        RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms, NoImplicitPrelude
   build-depends:       base >=4.9 && <5,
-                       aeson >= 1.0, mtl, containers, lens, generic-lens >= 1.1.0,
+                       aeson >= 1.0, mtl, containers, lens, generic-lens == 1.1.*,
                        time, linear, text, semigroupoids, contravariant, dependent-map, dependent-sum, these,
                        data-default, hashable, fuzzy, dependent-sum-template, ieee754, witherable,  template-haskell
 

@@ -31,8 +31,7 @@ import Linear.V3(V3(..))
 
 
 type Builder t m = (Adjustable t m, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m
-                   , MonadJSM (Performable m), PerformEvent t m, TriggerEvent t m, MonadJSM m
-                   , HasJSContext m, MonadJSM (Performable m), DomBuilderSpace m ~ GhcjsDomSpace,  PerformEvent t m)
+                   , TriggerEvent t m, HasJSContext m, DomRenderHook t m, MonadIO (Performable m), MonadJSM (Performable m), MonadJSM m, DomBuilderSpace m ~ GhcjsDomSpace,  PerformEvent t m)
 
 type AppEvent t = Event t [AppCommand]
 type AppBuilder t m = (Builder t m, EventWriter t [AppCommand] m, MonadReader (AppEnv t) m)

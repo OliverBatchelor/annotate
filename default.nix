@@ -7,6 +7,7 @@ reflex-platform.project ({ pkgs, ... }: {
     generic-lens = pkgs.haskell.lib.dontCheck super.generic-lens;
     linear = pkgs.haskell.lib.dontCheck super.linear;
     flat = pkgs.haskell.lib.dontCheck super.flat;
+    jsaddle-warp = pkgs.haskell.lib.dontCheck super.jsaddle-warp;
   };
 
   packages = {
@@ -15,6 +16,8 @@ reflex-platform.project ({ pkgs, ... }: {
     server = ./server;
     reflex-html = ./reflex-html;
     stm-persist = ./stm-persist;
+    jsaddle = ./jsaddle/jsaddle;
+    jsaddle-warp = ./jsaddle/jsaddle-warp;
   };
 
 

@@ -16,32 +16,27 @@ cabal-version:       >=1.10
 
 
 
-flag debug
-    Description: Enable debug support
-    Manual: True
-    Default: False
-
 executable client
-    main-is:      Main.hs
     if impl(ghcjs)
       Buildable: True
+      build-depends:       base, client, reflex-dom
+
+      main-is:      Main.hs
     else
-      Buildable: False
-
-    build-depends:       base, client
-
-    ghc-options:         -O2
-
+      Buildable: True
+      build-depends:       base, client, jsaddle-webkit2gtk, reflex-dom
+      main-is:      MainGtk.hs
+    
+    ghc-options:         -O2 -threaded
     default-language:    Haskell2010
+    default-extensions:  OverloadedStrings
     hs-source-dirs:      main
 
 
 library
-  if flag(debug)
-    cpp-options: -DDEBUG
 
   exposed-modules:     Reflex.Classes
-                      , Scene.Viewport, Scene.View, Scene.Types, Scene.Events
+                      , Scene.Viewport, Scene.View, Scene.Types, Scene.Events, Scene.Canvas
                       , Input.Events, Input.Window
                       , Client.Widgets, Client.Main, Client.Common, Client.Dialog
                       , Client.Class, Client.Select, Client.Images

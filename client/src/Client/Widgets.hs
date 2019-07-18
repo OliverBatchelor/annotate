@@ -152,8 +152,8 @@ toolButton' :: Builder t m => Text -> IconConfig t -> Text -> m (Event t ())
 toolButton' = toolButton (pure True)
 
 
-preload :: (AppBuilder t m) => Dynamic t Text -> m () 
-preload file = void $ do
+preload :: (AppBuilder t m) => Dynamic t Text -> m (ElemType t m)
+preload file =  do
     base <- view #basePath
     let toAbsolute path = base <> "/images/" <> path
     img_ [src_ ~: toAbsolute <$> file, class_ =: "preload"] 

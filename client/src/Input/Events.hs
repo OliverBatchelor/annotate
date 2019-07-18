@@ -82,7 +82,7 @@ rawElement e = return $ DOM.uncheckedCastTo DOM.HTMLElement (_element_raw e)
 focusOn :: (Builder t m) => ElemType t m -> Event t a -> m ()
 focusOn elem e = do 
   raw <- rawElement elem
-  performEvent_ (Element.focus raw <$ e)
+  requestDomAction_ (Element.focus raw <$ e)
 
 pollBoundingBox :: (GhcjsBuilder t m, MonadJSM m) => ElemType t m -> m (Dynamic t Box)
 pollBoundingBox e = do
@@ -90,7 +90,7 @@ pollBoundingBox e = do
   timer <- tickLossy (1.0/30.0) t0
   
   raw <- rawElement e
-  updates <- performEvent (getCoords raw <$ timer)
+  updates <- requestDomAction (getCoords raw <$ timer)
   let initial = Box (V2 0 0) (V2 0 0)
   
   holdUniqDyn =<< holdDyn initial updates

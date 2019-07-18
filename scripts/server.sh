@@ -1,2 +1,2 @@
 
-./cabal new-build server --project-file=cabal.project && `find ./dist-newstyle -type f -name server`  $@
+./cabal new-build server && `find ./dist-newstyle -type f -name server`  $@

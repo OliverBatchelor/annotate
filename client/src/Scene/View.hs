@@ -26,6 +26,9 @@ import Annotate.Geometry
 import Annotate.Common
 import Annotate.Editor
 
+import GHCJS.DOM.Types (CanvasStyle(..), CanvasRenderingContext2D(..), toJSString)
+
+
 import Debug.Trace
 
 transforms :: Viewport -> [Svg.Transform]
@@ -65,7 +68,7 @@ sceneDefines vp preferences = void $ defs [] $ do
     --     feBlend_         [in2_ =: "SourceGraphic", mode_ =: "normal"]
     
   where
-    zoomFactor x vp = x / (vp ^. #zoom)
+    -- zoomFactor x vp = x / (vp ^. #zoom)
 
     makeBox prefs vp = getBounds $ Extents (V2 0 0) (V2 s s)
       where s = (prefs ^. #controlSize) / (vp ^. #zoom)
@@ -122,8 +125,6 @@ sceneEvents k e = (k,) <$> leftmost
     [ SceneEnter <$ domEvent Mouseenter e
     , SceneLeave <$ domEvent Mouseleave e
     , SceneDown <$ domEvent Mousedown e
-    -- , SceneClick <$ domEvent Click e
-    -- , SceneDoubleClick <$ domEvent Dblclick e
     ]
 
 -- 
@@ -702,8 +703,8 @@ slideShow SceneInputs{keyCombo, keyUp} image (prev, next) = do
     , const 0 <$ keyUp Key.Control ]
 
 
-  forM_ slides $ \(k, image) -> do
-    imageView ((/= k) <$> position) image
+  -- forM_ slides $ \(k, image) -> do
+  --   imageView ((/= k) <$> position) image
 
   return position
 
@@ -717,6 +718,8 @@ slideShow SceneInputs{keyCombo, keyUp} image (prev, next) = do
       dec = clamp (start, end) . pred
 
 
+
+      
 sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart, SceneEvent))
 sceneView scene@Scene{..} = do
 
@@ -729,14 +732,15 @@ sceneView scene@Scene{..} = do
     instanceCols  <- holdUniqDyn (view #instanceColours <$> display)
     reviewing     <- holdUniqDyn (isReviewing <$> input ^. #keyboard <*> preferences)  
 
-    g [hidden_ ~: (/= 0) <$> position] $ do
-      events <- holdMergePatched =<< (incrementalMapWithUpdates annotations $ \k ann -> do
-        props     <- shapeProperties classMap thresholds reviewing instanceCols (isSelected k) k <$> holdUpdated ann
-        fmap (arrange k) <$> shapeView props ann)
+    -- g [hidden_ ~: (/= 0) <$> position] $ do
+      -- events <- holdMergePatched =<< (incrementalMapWithUpdates annotations $ \k ann -> do
+      --   props     <- shapeProperties classMap thresholds reviewing instanceCols (isSelected k) k <$> holdUpdated ann
+      --   fmap (arrange k) <$> shapeView props ann)
 
       -- maskOut (snd image) (view #validArea <$> currentEdit)
-      action <- actions scene
-      return (action, minElem <?> events)
+    action <- actions scene
+    return (action, never)
+      -- return (action, minElem <?> events)
       
   where
     isSelected = fanDynMap selection

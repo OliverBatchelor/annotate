@@ -37,11 +37,12 @@ windowDimensions = do
   e       <- wrapDomEvent window (`DOM.on` DOM.resize) getDim
   holdDyn initial e
 
-setTitle :: (PostBuild t m, MonadJSM m, Reflex t, PerformEvent t m, MonadJSM (Performable m)) => Dynamic t Text -> m ()
+setTitle :: (PostBuild t m, Reflex t, DomRenderHook t m) => Dynamic t Text -> m ()
 setTitle d = do
-  doc <- DOM.currentDocumentUnchecked
-
   postBuild <- getPostBuild
-  performEvent_ (DOM.liftJSM . Document.setTitle doc <$> leftmost [updated d, current d <@ postBuild])
+  requestDomAction_ (setTitle <$> leftmost [updated d, current d <@ postBuild])
   
-
+    where
+      setTitle t = do
+        doc <- DOM.currentDocumentUnchecked 
+        Document.setTitle doc t
