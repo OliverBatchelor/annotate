@@ -8,6 +8,7 @@ reflex-platform.project ({ pkgs, ... }: {
     linear = pkgs.haskell.lib.dontCheck super.linear;
     flat = pkgs.haskell.lib.dontCheck super.flat;
     jsaddle-warp = pkgs.haskell.lib.dontCheck super.jsaddle-warp;
+    reflex-dom-core = pkgs.haskell.lib.dontCheck super.reflex-dom-core;
   };
 
   packages = {

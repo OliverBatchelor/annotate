@@ -3,11 +3,10 @@ module Scene.Canvas where
 import Reflex.Classes
 import Builder.Element (ElemType)
 
-import qualified GHCJS.DOM as DOM
+import qualified GHCJS.DOM as DOM 
 import qualified GHCJS.DOM.Types as DOM
 import qualified GHCJS.DOM.EventM as DOM
 import qualified GHCJS.DOM.Element as DOM
-import qualified GHCJS.DOM.DOMRectReadOnly as DOM
 
 import qualified GHCJS.DOM.HTMLElement as DOM
 import qualified GHCJS.DOM.HTMLImageElement as DOM (getComplete)
@@ -85,7 +84,7 @@ setSize e (V2 w h) =  DOM.setWidth e w >> DOM.setHeight e h
 
 
 
-withContextOffscreen :: MonadDOM m => DOM.HTMLCanvasElement -> (CanvasRenderingContext2D -> m ()) -> m ()
+withContextOffscreen :: DOM.MonadJSM m => DOM.HTMLCanvasElement -> (CanvasRenderingContext2D -> m ()) -> m ()
 withContextOffscreen canvas f = void $ do
   doc <- currentDocumentUnchecked
 
@@ -140,7 +139,8 @@ sceneCanvas viewport action mDoc = do
   canvas <- rawCanvas e
 
   vp <- sample viewport
-  DOM.liftJSM $ setDim canvas (vp ^. #window)
+  let (V2 w h) = vp ^. #window
+  DOM.liftJSM $ setSize canvas (floor w, floor h)
   
   
   render <- requestDomAction (drawScene canvas image <$> updated state)
