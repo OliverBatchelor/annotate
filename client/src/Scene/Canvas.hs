@@ -14,6 +14,9 @@ import qualified GHCJS.DOM.HTMLImageElement as DOM (getComplete)
 import qualified GHCJS.DOM.HTMLCanvasElement as DOM
 import GHCJS.DOM.Types (CanvasStyle(..), CanvasRenderingContext2D(..), toJSString, RenderingContext)
 
+import Language.Javascript.JSaddle
+       (jsg, js, js1, jss, fun, valToNumber, syncPoint)
+
 import Scene.Viewport
 import Scene.Controller
 import Scene.Types
@@ -38,13 +41,9 @@ rawCanvas :: (DomBuilder t m, DomBuilderSpace m ~ GhcjsDomSpace) => ElemType t m
 rawCanvas e = return $ coerce (_element_raw e)
 
 
-getContext ::  (DOM.MonadJSM m) =>  DOM.HTMLCanvasElement -> m CanvasRenderingContext2D
-getContext e =  coerce <$> DOM.getContextUnchecked e ("2d" :: Text) ([] :: [DOM.JSVal])
+getContext2d ::  (DOM.MonadJSM m) =>  DOM.HTMLCanvasElement -> m CanvasRenderingContext2D
+getContext2d e =  coerce <$> DOM.getContextUnchecked e ("2d" :: Text) ([] :: [DOM.JSVal])
 
-setDim :: (DOM.MonadJSM m) => DOM.HTMLCanvasElement -> Vec -> m ()
-setDim e (V2 w h) =  do
-  DOM.setWidth e (floor w)
-  DOM.setHeight e (floor h)
 
 type DrawState = (Viewport, Action, Maybe Editor)
 
@@ -73,35 +72,52 @@ drawAnnotation context Annotation{shape} = case shape of
   (ShapePolygon p) -> error "not implemented"
 
 
-drawScene :: DOM.MonadJSM m => DOM.HTMLCanvasElement -> DOM.HTMLImageElement -> (DrawState, DrawState) -> m ()
-drawScene canvas image (prev, state)   = do
-
+withContext :: DOM.MonadJSM m => DOM.HTMLCanvasElement -> (CanvasRenderingContext2D -> m a) -> m a
+withContext canvas f = do
   context <- getContext canvas
+  f context
 
-  when (vp ^. #window /= vp' ^. #window) $ 
-    setDim canvas (vp ^. #window)
-  
-  C.resetTransform context
-  C.clearRect context 0 0 w h
+getSize :: DOM.HTMLCanvasElement -> m (Int, Int)
+getSize canvas = liftA2 (,) (DOM.getWidth canvas) (DOM.getHeight canvas)
 
-  transformView context vp   
+setSize :: (DOM.MonadJSM m) => DOM.HTMLCanvasElement -> (Int, Int) -> m ()
+setSize e (V2 w h) =  DOM.setWidth e w >> DOM.setHeight e h
 
-  complete <- DOM.getComplete image
-  when complete $
-    C.drawImage context (DOM.toCanvasImageSource image) 0 0
-    
-  C.setLineWidth context (2 / zoom)
 
-  forM_ doc $ \Editor{annotations} ->    
-    traverse (drawAnnotation context) annotations
 
-    where 
+withContextOffscreen :: MonadDOM m => DOM.HTMLCanvasElement -> (CanvasRenderingContext2D -> m ()) -> m ()
+withContextOffscreen canvas f = void $ do
+  doc <- currentDocumentUnchecked
 
-      (vp, action, doc) = state
-      vp' = prev ^. _1
+  (w, h) <- getSize canvas
+  offScreen <- jsg2 "OffscreenCanvas" w h
 
-      zoom = vp ^. #zoom
-      (V2 w h) = vp ^. #window
+  getContext offScreen >>= paint
+
+
+
+drawScene :: DOM.MonadJSM m => DOM.HTMLCanvasElement -> DOM.HTMLImageElement -> DrawState -> m ()
+drawScene canvas image (vp, action, doc)   = do
+  setSize (floor w, floor h)
+  withContext canvas $ \context -> do
+    C.resetTransform context
+    C.clearRect context 0 0 w h
+
+    transformView context vp   
+
+    complete <- DOM.getComplete image
+    when complete $
+      C.drawImage context (DOM.toCanvasImageSource image) 0 0
+      
+    C.setLineWidth context (2 / zoom)
+
+    forM_ doc $ \Editor{annotations} ->    
+      traverse (drawAnnotation context) annotations
+
+  where 
+
+    zoom = vp ^. #zoom
+    (V2 w h) = vp ^. #window
   
 
 loadImage :: (AppBuilder t m) => Dynamic t Text -> m DOM.HTMLImageElement 
@@ -127,7 +143,7 @@ sceneCanvas viewport action mDoc = do
   DOM.liftJSM $ setDim canvas (vp ^. #window)
   
   
-  render <- requestDomAction (drawScene canvas image <$> current state `attach` updated state)
+  render <- requestDomAction (drawScene canvas image <$> updated state)
   return render
   
 
