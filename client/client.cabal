@@ -19,9 +19,9 @@ cabal-version:       >=1.10
 executable client
     if impl(ghcjs)
       Buildable: True
-      build-depends:       base, client, reflex-dom
+      build-depends:  base, client, reflex-dom
 
-      main-is:      Main.hs
+      main-is:      MainWeb.hs
     else
       Buildable: True
       build-depends:       base, client, jsaddle-webkit2gtk, reflex-dom
@@ -32,11 +32,9 @@ executable client
     default-extensions:  OverloadedStrings
     hs-source-dirs:      main
 
-
 library
-
   exposed-modules:     Reflex.Classes
-                      , Scene.Viewport, Scene.View, Scene.Types, Scene.Events, Scene.Canvas
+                      , Scene.Viewport, Scene.Controller, Scene.Types, Scene.Events, Scene.Canvas
                       , Input.Events, Input.Window
                       , Client.Widgets, Client.Main, Client.Common, Client.Dialog
                       , Client.Class, Client.Select, Client.Images

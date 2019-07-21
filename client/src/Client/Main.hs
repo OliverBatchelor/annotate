@@ -24,7 +24,7 @@ import Control.Monad.Reader
 import Control.Lens (notNullOf, Getting, firstOf, cons)
 
 import Scene.Viewport
-import Scene.View
+import Scene.Controller
 import Scene.Types
 import Scene.Events
 import Scene.Canvas
@@ -323,15 +323,11 @@ documentEditor viewport input cmds document = do
         setClassCmd   = attachWithMaybe setClassCommand (current editor) (oneOf _ClassCmd cmds)
         editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd]
         
-        -- detectionsCmd = DocEdit . EditDetection <$> view #detections env
 
   -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $ oneOf _SelectCmd cmds
 
   logEvent errors
-
-
-  -- history <- foldDyn appendHistory (editor0 ^. #history) entry
 
   rec
     annotations  <- holdIncremental (editor0 ^. #annotations) (annotationsPatch <?> patch)
@@ -340,7 +336,7 @@ documentEditor viewport input cmds document = do
 
     -- logEvent (updated (pending <$> document <*> action))
 
-    (action, sceneEvents) <- sceneView $ Scene
+    action <- controller $ Scene
       { image      = (document ^. #name, document ^. #info . #image . #size)
       , neighbours = neighbourFrames (document ^. #name) 3 images0
       -- , viewport = viewport
@@ -360,7 +356,7 @@ documentEditor viewport input cmds document = do
       , viewport     = viewport
       }
     
-  return (action, Just <$> editor, sceneEvents, selection)
+  return (action, Just <$> editor, never, selection)
       -- withHistory editor entries = Just (editor & #session . #history .~ entries)
 
  

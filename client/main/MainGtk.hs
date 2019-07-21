@@ -1,3 +1,5 @@
+module Main where
+
 import qualified Client.Main as M
 
 import Language.Javascript.JSaddle.WebKitGTK

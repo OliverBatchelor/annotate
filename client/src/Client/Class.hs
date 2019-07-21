@@ -165,7 +165,6 @@ classesTab :: forall t m. AppBuilder t m => m ()
 classesTab = column "h-100 p-0 v-spacing-2" $ do
   classes  <- askClasses
   selected <- view #currentClass
-
   selection <- view #selection
 
   (Shortcuts shortcut) <- askShortcuts

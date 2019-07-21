@@ -1,4 +1,4 @@
-module Scene.View where
+module Scene.Controller where
 
 import Annotate.Prelude
 import Client.Common
@@ -702,9 +702,8 @@ slideShow SceneInputs{keyCombo, keyUp} image (prev, next) = do
     , inc <$ keyCombo Key.ArrowRight [Key.Control]
     , const 0 <$ keyUp Key.Control ]
 
-
-  -- forM_ slides $ \(k, image) -> do
-  --   imageView ((/= k) <$> position) image
+  forM_ slides $ \(k, image) -> do
+    imageView ((/= k) <$> position) image
 
   return position
 
@@ -717,30 +716,15 @@ slideShow SceneInputs{keyCombo, keyUp} image (prev, next) = do
       inc = clamp (start, end) . succ
       dec = clamp (start, end) . pred
 
-
-
-      
-sceneView :: AppBuilder t m => Scene t -> m (Dynamic t Action, Event t (DocPart, SceneEvent))
-sceneView scene@Scene{..} = do
+    
+controller :: AppBuilder t m => Scene t -> m (Dynamic t Action)
+controller scene@Scene{..} = do
 
   display <- holdUniqDyn $ view #display <$> preferences 
   g [style_ ~: (makeStyle <$> viewport <*> display)] $ do
-    -- imageView image
+
     position <- slideShow input image neighbours
-
-    classMap      <- holdUniqDyn (classProperties <$> config <*> display)
-    instanceCols  <- holdUniqDyn (view #instanceColours <$> display)
-    reviewing     <- holdUniqDyn (isReviewing <$> input ^. #keyboard <*> preferences)  
-
-    -- g [hidden_ ~: (/= 0) <$> position] $ do
-      -- events <- holdMergePatched =<< (incrementalMapWithUpdates annotations $ \k ann -> do
-      --   props     <- shapeProperties classMap thresholds reviewing instanceCols (isSelected k) k <$> holdUpdated ann
-      --   fmap (arrange k) <$> shapeView props ann)
-
-      -- maskOut (snd image) (view #validArea <$> currentEdit)
-    action <- actions scene
-    return (action, never)
-      -- return (action, minElem <?> events)
+    actions scene
       
   where
     isSelected = fanDynMap selection

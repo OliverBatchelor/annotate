@@ -531,10 +531,3 @@ diffEq k k'
 logEvent :: (Show a, PerformEvent t m, MonadIO (Performable m)) => Event t a -> m ()
 logEvent = performEvent_ . fmap (liftIO . print)
 
-
-
-fan2 :: (Reflex t, GCompare k)
-  => Event t (DMap k Identity)
-  -> Event t (DMap k (Event t))
-fan2 e = fmap (DMap.mapWithKey (\k _ -> select f k)) e
-  where f = fan e
