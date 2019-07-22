@@ -68,8 +68,6 @@ updateImage Document{..} = TrainImage
   } 
 
   
-                 
-
 initialEntry :: Annotation -> Maybe AnnEntry 
 initialEntry ann = do
   (tag, detection) <- ann ^. #detection

@@ -113,7 +113,6 @@ nonEmptyList = \case
 viewControls :: GhcjsBuilder t m => Event t [AppCommand] -> Dynamic t Dim -> m (Dynamic t Viewport)
 viewControls cmds dim = do
   windowDim  <- windowDimensions
-
   rec
     controls <- holdDyn  (1, V2 0 0) (updateView <$> viewCmds <#> current viewport)
     let viewport = makeViewport <$> controls <*> dim <*> windowDim
@@ -129,7 +128,7 @@ viewControls cmds dim = do
 
     getControls (Viewport _ _ pan zoom) = (zoom, pan)
     makeViewport (zoom, pan) image window =
-        Viewport (fromDim image) (fromDim window) pan zoom
+        Viewport image window pan zoom
 
 errorDialog :: Builder t m => ErrCode -> m (Event t ())
 errorDialog err = Dialog.ok title (Dialog.iconText ("text-danger", "alert-circle") msg)
@@ -267,9 +266,6 @@ loadedDocument prefs Document{..} time = openSession name $ Session
   }
  
     
-delayEvent :: Builder t m => Event t a -> m (Event t a)
-delayEvent e = performEvent (return <$> e)
-
 
 appendHistory :: (UTCTime, HistoryEntry) -> Editor -> Editor
 appendHistory e = over (#session . #history) (appendEntry e)
@@ -279,6 +275,8 @@ appendEntry e@(time, HistoryThreshold t) = \case
     ((_, HistoryThreshold _):es) -> (e:es)
     es                      -> (e:es)
 appendEntry e = cons e
+
+
 
 
 
@@ -324,7 +322,6 @@ documentEditor viewport input cmds document = do
         editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd]
         
 
-  -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $ oneOf _SelectCmd cmds
 
   logEvent errors

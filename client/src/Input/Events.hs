@@ -126,7 +126,7 @@ windowInputs scene = do
 
   -- Other events on the window
   mouseMove  <- wrapDomEvent window    (`DOM.on` DOM.mouseMove) $ do
-    fromDim <$> DOM.uiPageXY
+    (\(x, y) -> V2 (fromIntegral x) (fromIntegral y)) <$> DOM.uiPageXY
 
   mouseUp    <- wrapDomEvent window    (`DOM.on` DOM.mouseUp)
     (toButton <$> DOM.mouseButton)

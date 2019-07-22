@@ -23,13 +23,13 @@ windowEvent = do
   window <- DOM.currentWindowUnchecked
   wrapDomEvent window (`DOM.on` DOM.blur) (return ())
 
-getDim :: MonadJSM m => m (Int, Int)
+getDim :: MonadJSM m => m (Word, Word)
 getDim = do
   window <- DOM.currentWindowUnchecked
-  liftA2 (,) (Window.getInnerWidth window) (Window.getInnerHeight window)
+  liftA2 (,) (fromIntegral <$> Window.getInnerWidth window) (fromIntegral <$> Window.getInnerHeight window)
 
 
-windowDimensions :: (MonadHold t m, TriggerEvent t m, MonadJSM m) => m (Dynamic t (Int, Int))
+windowDimensions :: (MonadHold t m, TriggerEvent t m, MonadJSM m) => m (Dynamic t (Word, Word))
 windowDimensions = do
   initial <- getDim
   window <- DOM.currentWindowUnchecked

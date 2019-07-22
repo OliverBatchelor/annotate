@@ -32,4 +32,5 @@ toLocal view page = (page - localOffset view) ^/ zoom view
 
 
 localOffset :: Viewport -> Position
-localOffset Viewport{..} = pan ^* zoom + 0.5 *^ (window - zoom *^ image)
+localOffset Viewport{..} = pan ^* zoom + 0.5 *^ (fromDim window - zoom *^ fromDim image)
+

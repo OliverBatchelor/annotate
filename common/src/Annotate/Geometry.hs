@@ -137,7 +137,7 @@ instance HasBounds a => HasBounds [a] where
     Nothing -> error "HasBounds [a]: empty list"
     Just as -> getBounds (fmap getBounds as)
 
-type Dim = (Int, Int)
+type Dim = (Word, Word)
 
 
 fromDim :: Dim -> V2 Float

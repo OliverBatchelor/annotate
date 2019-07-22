@@ -168,7 +168,7 @@ data AnnSummary = AnnSummary
 data TrainImage = TrainImage
   { imageFile   :: DocName
   , annotations :: BasicAnnotationMap
-  , imageSize     :: (Int, Int)
+  , imageSize     :: Dim
   , imageCreation :: Maybe UTCTime
   , naturalKey    :: NaturalKey
   , category    :: ImageCat

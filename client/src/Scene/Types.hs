@@ -52,8 +52,8 @@ data SceneInputs t = SceneInputs
 
 
 data Viewport = Viewport
-  { image    :: !Size
-  , window    :: !Size
+  { image    :: !Dim
+  , window    :: !Dim
   , pan     :: !Position
   , zoom    :: !Float
   } deriving (Generic, Eq, Show)
