@@ -531,3 +531,4 @@ diffEq k k'
 logEvent :: (Show a, PerformEvent t m, MonadIO (Performable m)) => Event t a -> m ()
 logEvent = performEvent_ . fmap (liftIO . print)
 
+

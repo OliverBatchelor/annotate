@@ -34,6 +34,8 @@ import Scene.Events
 import Reflex.Classes
 import qualified Reflex.Classes as R
 
+import Reflex.DynamicWriter
+
 import Data.Functor.Misc (Const2(..))
 
 import Builder.Html hiding (select)
@@ -228,6 +230,7 @@ sceneWidget cmds loaded = do
         focusOn element (oneOf _SubmitCmd cmds)
         -- sceneDefines viewport =<< view #preferences
 
+       
         inViewport viewport $ replaceHold'
             (documentEditor viewport input cmds <$> loaded)
 
@@ -278,8 +281,6 @@ appendEntry e = cons e
 
 
 
-
-
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => Dynamic t Viewport 
             -> SceneInputs t
@@ -322,6 +323,7 @@ documentEditor viewport input cmds document = do
         editCmd   = leftmost [oneOf _EditCmd cmds, clearCmd, setClassCmd]
         
 
+  -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $ oneOf _SelectCmd cmds
 
   logEvent errors

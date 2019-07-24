@@ -157,6 +157,7 @@ preload file =  do
     base <- view #basePath
     let toAbsolute path = base <> "/images/" <> path
     img_ [src_ ~: toAbsolute <$> file, class_ =: "preload"] 
+    
 
 groupPane :: AppBuilder t m => Text -> m a -> m a
 groupPane title children = column "v-spacing-2 p-2 border" $ do

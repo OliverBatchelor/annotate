@@ -3,8 +3,11 @@ module Scene.Types where
 import Annotate.Prelude
 
 import Reflex.Classes
+
 import Data.Semigroup
 import Data.Default
+
+import Control.Monad.Reader
 
 import Annotate.Geometry
 import Annotate.Common
@@ -82,3 +85,6 @@ data Scene t = Scene
   , viewport     :: !(Dynamic t Viewport)
   , thresholds   :: !(Dynamic t (Float, Float))
   } deriving (Generic)
+
+
+type SceneT t m a = ReaderT (Scene t) m a

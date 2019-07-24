@@ -16,6 +16,8 @@ import Data.Default
 import Data.Semigroup
 import Reflex.Classes
 
+import Scene.Canvas
+
 import qualified Data.Map as M
 import qualified Data.Text as T
 
@@ -117,7 +119,6 @@ data AppCommand
   deriving (Generic, Show)
 
 
-
 data SceneEvent
   = SceneEnter
   | SceneLeave
@@ -145,7 +146,9 @@ data Action = Action
   { cursor      :: Cursor
   , lock        :: Bool
   , edit        :: Maybe Edit
-  } deriving (Generic, Eq, Show)
+  } deriving (Generic)
+
+
 
 instance Default Action where
   def = Action

@@ -196,11 +196,9 @@ classesTab = column "h-100 p-0 v-spacing-2" $ do
   return ()
     where
       nextClass classes = fromMaybe 0 ((+1)  <$> maxKey classes)
-
       newClassCmd k           = ConfigCmd (ConfigClass k (Just $ newClass k))
       removeClassCmd k        = ConfigCmd (ConfigClass k Nothing)
       updateClassCmd k update = ConfigCmd (ConfigClass k (Just update))
-
 
 
 showClass' :: Builder t m => Maybe ClassConfig -> m ()
@@ -222,3 +220,6 @@ classToolButton selected = do
     dyn_ (showClass' <$> selected)
 
   return (domEvent Click e)
+
+
+

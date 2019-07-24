@@ -33,7 +33,7 @@ executable client
     hs-source-dirs:      main
 
 library
-  exposed-modules:     Reflex.Classes
+  exposed-modules:     Reflex.Classes, Reflex.ReflexM
                       , Scene.Viewport, Scene.Controller, Scene.Types, Scene.Events, Scene.Canvas
                       , Input.Events, Input.Window
                       , Client.Widgets, Client.Main, Client.Common, Client.Dialog

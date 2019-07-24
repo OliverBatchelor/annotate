@@ -377,13 +377,13 @@ type SceneAction t m = Workflow t m (Dynamic t Action)
 
 action :: AppBuilder t m => m (Dynamic t Cursor, Event t (SceneAction t m)) -> SceneAction t m
 action m = Workflow $ over _1 (fmap f) <$> m
-   where f cursor = Action cursor True Nothing
+   where f cursor = def & #cursor .~ cursor
 
 editAction :: AppBuilder t m => m (Dynamic t Cursor, Dynamic t (Maybe Edit), Event t (SceneAction t m)) -> SceneAction t m
 editAction m = Workflow $ do
     (cursor, edit, transitions) <- m
-    return (f <$> cursor <*> edit, transitions)
-      where f cursor edit = Action cursor True edit
+    return (f <$> cursor <*> edit, transitions) where 
+      f cursor edit = def & #cursor .~ cursor & #lock .~ True & #edit .~ edit
 
 
   
