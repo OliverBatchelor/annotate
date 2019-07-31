@@ -3,7 +3,7 @@ module Server.Store where
 import Annotate.Prelude
 import Server.Common
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Set as S
 
 import Data.SafeCopy
@@ -113,8 +113,8 @@ updateInfo doc time = over (docInfo k) $ \info ->
     where k = view #name doc
 
 updateImageInfo :: (DocName, Maybe ImageInfo) ->  (Map DocName Document -> Map DocName Document)
-updateImageInfo (k, Nothing)   = M.delete k
-updateImageInfo (k, Just info) = M.alter f k where
+updateImageInfo (k, Nothing)   = Map.delete k
+updateImageInfo (k, Just info) = Map.alter f k where
   f Nothing      = Just (emptyImage k info)
   f (Just image) = Just (image & #info . #image .~ info) 
 
@@ -173,7 +173,7 @@ selectCategory user store = (case (prefs ^. #assignMethod) of
   AssignCat cat -> cat)
     where  prefs = lookupPreferences store user
 
-countSubmitted = M.size . M.filter notNew
+countSubmitted = Map.size . Map.filter notNew
   where notNew =  (/= CatNew) . view (#info . #category)
 
 
@@ -192,8 +192,8 @@ checkSubmission Submission{session, annotations} doc = ErrSubmit <$>
 
 
 checkStore :: Store -> [(DocName, ImageCat)]
-checkStore Store{images} = M.toList $ view (#info . #category) <$> 
-  M.filter (not . checkReplays) images
+checkStore Store{images} = Map.toList $ view (#info . #category) <$> 
+  Map.filter (not . checkReplays) images
 
 
 lookupPreferences :: Store -> UserId -> Preferences
@@ -233,26 +233,26 @@ instance Persistable Store where
   type Update Store = Command
 
   update (CmdUpdate doc time) = updateInfo doc time . updateDocument doc
-  update (CmdImages new)        = over #images (M.union new') where
-    new' = M.mapWithKey emptyDoc (M.fromList new)
+  update (CmdImages new)        = over #images (Map.union new') where
+    new' = Map.mapWithKey emptyDoc (Map.fromList new)
 
   update (CmdUpdateImages updates) = over #images $ 
     (flip (foldr updateImageInfo) updates)
  
 
   update (CmdCategory k cat)      = docInfo k . #category .~ cat
-  update (CmdClass k conf)  = over (#config . #classes) (M.alter (const conf) k)
+  update (CmdClass k conf)  = over (#config . #classes) (Map.alter (const conf) k)
   update (CmdSetRoot path)  = #config . #root .~ path
 
   update (CmdCheckpoint cp) = over #trainer $ checkpoint cp
 
-  update (CmdPreferences user preferences) = over #preferences (M.insert user preferences)
+  update (CmdPreferences user preferences) = over #preferences (Map.insert user preferences)
   update (CmdDetections detections) = over #images $
-    (flip (foldr updateDetections)) (M.toList detections)
+    (flip (foldr updateDetections)) (Map.toList detections)
 
   update (CmdSubmit user submission time) = submitDocument user time submission 
   update (CmdTraining summaries) = over #images $ 
-    (flip (foldr addTraining)) (M.toList summaries)
+    (flip (foldr addTraining)) (Map.toList summaries)
 
 
 
@@ -274,7 +274,7 @@ checkpoint Checkpoint{..} state = if run /= state ^. #run then reset else update
 initialStore :: Config -> Store
 initialStore config = Store
   { config = config
-  , images = M.empty
+  , images = Map.empty
   , trainer = def
   , preferences = mempty
   }

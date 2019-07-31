@@ -12,7 +12,7 @@ import Annotate.Common
 import Annotate.Editor
 
 import qualified Data.Set as S
-import qualified Data.Map as M
+import qualified Data.Map as Map
 
 import qualified Data.Dependent.Map as DM
 

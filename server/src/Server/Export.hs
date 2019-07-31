@@ -3,7 +3,7 @@ module Server.Export where
 import Annotate.Prelude
 import Server.Common
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Set as S
 
 import Control.Concurrent.Log
@@ -32,14 +32,14 @@ makePrisms ''AnnStatus
 exportCollection :: Store -> TrainCollection
 exportCollection Store{..} = TrainCollection
   { config = config
-  , images = M.elems (exportImage <$> images)
+  , images = Map.elems (exportImage <$> images)
   }
 
 
 importCollection :: TrainCollection -> Store
 importCollection TrainCollection{..} = Store
   { config = config
-  , images = M.fromList (importImage <$> images)
+  , images = Map.fromList (importImage <$> images)
   , trainer = def
   , preferences = def
   }
@@ -115,31 +115,31 @@ sessionHistories :: Session -> Map AnnotationId [AnnEntry]
 sessionHistories session = sessionHistories' session mempty
       
 sessionHistories' :: Session -> Map AnnotationId [AnnEntry] -> Map AnnotationId [AnnEntry]
-sessionHistories' session existing = M.mapWithKey saved histories where
+sessionHistories' session existing = Map.mapWithKey saved histories where
 
-    initial = M.mapMaybe initialEntry (openSession "" session ^. #annotations)
+    initial = Map.mapMaybe initialEntry (openSession "" session ^. #annotations)
     (editor, result) = replay session
-    saved k history = case M.lookup k result of
+    saved k history = case Map.lookup k result of
       Nothing   ->  history
       Just ann  ->  snoc history (AnnSaved ann)
 
     undos = fmap (pure . AnnEdit) <$> 
         catMaybes (preview _PatchAnns <$> getActions editor)
 
-    histories = foldl (M.unionWith (<>)) existing ((pure <$> initial) : undos)
+    histories = foldl (Map.unionWith (<>)) existing ((pure <$> initial) : undos)
 
 
 
 imageHistories :: Document -> Map AnnotationId [AnnEntry]
 imageHistories Document{sessions} = foldl f mempty sessions where
-  f prev session  = sessionHistories' session (M.filter isSaved prev)
+  f prev session  = sessionHistories' session (Map.filter isSaved prev)
   isSaved = has (_last . _AnnSaved)
 
 
 exportImage :: Document -> TrainImage
 exportImage doc = (updateImage doc) 
   {  sessions  = doc ^. #sessions
-  ,  summaries = maybe [] M.elems $ sessionSummaries <$> doc ^? (#sessions . _head)
+  ,  summaries = maybe [] Map.elems $ sessionSummaries <$> doc ^? (#sessions . _head)
   }
 
 
@@ -171,8 +171,8 @@ debugReplays = withLog $ \Store{images} -> do
         putStrLn $ "Image: " <> show (image ^. #name) <> " - " <> show (image ^. (#info . #category))
         let (initial, cmds) = replays session
 
-        for_ (M.toList diff) $ \(k, d) -> do
-          putStrLn $ "Initial: " <> show (M.lookup k (initial ^. #annotations))
+        for_ (Map.toList diff) $ \(k, d) -> do
+          putStrLn $ "Initial: " <> show (Map.lookup k (initial ^. #annotations))
 
           case d of 
             This a -> putStrLn $  "In replay: " <> show a

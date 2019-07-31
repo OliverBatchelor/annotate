@@ -5,7 +5,7 @@ import Server.Export (exportImage, updateImage)
 -- import Server.Client (detectNext)
 import Server.Document
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 
 import Control.Concurrent.STM
 import Control.Concurrent.Log
@@ -56,9 +56,9 @@ sendTrainerStatus env = do
 updateDetections :: Env -> Map DocName Detections -> STM ()
 updateDetections env@Env{store} m = do 
   updateLog store $ CmdDetections m
-  docs <- lookupDocuments env (M.keys m)
+  docs <- lookupDocuments env (Map.keys m)
   broadcast env $
-    ServerUpdateDetections (M.mapMaybe (view (#info . #detections)) docs)
+    ServerUpdateDetections (Map.mapMaybe (view (#info . #detections)) docs)
 
 logTrainerMsg :: FromTrainer -> Bool
 logTrainerMsg (TrainerProgress _) = False
@@ -90,7 +90,7 @@ trainerLoop env@Env{store} conn = do
       processMsg :: FromTrainer -> STM ()
       processMsg = \case
         TrainerDetectRequest req k detections -> do
-          updateDetections env $ M.singleton k detections 
+          updateDetections env $ Map.singleton k detections 
 
           case req of
             DetectClient clientId ->
@@ -118,7 +118,7 @@ trainerLoop env@Env{store} conn = do
 
         TrainerTraining summary -> do
           updateLog store $ CmdTraining summary
-          docs <- lookupDocuments env (M.keys summary)
+          docs <- lookupDocuments env (Map.keys summary)
 
           broadcast env $
             ServerUpdateTraining (view (#info . #training) <$> docs)

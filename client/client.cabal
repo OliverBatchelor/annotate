@@ -52,7 +52,7 @@ library
                      , ghcjs-dom
                      , keycode
 
-                     , text
+                     , text 
                      , template-haskell
 
                      , data-default
@@ -75,6 +75,8 @@ library
 
                      , linear
                      , time
+                     , pointedlist
+                     , generic-deriving
 
 
   if !impl(ghcjs)

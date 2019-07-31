@@ -16,7 +16,7 @@ import GHC.Conc
 import Control.Concurrent.STM
 import Control.Concurrent.Log
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Text as Text
 
 import Data.ByteString.Lazy (ByteString)
@@ -282,12 +282,12 @@ trainerStatus Env{trainer} = do
 
 withClient :: ClientEnv -> (Client -> STM a) -> STM (Maybe a)
 withClient ClientEnv{clients, clientId}  f = do
-  mClient <- M.lookup clientId <$> readTVar clients
+  mClient <- Map.lookup clientId <$> readTVar clients
   traverse f mClient
 
 withClient_ :: ClientEnv -> (Client -> STM a) -> STM ()
 withClient_ ClientEnv{clients, clientId}  f = do
-  mClient <- M.lookup clientId <$> readTVar clients
+  mClient <- Map.lookup clientId <$> readTVar clients
   traverse_ f mClient
 
 sendClient :: ClientEnv -> ServerMsg -> STM ()
@@ -296,7 +296,7 @@ sendClient env = sendClient' (upcast env) (env ^. #clientId)
 
 withClient' :: Env -> ClientId -> (Client -> STM a) -> STM ()
 withClient' Env{clients} clientId  f = do
-  mClient <- M.lookup clientId <$> readTVar clients
+  mClient <- Map.lookup clientId <$> readTVar clients
   traverse_ f mClient
 
 logServerMsg :: ServerMsg -> Bool
@@ -327,20 +327,20 @@ broadcast env msg = do
 withClientEnvs :: Env -> (ClientEnv -> STM ()) -> STM ()
 withClientEnvs env f = do
   clients <- readTVar (env ^. #clients)
-  for_ (M.toList clients) $ \(clientId, Client {..}) ->
+  for_ (Map.toList clients) $ \(clientId, Client {..}) ->
     f (clientEnv env clientId userId)
 
 
 withClients :: Env -> ((ClientId, Client) -> STM ()) -> STM ()
 withClients env f = do
   clients <- readTVar (env ^. #clients)
-  for_ (M.toList clients) f
+  for_ (Map.toList clients) f
 
 
 withClientEnv :: Env -> ClientId -> (ClientEnv -> STM ()) -> STM ()
 withClientEnv env clientId f = do
   clients <- readTVar (env ^. #clients)
-  for_ (M.lookup clientId clients) $ \Client {..} ->
+  for_ (Map.lookup clientId clients) $ \Client {..} ->
     f (clientEnv env clientId userId)
 
 
@@ -350,15 +350,15 @@ withImages env f = f . view #images <$> readLog (env ^. #store)
 
 
 lookupDocument :: Env -> DocName -> STM (Maybe Document)
-lookupDocument env k = withImages env (M.lookup k)
+lookupDocument env k = withImages env (Map.lookup k)
 
 documentMap :: [Document] -> Map DocName Document
-documentMap = M.fromList . fmap toKey where
+documentMap = Map.fromList . fmap toKey where
   toKey doc = (doc ^. #name, doc)
 
 lookupDocuments :: Env -> [DocName] -> STM (Map DocName Document)
 lookupDocuments env ks = withImages env (documentMap . findImages) where
-  findImages images = catMaybes $ flip M.lookup images <$> ks    
+  findImages images = catMaybes $ flip Map.lookup images <$> ks    
 
 
 getCollection :: Store -> Collection

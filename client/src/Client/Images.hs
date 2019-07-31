@@ -19,11 +19,15 @@ import qualified GHC.Real as Real
 import Builder.Html
 import qualified Builder.Html as Html
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Text as T
 
 import Data.Time.Format.Human 
 import Data.Time
+
+
+
+
 
 fixed :: Reflex t => Int -> Property t
 fixed n = style_ =: 
@@ -212,7 +216,7 @@ imagesTab = sidePane $ do
   opts <- holdUniqDyn $ view #sortOptions <$> prefs
   selectionMethod <- holdUniqDyn $ selectOpts <$> opts
 
-  let filtered = filterOpts <$> opts <*> (M.toList <$> images)
+  let filtered = filterOpts <$> opts <*> (Map.toList <$> images)
       (filtering, invert) = split (view #filtering <$> opts)
   
   groupPane "Filter" $ do
@@ -372,3 +376,5 @@ categoryIcon' CatNew       = "image-outline"
 categoryIcon' CatTrain     = "book-open-page-variant" 
 categoryIcon' CatTest     = "clipboard-check-outline" 
       
+
+

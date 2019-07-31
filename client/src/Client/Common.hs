@@ -2,10 +2,11 @@ module Client.Common
   ( module Client.Common
   , module Annotate.Editor
   , module Reflex.Classes
+  , Render(..)
   , Key
   ) where
 
-import Annotate.Prelude hiding ((<>))
+import Annotate.Prelude 
 import Annotate.Common
 import Annotate.Editor
 import Annotate.Colour
@@ -13,12 +14,11 @@ import Annotate.Colour
 import Control.Monad.Reader
 
 import Data.Default
-import Data.Semigroup
 import Reflex.Classes
 
-import Scene.Canvas
+import Scene.Canvas (Render(..))
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Text as T
 
 import Data.GADT.Compare.TH
@@ -31,12 +31,11 @@ import Text.Printf
 
 import Linear.V3(V3(..))
 
-
 type Builder t m = (Adjustable t m, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m
                    , TriggerEvent t m, HasJSContext m, DomRenderHook t m, MonadIO (Performable m), MonadJSM (Performable m), MonadJSM m, DomBuilderSpace m ~ GhcjsDomSpace,  PerformEvent t m)
 
 type AppEvent t = Event t [AppCommand]
-type AppBuilder t m = (Builder t m, EventWriter t [AppCommand] m, MonadReader (AppEnv t) m)
+type AppBuilder t m = (Builder t m, CommandWriter t m, MonadReader (AppEnv t) m)
 
 type GhcjsBuilder t m = Builder t m
 type GhcjsAppBuilder t m = AppBuilder t m
@@ -140,22 +139,38 @@ data Shortcut a where
   ShortSetClass     :: Shortcut Int
 
 type Cursor = Text
+type Image = (DocName, Dim)
 
 
 data Action = Action
-  { cursor      :: Cursor
-  , lock        :: Bool
-  , edit        :: Maybe Edit
+  { cursor      :: Last (Cursor, Bool)
+  , edit        :: [Edit]
+  , overlay     :: Render ()
   } deriving (Generic)
-
 
 
 instance Default Action where
   def = Action
-    { cursor = "default"
-    , lock = False
-    , edit = Nothing
+    { cursor  = mempty
+    , edit    = mempty
+    , overlay = pure ()
     }
+
+instance Semigroup Action where
+  (<>) (Action cursor edit overlay) (Action cursor' edit' overlay') = Action 
+    { cursor  = cursor <> cursor'
+    , edit    = edit <> edit'
+    , overlay = overlay <> overlay'
+    }
+
+instance Monoid Action where
+  mempty  = def
+  mconcat actions = Action 
+    { cursor  = mconcat $ view #cursor <$> actions
+    , edit    = mconcat $ view #edit <$> actions
+    , overlay = mconcat $ view #overlay <$> actions
+    }
+
 
 data AppEnv t = AppEnv
   { basePath :: Text
@@ -182,14 +197,17 @@ data AppEnv t = AppEnv
 
 
 
-localPath :: MonadReader (AppEnv t) m => Text -> m Text
-localPath path = do
+localPath :: MonadReader (AppEnv t) m => m (Text -> Text)
+localPath = do
   base <- asks basePath
-  return $ base <> "/" <> path
+  return $ ((base <> "/") <>)
 
 
-imagePath :: MonadReader (AppEnv t) m => Text -> m Text
-imagePath path = localPath ("images/" <> path)
+imagePath :: MonadReader (AppEnv t) m => m (Text -> Text)
+imagePath = do 
+  base <- asks basePath
+  return $ ((base <> "/images/") <>)
+  
   
 newtype Shortcuts t = Shortcuts (forall a. Shortcut a -> Event t a)
 
@@ -211,43 +229,42 @@ askClasses = fmap (view #classes) <$> view #config
 lookupClass :: AppBuilder t m => Dynamic t ClassId -> m (Dynamic t (Maybe ClassConfig))
 lookupClass classId = do
   classes <- askClasses
-  return $ M.lookup <$> classId <*> classes
+  return $ Map.lookup <$> classId <*> classes
 
 
-docCommand :: AppBuilder t m => (a -> EditCmd) -> Event t a -> m ()
+type CommandWriter t m = (EventWriter t [AppCommand] m, Reflex t)
+
+docCommand :: CommandWriter t m => (a -> EditCmd) -> Event t a -> m ()
 docCommand f = command (EditCmd . f)
 
-viewCommand :: AppBuilder t m => Event t ViewCommand -> m ()
+viewCommand :: CommandWriter t m => Event t ViewCommand -> m ()
 viewCommand = command ViewCmd
 
-sortCommand :: AppBuilder t m => Event t SortCommand -> m ()
+sortCommand :: CommandWriter t m => Event t SortCommand -> m ()
 sortCommand = command (PrefCmd . SetSort)
 
-prefCommand :: AppBuilder t m => Event t PrefCommand -> m ()
+prefCommand :: CommandWriter t m => Event t PrefCommand -> m ()
 prefCommand = command PrefCmd
 
-trainerCommand :: AppBuilder t m => Event t UserCommand -> m ()
+trainerCommand :: CommandWriter t m => Event t UserCommand -> m ()
 trainerCommand = command TrainerCmd
 
 
-editCommand :: AppBuilder t m => Event t Edit -> m ()
+editCommand :: CommandWriter t m => Event t Edit -> m ()
 editCommand  = docCommand DocEdit
 
-commands :: AppBuilder t m => (a -> AppCommand) -> Event t [a] -> m ()
-commands f  = tellEvent . fmap (fmap f)
 
-
-command :: AppBuilder t m => (a -> AppCommand) -> Event t a -> m ()
+command :: CommandWriter t m => (a -> AppCommand) -> Event t a -> m ()
 command f  = tellEvent . fmap (pure . f)
 
-command' :: AppBuilder t m => AppCommand -> Event t a -> m ()
+command' :: CommandWriter t m => AppCommand -> Event t a -> m ()
 command' cmd = command (const cmd)
 
 
-commandM :: AppBuilder t m => (a -> AppCommand) -> m (Event t a) -> m ()
+commandM :: CommandWriter t m => (a -> AppCommand) -> m (Event t a) -> m ()
 commandM f m  = m >>= command f
 
-commandM' :: AppBuilder t m => AppCommand -> m (Event t a) -> m ()
+commandM' :: CommandWriter t m => AppCommand -> m (Event t a) -> m ()
 commandM' cmd = commandM (const cmd)
 
 showText :: Show a => a -> Text

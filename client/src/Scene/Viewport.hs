@@ -16,6 +16,9 @@ panView localOrigin page view = view & #pan %~ (+ d)
 wheelZoom :: Float -> Float
 wheelZoom delta = 1 - delta / 500
 
+wheelScale :: Float -> Float
+wheelScale delta = 0.3 * wheelZoom delta
+
 zoomDelta :: Float -> Viewport -> Viewport
 zoomDelta delta = #zoom %~ clamp (0.25, 4) . (* wheelZoom delta)
 

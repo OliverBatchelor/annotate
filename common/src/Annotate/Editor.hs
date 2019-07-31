@@ -2,7 +2,7 @@ module Annotate.Editor where
 
 import Annotate.Prelude
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Set as S
 
 import Annotate.Common
@@ -27,7 +27,7 @@ data EditError = MissingKey AnnotationId | EmptyUndos | EmptyRedos | NoDetection
 type DocPart = (AnnotationId, Maybe Int)
 
 mergeParts :: DocParts -> DocParts -> DocParts
-mergeParts = M.unionWith mappend
+mergeParts = Map.unionWith mappend
 
 
 -- DocumentPatch' is a non invertible version of DocumentPatch (less details)
@@ -63,7 +63,7 @@ newDetection d@Detection{..} = Annotation{..}
     where detection = Just (Detected, d) 
 
 fromDetections :: AnnotationId -> [Detection] -> AnnotationMap
-fromDetections i detections = M.fromList (zip [i..] $ newDetection <$> detections) where
+fromDetections i detections = Map.fromList (zip [i..] $ newDetection <$> detections) where
   
 missedDetection :: Detection -> Annotation
 missedDetection d@Detection{..} = Annotation {..}
@@ -73,7 +73,7 @@ reviewDetections :: [Detection] -> AnnotationMap -> AnnotationMap
 reviewDetections = flip (foldr addReview) where
 
   addReview d = case d ^. #match of
-    Just i  -> M.adjust (setReview d) i
+    Just i  -> Map.adjust (setReview d) i
     Nothing -> insertAuto (missedDetection d)
 
   setReview d = #detection .~ Just (Review, d)
@@ -98,7 +98,7 @@ initialAnnotations Session{initial, open} = case open of
 
 
 insertAuto :: (Ord k, Num k) => a -> Map k a -> Map k a
-insertAuto a m = M.insert k a m
+insertAuto a m = Map.insert k a m
     where k = 1 + fromMaybe 0 (maxKey m)  
        
 
@@ -112,15 +112,15 @@ thresholdDetection t Annotation{detection} = case detection of
   Nothing -> True
 
 thresholdDetections :: Float -> AnnotationMap -> BasicAnnotationMap
-thresholdDetections t = fmap toBasic . M.filter (thresholdDetection t) 
+thresholdDetections t = fmap toBasic . Map.filter (thresholdDetection t) 
   
 
 allAnnotations :: Editor -> [AnnotationId]
-allAnnotations Editor{annotations} = M.keys annotations
+allAnnotations Editor{annotations} = Map.keys annotations
 
 lookupAnnotations :: [AnnotationId] -> Editor -> AnnotationMap
-lookupAnnotations objs Editor{annotations} = M.fromList $ catMaybes $ fmap lookup' objs
-    where lookup' k = (k, ) <$> M.lookup k annotations
+lookupAnnotations objs Editor{annotations} = Map.fromList $ catMaybes $ fmap lookup' objs
+    where lookup' k = (k, ) <$> Map.lookup k annotations
 
 
 maxEdits :: [DocumentPatch] -> Maybe AnnotationId
@@ -146,7 +146,7 @@ nextId = fromMaybe 0 .  fmap (+1) . maxId
 
 subParts :: Editor -> AnnotationId -> Set Int
 subParts doc k = fromMaybe mempty $  do
-  ann <- M.lookup k (doc ^. #annotations)
+  ann <- Map.lookup k (doc ^. #annotations)
   return $ shapeParts (ann ^. #shape)
 
 documentParts :: Editor -> DocParts
@@ -161,9 +161,9 @@ shapeParts = \case
 
 
 lookupTargets :: Editor -> [AnnotationId] -> Map AnnotationId (Maybe Annotation)
-lookupTargets Editor{annotations} targets = M.fromList modified where
+lookupTargets Editor{annotations} targets = Map.fromList modified where
   modified = lookup' annotations <$> targets
-  lookup' m k = (k, M.lookup k m)
+  lookup' m k = (k, Map.lookup k m)
 
 applyCmd :: EditCmd -> Editor -> Editor
 applyCmd cmd doc = case (snd <$> applyCmd' cmd doc) of
@@ -363,16 +363,16 @@ deleteParts parts = \case
 
 addEdit :: [BasicAnnotation] -> Editor ->  DocumentPatch
 addEdit anns doc = PatchAnns $ Add <$> anns' where
-  anns' = M.fromList (zip [nextId doc..] $ fromBasic <$> anns)
+  anns' = Map.fromList (zip [nextId doc..] $ fromBasic <$> anns)
 
 patchMap :: (Ord k) =>  Map k (Maybe a) -> Map k a -> Map k a
-patchMap patch m = m `diff` patch <> M.mapMaybe id adds where
-  adds = patch `M.difference` m
-  diff = M.differenceWith (flip const)
+patchMap patch m = m `diff` patch <> Map.mapMaybe id adds where
+  adds = patch `Map.difference` m
+  diff = Map.differenceWith (flip const)
 
 
 editAnnotations :: (a -> Annotation -> AnnotationPatch) ->  Map AnnotationId a -> Editor ->  DocumentPatch
-editAnnotations f m doc = PatchAnns $ M.intersectionWith f m (doc ^. #annotations)
+editAnnotations f m doc = PatchAnns $ Map.intersectionWith f m (doc ^. #annotations)
 
 editShapes :: (a -> Shape -> AnnotationPatch) ->  Map AnnotationId a -> Editor ->  DocumentPatch
 editShapes f  = editAnnotations f' 
@@ -408,7 +408,7 @@ maybeError _ (Just a) = Right a
 maybeError err _      = Left err
 
 lookupAnn :: AnnotationId -> Map AnnotationId a -> Either EditError a
-lookupAnn k m  = maybeError (MissingKey k) (M.lookup k m)
+lookupAnn k m  = maybeError (MissingKey k) (Map.lookup k m)
 
 
 

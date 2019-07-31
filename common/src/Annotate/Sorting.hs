@@ -3,7 +3,7 @@ module Annotate.Sorting where
 import Annotate.Prelude
 import Annotate.Common
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Set as S
 import qualified Text.Fuzzy as Fuzzy
 

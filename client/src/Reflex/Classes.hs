@@ -18,7 +18,7 @@ import Data.String
 
 import qualified Data.Dependent.Map as DMap
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Set as S
 import Data.Functor.Misc
 
@@ -209,8 +209,8 @@ class Patch p => InversePatch p where
 
 
 instance Ord k => InversePatch (PatchMap k v) where
-  inverse m (PatchMap p) = PatchMap (M.mapWithKey lookupPrev p)
-    where lookupPrev k = const (M.lookup k m)
+  inverse m (PatchMap p) = PatchMap (Map.mapWithKey lookupPrev p)
+    where lookupPrev k = const (Map.lookup k m)
 
 instance GCompare k => InversePatch (PatchDMap k f) where
   inverse m (PatchDMap p) = PatchDMap $ (DMap.mapWithKey lookupPrev p)
@@ -313,7 +313,7 @@ postCurrent b = tag b <$> getPostBuild
 traverseMapWithAdjust :: forall t m k v a. (Ord k, Adjustable t m, MonadHold t m)
                       => Map k v -> Event t (PatchMap k v) -> (k -> v -> m a) -> m (Map k a, Event t (PatchMap k a))
 traverseMapWithAdjust m0 m' f = sequenceMapWithAdjust
-      (M.mapWithKey f m0)
+      (Map.mapWithKey f m0)
       (mapPatchMapWithKey f <$> m')
 
 
@@ -325,7 +325,7 @@ traverseMapView m0 m' f = do
 
 
 mapPatchMapWithKey :: (k -> a -> b) -> PatchMap k a -> PatchMap k b
-mapPatchMapWithKey f = PatchMap . M.mapWithKey (\k v -> f k <$> v) . unPatchMap
+mapPatchMapWithKey f = PatchMap . Map.mapWithKey (\k v -> f k <$> v) . unPatchMap
 
 traversePatchedMapWithAdjust :: (Ord k, Adjustable t m, MonadHold t m)
                       => Patched t (PatchMap k v) -> (k -> v -> m a) -> m (Patched t (PatchMap k a))
@@ -359,14 +359,14 @@ mapUpdates a0 a' = do
   keys <- foldDyn applyMap (void a0) (fmap void <$> a')
   return (attachWith modifiedKeys (current keys) a')
     where
-      modifiedKeys = flip (M.differenceWith relevantPatch)
+      modifiedKeys = flip (Map.differenceWith relevantPatch)
       relevantPatch patch _ = case patch of
         Nothing -> Just Nothing   -- Item deleted
         Just _  -> Nothing        -- Item updated
 
 keyUpdates :: (Reflex t, Ord k) => Event t (Map k (Maybe v)) -> (k -> Event t v)
 keyUpdates e = select valueChanged . Const2 where
-  valueChanged = fanMap $ M.mapMaybe id <$> e
+  valueChanged = fanMap $ Map.mapMaybe id <$> e
 
 traverseMapWithUpdates :: (Ord k, Adjustable t m, MonadFix m, MonadHold t m)
             => Map k v -> Event t (Map k (Maybe v)) -> (k -> v -> Event t v -> m a) -> m (Map k a, Event t (Map k (Maybe a)))
@@ -396,7 +396,7 @@ incrementalMapToEvents inc = do
     ]
 
 enumerateMap :: (Foldable f, Enum k, Num k) => f a -> Map k a
-enumerateMap = M.fromDistinctAscList . enumerate
+enumerateMap = Map.fromDistinctAscList . enumerate
 
 enumerate :: (Foldable f, Enum k, Num k) => f a -> [(k, a)]
 enumerate = zip [0..] . toList
@@ -415,10 +415,10 @@ dynList' f d = do
 
   where
     updates = enumerateMap <$> updated d
-    updatesFor k = M.lookup k <?> updates
+    updatesFor k = Map.lookup k <?> updates
 
     maybeView old new = do
-      guard (length old /= M.size new)
+      guard (length old /= Map.size new)
       return (viewList new)
 
     viewList m = do
@@ -429,12 +429,12 @@ dynList' f d = do
 dynList :: (PostBuild t m, DomBuilder t m, MonadFix m, MonadHold t m, Foldable f)
         => (Int -> Dynamic t a -> m b) -> Dynamic t (f a) -> m (Event t (Map Int b))
 dynList f d = do
-  resizes <- holdUniqDynBy (\old new -> M.size old /= M.size new) m
+  resizes <- holdUniqDynBy (\old new -> Map.size old /= Map.size new) m
 
   dyn (viewList <$> resizes)
     where
       m = enumerateMap <$> d
-      updatesFor k = M.lookup k <?> updated m
+      updatesFor k = Map.lookup k <?> updated m
 
 
       viewList = itraverse $ \k a ->
@@ -466,8 +466,8 @@ holdWorkflow w0 = do
  rec (r, transition) <- replaceHold (unWorkflow w0) $ (unWorkflow <$> transition)
  return r
 
-workflow' :: (Reflex t, MonadHold t m) => m (Event t (Workflow t m ())) -> Workflow t m ()
-workflow' m = Workflow $ ((),) <$> m
+makeWorkflow' :: (Reflex t, MonadHold t m) => m (Event t (Workflow t m ())) -> Workflow t m ()
+makeWorkflow' m = Workflow $ ((),) <$> m
 
 
 -- Factorisation for Dynamics
@@ -504,7 +504,7 @@ diffDynMap :: (Reflex t, Ord k, Eq v) =>  Dynamic t (Map k v) -> Event t (Map k 
 diffDynMap = flip changes diffMap
 
 fanDynMap :: (Reflex t, Ord k, Eq a) => Dynamic t (Map k a)  -> (k -> Dynamic t (Maybe a))
-fanDynMap = fanWith M.lookup diffMap
+fanDynMap = fanWith Map.lookup diffMap
 
 fanDynSet :: (Reflex t, Ord k) => Dynamic t (Set k) -> (k -> Dynamic t Bool)
 fanDynSet = fanWith S.member diffSets
@@ -522,7 +522,7 @@ fanDyn = fanWith (==) diffEq
 diffEq :: Ord k => k -> k -> Map k Bool
 diffEq k k'
   | k == k'     = mempty
-  | otherwise   = M.fromList [(k, False), (k', True)]
+  | otherwise   = Map.fromList [(k, False), (k', True)]
 
 -- fanMap' :: (Reflex t, Ord k) => Event t k -> (k -> Event t k)
 -- fanMap' e = \k -> select (fanMap e) (Const2 k)

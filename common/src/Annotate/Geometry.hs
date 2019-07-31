@@ -16,7 +16,7 @@ import Linear.Metric
 import Control.Lens (iso, Simple, Iso)
 import Data.List.NonEmpty (NonEmpty(..))
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.List.NonEmpty as NE
 
 import Data.Semigroup
@@ -80,7 +80,7 @@ approxMatchF fa fb = and (alignWith approxMatch fa fb) where
   
 
 approxDiffF :: (ApproxEq a, Ord k) => Map k a -> Map k a -> Map k (These a a)
-approxDiffF ma mb = M.filter (not . approxMatch) (align ma mb) where
+approxDiffF ma mb = Map.filter (not . approxMatch) (align ma mb) where
   approxMatch (These a b) = a ~= b
   approxMatch _ = False
 

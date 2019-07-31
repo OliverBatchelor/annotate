@@ -1,94 +1,83 @@
 
-module Scene.Canvas where
+module Scene.Drawing 
+  ( module Scene.Drawing
+  , Render(..)
+    
+  ) where
 
-  import Reflex.Classes
+import Reflex.Classes
+
+import Scene.Viewport
+import Scene.Types
+
+import Client.Common
+
+import Annotate.Common
+import Annotate.Geometry
+import Builder.Html
+
+import Annotate.Prelude
+import Scene.Canvas
   
-
-  import Scene.Viewport
-  import Scene.Controller
-  import Scene.Types
-  import Scene.Events
-  
-  import Client.Common
-  import Client.Widgets
-  
-  import Annotate.Common
-  import Annotate.Geometry
-  import Builder.Html
-  
-  import Annotate.Prelude
-  
+import Data.Coerce
+import qualified GHCJS.DOM.Types as DOM
 
 
 
-type DrawState = (Viewport, Action, Maybe Editor)
+selectRect :: Box -> Render ()
+selectRect box = pushState $ do
+  setLineDash([5, 5])
+  setLineWidth 1
+  setFillStyle "rgba(0, 0, 0, 0.1)"
 
-
-translate :: Vec -> Render ()
-translate (V2 x y) = C.translate context tx ty
-
-inViewport :: MonadJSM m => Viewport -> Render a -> Render a
-inViewport context vp = do 
-
-  transform = do 
-    C.translate context tx ty
-    C.scale context zoom zoom 
-      where
-        (V2 tx ty) = localOffset vp
-        zoom = vp ^. #zoom
+  rect box
+  fill >> nonScalingStroke
 
 
 
-drawAnnotation :: MonadJSM m => CanvasRenderingContext2D -> Annotation -> m ()
-drawAnnotation context Annotation{shape} = case shape of
-  (ShapeCircle c) -> circleShape context c
+renderViewport :: Viewport -> Render a -> Render a
+renderViewport vp render = pushState $ 
+  translate (localOffset vp) >> scaleUniform (vp ^. #zoom) >> render
+
+
+rawCanvas :: (DomBuilder t m, DomBuilderSpace m ~ GhcjsDomSpace) => ElemType t m -> m DOM.HTMLCanvasElement
+rawCanvas e = return $ coerce (_element_raw e)
+
+
+
+drawAnnotation :: Annotation -> Render ()
+drawAnnotation Annotation{shape} = case shape of
+  (ShapeCircle c) -> nonScalingStrokePath $ circle c 
+
   (ShapeBox b) -> error "not implemented"
   (ShapeLine l) -> error "not implemented"
   (ShapePolygon p) -> error "not implemented"
 
 
-drawImageAt :: DOM.HTMLImageElement -> Render ()
-drawImageAt image (V2 x y) = render $ \context -> do
-  complete <- DOM.getComplete image
-  when complete $
-    C.drawImage context (DOM.toCanvasImageSource image) x y
 
 
-setLineWidth :: Float -> Render ()
-setLineWidth = render . flip C.setLineWidth
+drawAnnotations :: Viewport -> DOM.HTMLImageElement -> Editor -> Render () -> Render ()
+drawAnnotations vp image Editor{annotations} overlay = renderViewport vp $ do 
+    drawImageAt image (V2 0 0)
 
+    setLineWidth 1
+    traverse_ drawAnnotation annotations
 
-drawAnnotations :: Viewport -> DOM.HTMLImageElement -> Editor -> Render ()
-drawAnnotations vp image Editor{annotations} = inViewport vp $ do 
-    drawImageAt (V2 0 0) image
-
-    setLineWidth (2 / vp ^. #zoom)
-    traverse (drawAnnotation context) annotations
-
-
- 
-
-loadImage :: (AppBuilder t m) => Dynamic t Text -> m DOM.HTMLImageElement 
-loadImage file =  do
-  e <- preload file
-  return $ coerce (_element_raw e)
+    overlay
 
 
 
 sceneCanvas :: forall t m. (GhcjsAppBuilder t m)
-  => Dynamic t Viewport
-  -> Dynamic t Action
-  -> Dynamic t (Maybe Editor)
-  -> m ()
-sceneCanvas viewport action mDoc = do 
-  
+  => Dynamic t Dim
+  -> Dynamic t (Render ())
+  -> m (ElemType t m)
+sceneCanvas size render  = do 
   e <- canvas_ [class_ =: "expand"]
-
-  image <- loadImage (pure "CamB_1755.jpg")--(fromMaybe "" . fmap (view #name) <$> mDoc)
   canvas <- rawCanvas e
 
-  vp <- sample viewport
-  DOM.liftJSM $ setSize canvas (vp ^. #window)
-  
-  requestDomAction_ (drawScene canvas image <$> updated state)
-    where state = liftA3 (,,) viewport action mDoc
+  renderCanvas canvas state
+  return e
+
+    where 
+      state  = liftA2 (,) size render
+

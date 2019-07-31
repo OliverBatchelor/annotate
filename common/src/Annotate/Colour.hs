@@ -1,7 +1,7 @@
 module Annotate.Colour where
 
 import Annotate.Prelude
-import qualified Data.Map as M
+import qualified Data.Map as Map
 
 import Data.Word
 import Text.Printf
@@ -19,7 +19,7 @@ showColour = T.pack . printf "#%06X"
 
 
 defaultColourMap :: Map Int HexColour
-defaultColourMap = M.fromList (zip [0..] defaultColours)
+defaultColourMap = Map.fromList (zip [0..] defaultColours)
 
 defaultColours :: [HexColour]
 defaultColours =

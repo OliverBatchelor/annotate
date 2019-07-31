@@ -3,7 +3,7 @@ module Server.Document where
 import Server.Common
 import Server.Store
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Set as S
 
 import Control.Concurrent.STM
@@ -17,10 +17,10 @@ findNext Env{..} sortOptions current = do
   images <- view #images <$> readLog store
   openDocs  <- readTVar documents
 
-  return $ filter (inUse openDocs) $ sorting (M.toList (view #info <$> images))
+  return $ filter (inUse openDocs) $ sorting (Map.toList (view #info <$> images))
     where
       sorting = fmap fst . nextImages sortOptions current
-      inUse openDocs k = not (M.member k openDocs)
+      inUse openDocs k = not (Map.member k openDocs)
 
 withDocument :: Env -> DocName -> (Document -> STM ()) -> STM ()
 withDocument env k f = lookupDocument env k >>= traverse_ f
@@ -33,7 +33,7 @@ openDocument env@ClientEnv {..} k = do
   writeLog (upcast env) ("opening " <> show clientId <> ", " <> show k)
 
   modifyTVar clients (ix clientId . #document .~ Just k)
-  modifyTVar documents (M.alter addClient k)
+  modifyTVar documents (Map.alter addClient k)
 
   time <- getCurrentTime'
   broadcast (upcast env) (ServerOpen (Just k) clientId time)
@@ -60,8 +60,8 @@ closeDocument env@ClientEnv{..}  = preview (clientDocument clientId) <$> readTVa
     withDoc k = do
         writeLog (upcast env) ("closing " <> show clientId <> ", " <> show k)
 
-        refs <- M.lookup k <$> readTVar documents
-        modifyTVar documents (M.update removeClient k)
+        refs <- Map.lookup k <$> readTVar documents
+        modifyTVar documents (Map.update removeClient k)
 
 
     removeClient cs = case filter (/= clientId) cs of
@@ -83,4 +83,4 @@ ordNub = S.toList . S.fromList
 --     sendClient env clientId (ServerCmd k cmd)
 --
 --   where
---     getEditing = fromMaybe [] . M.lookup k
+--     getEditing = fromMaybe [] . Map.lookup k

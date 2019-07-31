@@ -9,7 +9,7 @@ module Annotate.Common (
 import Annotate.Prelude
 import Annotate.Colour
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Set as S
 
 import Data.Generics.Product
@@ -535,7 +535,7 @@ instance Default Config where
   def = Config
     { root = ""
     , extensions = [".png", ".jpg", ".jpeg"]
-    , classes    = M.fromList [(0, newClass 0)]
+    , classes    = Map.fromList [(0, newClass 0)]
     }
 
 instance Default DisplayPreferences where
@@ -635,16 +635,16 @@ minElem :: Ord k => Map k a -> Maybe a
 minElem = fmap snd . minMap
 
 maxMap :: Ord k => Map k a -> Maybe (k, a)
-maxMap m | M.null m = Nothing
-         | otherwise = Just $ M.findMax m
+maxMap m | Map.null m = Nothing
+         | otherwise = Just $ Map.findMax m
 
 minMap :: Ord k => Map k a -> Maybe (k, a)
-minMap m | M.null m = Nothing
-        | otherwise = Just $ M.findMin m
+minMap m | Map.null m = Nothing
+        | otherwise = Just $ Map.findMin m
 
 
 setToMap :: Ord k =>  a ->  Set k -> Map k a
-setToMap a = M.fromDistinctAscList . fmap (, a) . S.toAscList
+setToMap a = Map.fromDistinctAscList . fmap (, a) . S.toAscList
 
 
 setToMap' :: Ord k => Set k -> Map k ()
@@ -666,7 +666,7 @@ instance (Hashable a, Ord a) => Ord (HashedKey a) where
     EQ -> compare (unKey k) (unKey k')
 
 hashKeys :: (Ord k, Hashable k) => Map k a -> Map (HashedKey k) a
-hashKeys = M.mapKeys hashKey
+hashKeys = Map.mapKeys hashKey
 
 
 emptyCollection :: Collection

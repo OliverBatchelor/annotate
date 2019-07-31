@@ -7,7 +7,7 @@ import System.Directory
 
 import Data.Aeson.Encode.Pretty (encodePretty)
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Set as S
 import qualified Data.Text as Text
 
@@ -111,8 +111,8 @@ main = do
 
     Nothing -> do
 
-      clients   <- atomically (newTVar M.empty)
-      documents <- atomically (newTVar M.empty)
+      clients   <- atomically (newTVar Map.empty)
+      documents <- atomically (newTVar Map.empty)
       trainer   <- atomically $ newTVar Nothing      
       root <- readRoot store
 
@@ -123,7 +123,7 @@ main = do
         existing <- view #images <$> readLog store
 
         images <- unsafeIOToSTM $ findNewImages config root 
-          (if updateImages then mempty else M.keysSet existing)
+          (if updateImages then mempty else Map.keysSet existing)
 
         updateLog store (CmdUpdateImages images)
       

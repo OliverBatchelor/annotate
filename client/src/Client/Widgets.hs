@@ -10,11 +10,14 @@ import qualified Builder.Html as Html
 
 import qualified Data.List as L
 import qualified Data.Text as T
-
-import qualified Data.Map as M
+import qualified Data.Map as Map
 
 import Data.Default
 import Data.Tuple (swap)
+import Data.Coerce (coerce)
+
+import qualified GHCJS.DOM.Types as DOM
+
 
 
 column :: Builder t m => Text -> m a -> m a
@@ -156,8 +159,18 @@ preload :: (AppBuilder t m) => Dynamic t Text -> m (ElemType t m)
 preload file =  do
     base <- view #basePath
     let toAbsolute path = base <> "/images/" <> path
-    img_ [src_ ~: toAbsolute <$> file, class_ =: "preload"] 
-    
+    link_ [rel_ =: ["preload"], href_ ~: toAbsolute <$> file]
+
+
+loadImage :: (AppBuilder t m) => Dynamic t Image -> m DOM.HTMLImageElement
+loadImage image = coerce . _element_raw <$> do
+  base <- view #basePath
+  let toAbsolute path = base <> "/images/" <> path
+  img_ [src_ ~: toAbsolute <$> file, width_ ~: fromIntegral <$> width, height_ ~: fromIntegral <$> height, hidden_ =: True] 
+    where 
+      (file, dim) = split image
+      (width, height) = split dim
+
 
 groupPane :: AppBuilder t m => Text -> m a -> m a
 groupPane title children = column "v-spacing-2 p-2 border" $ do
@@ -284,7 +297,7 @@ rangePreview showValue range step value = row "spacing-3 align-items-center" $ d
   
 checkboxLabel :: Builder t m => Text -> Text -> Dynamic t Bool -> m (Event t Bool)
 checkboxLabel i t value = div [class_ =: "custom-control custom-checkbox"] $ do
-    let attrs = M.fromList [("class", "custom-control-input"), ("id", i)]
+    let attrs = Map.fromList [("class", "custom-control-input"), ("id", i)]
 
     inp <- checkboxView (pure attrs) value
     Html.label [class_ =: "custom-control-label", Html.for_ =: i] $ text t

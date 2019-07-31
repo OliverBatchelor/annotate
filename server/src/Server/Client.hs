@@ -2,7 +2,7 @@ module Server.Client where
 
 import Server.Common
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Set as S
 
 import Control.Concurrent.STM
@@ -20,7 +20,7 @@ import Server.Store
 import Server.Export
 
 nextClient :: Map ClientId Client -> ClientId
-nextClient m = fromMaybe 0 (succ . fst . fst <$>  M.maxViewWithKey m)
+nextClient m = fromMaybe 0 (succ . fst . fst <$>  Map.maxViewWithKey m)
 
 userPreferences :: UserId -> Store -> Preferences
 userPreferences k store = fromMaybe def $ preview (#preferences . ix k) store
@@ -39,7 +39,7 @@ connectClient env conn = do
   atomically $ do
     clientId <- nextClient <$> readTVar (env ^. #clients)
 
-    modifyTVar (env ^. #clients) (M.insert clientId (Client chan Nothing 0))
+    modifyTVar (env ^. #clients) (Map.insert clientId (Client chan Nothing 0))
     writeLog env $ "connected: " <> show clientId
     return clientId
 
@@ -58,7 +58,7 @@ clientDisconnected env@ClientEnv{clientId} = atomically $ do
     time <- getCurrentTime'
     broadcast (upcast env) (ServerOpen Nothing clientId time)
 
-  modifyTVar (view #clients env) (M.delete clientId)
+  modifyTVar (view #clients env) (Map.delete clientId)
   writeLog (upcast env) $ "disconnected: " <> show clientId
 
 

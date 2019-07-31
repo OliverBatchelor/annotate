@@ -13,7 +13,7 @@ import Annotate.Editor (isNew)
 import Builder.Html
 import qualified Builder.Html as Html
 
-import qualified Data.Map as M
+import qualified Data.Map as Map
 
 showClass :: Builder t m => ClassConfig -> m ()
 showClass ClassConfig{shape, colour, name} =
@@ -38,8 +38,8 @@ shapeDesc ConfigPolygon = "Polygon"
 shapeDesc ConfigLine = "Line"
 
 
-shapeTypes :: M.Map Text ShapeConfig
-shapeTypes = M.fromList
+shapeTypes :: Map.Map Text ShapeConfig
+shapeTypes = Map.fromList
   [ ("Box", ConfigBox)
   , ("Circle", ConfigCircle)
   , ("Polygon", ConfigPolygon)
@@ -94,7 +94,7 @@ selectClassDialog selection = modal (pure True) $ sections
     where
       widget = do
         classes <- askClasses
-        selected <- selectTable (-1) (Dyn (M.toList . fmap showClass <$> classes))
+        selected <- selectTable (-1) (Dyn (Map.toList . fmap showClass <$> classes))
         command (ClassCmd selection) selected
 
         cancels <- askShortcut ShortCancel
@@ -108,7 +108,7 @@ editClass conf = do
       inputElementConfig_initialValue .~ fromMaybe "" (view #name <$> conf)
 
     shape <- labelled "Type" $ selectElem_ [class_ =: "form-control", disable] selectConf $
-        forM_ (M.keys shapeTypes) $ \k -> option [value_ =: k] $ text k
+        forM_ (Map.keys shapeTypes) $ \k -> option [value_ =: k] $ text k
 
     labelled "Colour" $ div_ [class_ =: "border expand", style_ =: bgColour (view #colour <$> conf), disable] blank
 
@@ -139,7 +139,7 @@ editClass conf = do
               fromMaybe "" (shapeDesc . view #shape <$> conf)
 
             disable = disabled_ =: isNothing conf
-            fromDesc desc = fromMaybe ConfigBox $ M.lookup desc shapeTypes
+            fromDesc desc = fromMaybe ConfigBox $ Map.lookup desc shapeTypes
 
 
 
@@ -155,8 +155,8 @@ addClassShortcut classes selection keyEvent = command id $ filterMaybe
     selectCmd classes selection i = fmap (ClassCmd selection) $  
       (fst <$> selectIndex classes (i - 1))
 
-    selectIndex m i = if i < M.size m 
-        then Just $ M.elemAt i m
+    selectIndex m i = if i < Map.size m 
+        then Just $ Map.elemAt i m
         else Nothing
 
     
@@ -168,13 +168,13 @@ classesTab = column "h-100 p-0 v-spacing-2" $ do
   selection <- view #selection
 
   (Shortcuts shortcut) <- askShortcuts
-  addClassShortcut classes (M.keysSet <$> selection) (shortcut ShortSetClass)
+  addClassShortcut classes (Map.keysSet <$> selection) (shortcut ShortSetClass)
 
-  let selectedClass = M.lookup <$>  selected <*> classes
+  let selectedClass = Map.lookup <$>  selected <*> classes
 
 
   userSelect <- div [class_ =: "scroll border"] $ do
-    selectTable selected (Dyn (M.toList . fmap showClass <$> classes))
+    selectTable selected (Dyn (Map.toList . fmap showClass <$> classes))
 
   command (ClassCmd mempty) $ leftmost [userSelect]
 

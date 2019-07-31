@@ -6,42 +6,40 @@ import Annotate.Prelude hiding (div)
 import Annotate.Sorting (sortImages, totalCounts)
 
 import Client.Common
+import Client.Collection
 
 import qualified Data.Text as T
-import qualified Data.Map as M
+import qualified Data.Map as Map
 import qualified Data.Set as S
 
 import Text.Printf
 import Data.Text.Encoding
 
-import qualified Data.List as L
 import qualified Network.URI.Encode as URI
 
 import Data.Default
 import Data.FileEmbed
 
 import Control.Monad.Reader
+import Control.Monad.State
 import Control.Lens (notNullOf, Getting, firstOf, cons)
 
 import Scene.Viewport
 import Scene.Controller
 import Scene.Types
 import Scene.Events
-import Scene.Canvas
+import Scene.Drawing
 
-import Scene.Events
 
 import Reflex.Classes
 import qualified Reflex.Classes as R
 
-import Reflex.DynamicWriter
-
+import Language.Javascript.JSaddle (JSM)
 import Data.Functor.Misc (Const2(..))
 
 import Builder.Html hiding (select)
 import qualified Builder.Html as Html
 import qualified Builder.Svg as Svg
-
 
 import Input.Window
 import Input.Events
@@ -56,60 +54,30 @@ import qualified Client.Dialog as Dialog
 import Annotate.Common
 import Annotate.Editor
 
-import Language.Javascript.JSaddle
 import qualified Reflex.Dom.Main as Main
-
-import qualified Web.KeyCode as Key
-
-import Stitch
-import Stitch.Combinators
 
 import Linear.V3 (V3(..))
 
 
 main :: Text -> JSM ()
-main host = Main.mainWidgetWithHead' (headWidget host, bodyWidget)
+main host = Main.mainWidgetWithHead headWidget (bodyWidget host)
 
 
-
-headWidget :: forall t m. GhcjsBuilder t m => Text -> AppEnv t -> m Text
-headWidget host env = do
+headWidget :: forall t m. Builder t m => m ()
+headWidget = do
 
    Html.style [] $ text appStyle
    Html.style [] $ text bootstrap
    Html.style [] $ text icons
-   Html.style [] $ dynText =<< holdUniqDyn (prefsCss <$> env ^. #preferences)
-
-
-   return host
 
   where
     stylesheet url = link_ [href_ =: url, rel_ =: ["stylesheet"], crossorigin_ =: "anonymous"]
-
     appStyle = decodeUtf8 $(embedFile $ "../html/css/style.css")
     bootstrap = decodeUtf8 $(embedFile $ "../html/css/bootstrap.min.css")
     icons = decodeUtf8 $(embedFile $ "../html/css/materialdesignicons.min.css")
 
-prefsCss :: Preferences -> Text
-prefsCss prefs = renderCSS $ do
-  ".shape" ? do
-    "stroke-opacity" .= showText border
-    "fill-opacity"   .= showText opacity
 
-  ".confidence" ? do
-    "visibility" .= if showConfidence then "visible" else "hidden"
-    "stroke" .= "black"
-    "stroke-width" .= "1px"
-    "vector-effect" .= "non-scaling-stroke"
-    "paint-order" .= "stroke"
 
-  where
-    DisplayPreferences{opacity, border, showConfidence} = prefs ^. #display
-
-nonEmptyList :: [a] -> Maybe [a]
-nonEmptyList = \case
-  [] -> Nothing
-  xs -> Just xs
 
 
 viewControls :: GhcjsBuilder t m => Event t [AppCommand] -> Dynamic t Dim -> m (Dynamic t Viewport)
@@ -168,7 +136,6 @@ network host send = do
         ]
 
   performEvent_ (printLog <$> send)
-  -- performEvent_ (printLog <$> decoded)
   performEvent_ (printLog <$> ffilter isLogged decoded)
 
 
@@ -184,26 +151,8 @@ network host send = do
     close (False, _, reason)  = Just reason
 
 
-neighbourFrames :: DocName -> Int -> Map DocName DocInfo -> ([Image], [Image])
-neighbourFrames k n images = trim $ L.break  ((== k) . fst) sorted where
-  trim = bimap (reverse . take n . reverse) (take n . drop 1)
-  sorted = toImage <$> sortImages (SortName, False) (M.toList images)
-  toImage (k, info) = (k, info ^. #image . #size)
-  
 
-nextFrames :: DocName -> Map DocName DocInfo -> [(DocName, DocInfo)]
-nextFrames k images = L.drop 1 $ L.dropWhile ((/= k) . fst) sorted
-  where sorted = sortImages (SortName, False) (M.toList images)
 
-nextFrame :: DocName -> Map DocName DocInfo -> Maybe DocName
-nextFrame k  = fmap fst . preview _head . nextFrames k
-
-prevFrames :: DocName -> Map DocName DocInfo -> [(DocName, DocInfo)]
-prevFrames k images = L.drop 1 $ L.dropWhile ((/= k) . fst) sorted
-  where sorted = sortImages (SortName, True) (M.toList images)
-
-prevFrame :: DocName -> Map DocName DocInfo -> Maybe DocName
-prevFrame k  = fmap fst . preview _head . prevFrames k
   
 
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
@@ -219,20 +168,20 @@ sceneWidget cmds loaded = do
 
   rec 
     input <- holdInputs (current viewport) sceneEvents =<< windowInputs element
-    let (action, maybeDoc, sceneEvents, selection) = r
- 
+     
     -- element' <- canvas_ [class_ =: "expand"] 
-    sceneCanvas viewport action maybeDoc
     -- logEvent (updated $ input ^. #mouse)
+    
 
-    (element, r) <- Svg.svg' [class_ =: "expand enable-cursor view", tabindex_ =: 0, version_ =: "2.0"] $ do
 
-        focusOn element (oneOf _SubmitCmd cmds)
         -- sceneDefines viewport =<< view #preferences
+    
+    (action, maybeDoc, sceneEvents, selection, rendering) <- replaceHold' 
+      (documentEditor viewport input cmds <$> loaded)
 
-       
-        inViewport viewport $ replaceHold'
-            (documentEditor viewport input cmds <$> loaded)
+    element <- sceneCanvas (view #window <$> viewport) rendering            
+    focusOn element (oneOf _SubmitCmd cmds)
+
 
   return (matchShortcuts input, action, maybeDoc, selection)
 
@@ -287,7 +236,7 @@ documentEditor :: forall t m. (GhcjsAppBuilder t m)
             -> Event t [AppCommand]
             -> Document
             -> m (Dynamic t Action, Dynamic t (Maybe Editor)
-                 , Event t (DocPart, SceneEvent), Dynamic t DocParts)
+                 , Event t (DocPart, SceneEvent), Dynamic t DocParts, Dynamic t (Render ()))
 
 documentEditor viewport input cmds document = do
 
@@ -325,26 +274,20 @@ documentEditor viewport input cmds document = do
 
   -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $ oneOf _SelectCmd cmds
-
   logEvent errors
 
+  showing     <- slideShow input (neighbourhood document images0)
+  loadedImage <- loadImage showing
+
   rec
-    annotations  <- holdIncremental (editor0 ^. #annotations) (annotationsPatch <?> patch)
-    let patched = patchIncremental annotations (maybePatch <$> pending)
-        pending = pendingEdit <$> editor <*> action
+    let pending = applyEdits <$> action <*> editor 
+        render = drawAnnotations <$> viewport <*> pure loadedImage <*> pending <*> (view #overlay <$> action)
 
-    -- logEvent (updated (pending <$> document <*> action))
-
+    
     action <- controller $ Scene
-      { image      = (document ^. #name, document ^. #info . #image . #size)
-      , neighbours = neighbourFrames (document ^. #name) 3 images0
-      -- , viewport = viewport
-      , input       = input
+      { input       = input
       , editor      = editor
-      , currentEdit = maybePatchDocument <$> pending <*> editor
-
       , selection   = selection
-      , annotations = patched
 
       , thresholds
 
@@ -354,19 +297,36 @@ documentEditor viewport input cmds document = do
       , preferences  = view #preferences env
       , viewport     = viewport
       }
-    
-  return (action, Just <$> editor, never, selection)
+  
+      
+ 
+  return (action, Just <$> editor, never, selection, render)
       -- withHistory editor entries = Just (editor & #session . #history .~ entries)
 
  
-pendingEdit :: Editor -> Action -> Maybe DocumentPatch'
-pendingEdit doc action = do
-  edit <- action ^. #edit
-  fst <$> preview _Right (applyEdit edit doc)
+-- applyEdit' :: Edit -> Editor -> Either EditError (DocumentPatch', Editor)
+applyEdit' :: Edit -> StateT Editor (Either EditError) DocumentPatch'
+applyEdit' edit = StateT (applyEdit edit)
+
+patches :: Editor -> Action -> Maybe [DocumentPatch']
+patches doc action = do
+  edits   <- nonEmptyList (action ^. #edit)
+  preview _Right 
+    (evalStateT (traverse applyEdit' edits) doc)
+
+
+applyEdits :: Action -> Editor -> Editor
+applyEdits action doc = fromMaybe doc $ preview _Right 
+    (execStateT (traverse_ applyEdit' (action ^. #edit)) doc)
 
 
 oneOf :: Reflex t => Getting (First a) s a -> Event t [s] -> Event t a
 oneOf getter = fmapMaybe (preview (traverse . getter))
+
+nonEmptyList :: [a] -> Maybe [a]
+nonEmptyList = \case
+  [] -> Nothing
+  xs -> Just xs
 
 someOf :: Reflex t => Getting (First a) s a -> Event t [s] -> Event t [a]
 someOf getter cmds = nonEmptyList . fmapMaybe (preview getter) <?> cmds
@@ -471,14 +431,9 @@ saveDocument preferences editor submit = do
 
 connectingDialog :: Builder t m => (Event t (), Event t ()) -> m ()
 connectingDialog (opened, closed) = void $ workflow disconnected where
-  disconnected = workflow' $ Dialog.connecting >> return (connected <$ opened)
-  connected    = workflow' $ return (disconnected <$ closed)
+  disconnected = makeWorkflow' $ Dialog.connecting >> return (connected <$ opened)
+  connected    = makeWorkflow' $ return (disconnected <$ closed)
 
--- clientDetect :: Reflex t => Dynamic t (Maybe Editor) -> Event t [AppCommand] -> Event t ClientMsg
--- clientDetect editor cmds = makeRequest <?> (current editor `tag` oneOf _DetectCmd cmds) where 
---   makeRequest maybeEditor = do 
---     editor <- maybeEditor
---     return $ ClientDetect (editor ^. #name) mempty
 
 filterDocument :: Reflex t => Dynamic t (Maybe Document) -> Event t (DocName, a) -> Event t a
 filterDocument d = attachWithMaybe f (current d) where
@@ -500,7 +455,7 @@ makeClock = do
   return (_tickInfo_lastUTC <$> clock)
 
 
-bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m (AppEnv t)
+bodyWidget :: forall t m. GhcjsBuilder t m => Text -> m ()
 bodyWidget host = mdo
  
   (opened, closed, serverMsg, serverErrors) <- network host clientMsg
@@ -519,7 +474,6 @@ bodyWidget host = mdo
   (docSelected, loaded, clientNav) <- manageDocument (void hello) serverMsg (navigationCmd cmds)
 
   document <- holdDyn Nothing (Just <$> loaded)
-  
   clickOut <- clickAnywhere
   
   let classSelected = oneOf _ClassCmd cmds
@@ -546,14 +500,13 @@ bodyWidget host = mdo
     [ validClass <$> updated config
     , const . snd <$> classSelected
     ]  
+  
   clock <- makeClock
-
   let basePath = "http://" <> host
       env = AppEnv{..}
 
   setTitle $ makeTitle <$> document <*> modified
     
-  -- cmds <- delayEvent cmds'
 
   connectingDialog (opened, void closed)
   ((shortcuts, action, editor, selection), cmds) <- flip runReaderT env $ runEventWriterT $ do
@@ -566,11 +519,12 @@ bodyWidget host = mdo
     cursorLock action $ do
       div [class_ =: "scene expand"] $
         const <$> sceneWidget cmds loaded
-              <*> overlay env
-  return env
+              <*> mainInterface env
+
+  return ()
 
 runDialog :: AppBuilder t m => Dialog -> m (Event t ())
-runDialog (ClassDialog selection) = selectClassDialog (M.keysSet selection)
+runDialog (ClassDialog selection) = selectClassDialog (Map.keysSet selection)
 runDialog (SaveDialog modified next) = saveDialog modified next
 runDialog (ErrorDialog code) = errorDialog code
 
@@ -626,7 +580,7 @@ updateSort (SetReverseSelection b)   = #revSelection .~ b
 
 
 validClass :: Config -> ClassId -> ClassId
-validClass config classId = if (classId `M.member` classes)
+validClass config classId = if (classId `Map.member` classes)
   then classId
   else fromMaybe 0 (minKey classes)
     where classes = view #classes config
@@ -634,11 +588,15 @@ validClass config classId = if (classId `M.member` classes)
 
 cursorLock :: Builder t m => Dynamic t Action -> m a -> m a
 cursorLock action child =
-  div [class_ =: "expand", draggable_ =: False, style_ ~: cursorStyle <$> action] $
-    div [classes_ ~: lockClass <$> action] child
+  div [class_ =: "expand", draggable_ =: False, style_ ~: cursorStyle <$> cursor] $
+    div [classes_ ~: lockClass <$> lock] child
   where
-    cursorStyle Action{..} = [("cursor", cursor)]
-    lockClass Action{..} = ["expand"] <> ["cursor-lock" | lock]
+    (cursor, lock) = split (fromMaybe defaultCursor . getLast <$> view #cursor <$> action)
+    
+    cursorStyle cursor = [("cursor", cursor)]
+    lockClass lock = ["expand"] <> ["cursor-lock" | lock]
+
+    defaultCursor = ("default", False)
 
 --holdCollection :: (Reflex t, MonadHold t m, MonadFix m) => Event t ServerMsg -> m (Dynamic t Collection)
 holdCollection :: Builder t m => Event t ServerMsg -> m (Dynamic t Collection)
@@ -652,14 +610,14 @@ holdCollection serverMsg = mdo
     full = preview _ServerCollection <?> serverMsg
 
     update = leftmost 
-      [ uncurry M.insert <$> (preview _ServerUpdateInfo <?> serverMsg)
+      [ uncurry Map.insert <$> (preview _ServerUpdateInfo <?> serverMsg)
       , updateWith (set #training)   <$> (preview _ServerUpdateTraining <?> serverMsg) 
       , updateWith (set #detections . Just) <$> 
         (preview _ServerUpdateDetections <?> serverMsg)
       ]
 
     updateImages = flip (over #images)
-    updateWith f updates m = M.union (M.intersectionWith f updates m) m
+    updateWith f updates m = Map.union (Map.intersectionWith f updates m) m
 
 
 percentage :: (Int, Int) -> Text
@@ -837,7 +795,7 @@ detectionSummary :: Maybe Editor -> (Float, Float) -> V3 Int
 detectionSummary Nothing    _         = V3 0 0 0
 detectionSummary (Just doc) (t1, t2) = sum $ summary <$> detections where
   summary Detection{..} = V3 (fromEnum (confidence > t1)) (fromEnum (confidence > t2)) 1
-  detections = M.mapMaybe getDetection (doc ^. #annotations)
+  detections = Map.mapMaybe getDetection (doc ^. #annotations)
 
 getDetection :: Annotation -> Maybe Detection
 getDetection Annotation{detection} = snd <$> detection
@@ -871,7 +829,7 @@ sidebar = mdo
 
 
 selectedClass :: Reflex t => AppEnv t -> Dynamic t (Maybe ClassConfig)
-selectedClass AppEnv{config, currentClass} = M.lookup <$> currentClass <*> fmap (view #classes) config
+selectedClass AppEnv{config, currentClass} = Map.lookup <$> currentClass <*> fmap (view #classes) config
 
 
 fileInfo :: forall t m. AppBuilder t m => Dynamic t Bool -> Document ->  m ()
@@ -952,8 +910,8 @@ commitCategories = f <$> [CatTrain, CatValidate, CatTest]
     where f cat = (showText cat, cat)
 
 
-overlay :: forall t m. AppBuilder t m => AppEnv t -> m ()
-overlay AppEnv{shortcut, document, editor, modified, preferences, collection} = row "expand  disable-cursor" $ do
+mainInterface :: forall t m. AppBuilder t m => AppEnv t -> m ()
+mainInterface AppEnv{shortcut, document, editor, modified, preferences, collection} = row "expand  disable-cursor" $ do
   sidebar
   column "expand" $
     sequence_ [header, spacer, footer]

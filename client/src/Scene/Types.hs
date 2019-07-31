@@ -1,4 +1,9 @@
-module Scene.Types where
+{-# LANGUAGE UndecidableInstances #-}
+
+module Scene.Types 
+  ( module Scene.Types  
+
+  ) where
 
 import Annotate.Prelude
 
@@ -16,6 +21,9 @@ import Annotate.Editor
 import Input.Events
 
 import Client.Common
+import Scene.Canvas
+
+
 
 data SceneInputs t = SceneInputs
   { mouseDown :: !(Button -> Event t ())
@@ -62,21 +70,15 @@ data Viewport = Viewport
   } deriving (Generic, Eq, Show)
 
 
-type Image = (DocName, Dim)
 type Controls = (Float, V2 Float)
 
 
 data Scene t = Scene
-  { image    :: !Image
-  , neighbours :: !([Image], [Image])
-  , input    :: !(SceneInputs t)
+  { input    :: !(SceneInputs t)
 
   , editor      :: !(Dynamic t Editor)
-  , currentEdit :: !(Dynamic t Editor)
-
-  , selection :: !(Dynamic t DocParts)
-  , annotations  :: !(Incremental t (PatchMap AnnotationId Annotation))
-
+  , selection   :: !(Dynamic t DocParts)
+ 
   , currentClass :: !(Dynamic t ClassId)
   , config       :: !(Dynamic t Config)
   , preferences  :: !(Dynamic t Preferences)
@@ -87,4 +89,19 @@ data Scene t = Scene
   } deriving (Generic)
 
 
-type SceneT t m a = ReaderT (Scene t) m a
+newtype ControllerT t m a = ControllerT { unController :: DynamicWriterT t Action m a }
+  deriving (Functor, Applicative, Monad, DynamicWriter t Action, MonadFix, MonadHold t, MonadSample t)
+
+
+deriving instance EventWriter t w m => EventWriter t w (ControllerT t m)
+
+
+instance (Adjustable t m, MonadHold t m, MonadFix m) => Adjustable t (ControllerT t m) where
+  runWithReplace m e = ControllerT $ runWithReplace (unController m) (unController <$> e)
+
+  traverseIntMapWithKeyWithAdjust f v e = ControllerT $ 
+    traverseIntMapWithKeyWithAdjust (\k v -> unController (f k v)) v e
+
+
+runController :: (Reflex t, Monad m, MonadFix m) => ControllerT t m () -> m (Dynamic t Action)
+runController (ControllerT m) = snd <$> runDynamicWriterT m
