@@ -41,8 +41,8 @@ type GhcjsBuilder t m = Builder t m
 type GhcjsAppBuilder t m = AppBuilder t m
 
 data ViewCommand
-  = ZoomView Float Position
-  | PanView Position Position
+  = ZoomView Float Point
+  | PanView Point Point
   deriving (Generic, Show)
 
 data Dialog = ClassDialog DocParts

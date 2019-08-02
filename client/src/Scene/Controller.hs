@@ -88,7 +88,7 @@ showEdit = ControllerT . tellDyn . fmap f
 
 
   
-makeBox :: Position -> Position -> Box
+makeBox :: Point -> Point -> Box
 makeBox p1 p2 = Box (liftI2 min p1 p2) (liftI2 max p1 p2)
 
 drawBoxes :: AppBuilder t m => Scene t -> SceneInputs t -> Event t () -> ControllerT t m ()

@@ -31,7 +31,7 @@ data Extents = Extents { centre :: Vec, extents :: Vec } deriving (Generic, Show
 newtype Polygon = Polygon { points :: NonEmpty Vec} deriving (Generic, Show, Eq)
 newtype WideLine = WideLine { points :: NonEmpty Circle} deriving (Generic, Show, Eq)
 
-data Segment = Segment { point1 :: Position, point2 :: Position } deriving (Generic, Show, Eq)
+data Segment = Segment { point1 :: Point, point2 :: Point } deriving (Generic, Show, Eq)
 
 data Range = Range { lower :: Float, upper :: Float } deriving (Generic, Eq, Show)
 
@@ -39,10 +39,13 @@ infix 4 ~=
 
 class Eq a => ApproxEq a where
   (~=) :: a -> a -> Bool
+
+tolerance :: Float
+tolerance = 10e-4
   
 
 instance ApproxEq Float where
-  (~=) a b = abs (a - b) < 1e-3
+  (~=) a b = abs (a - b) < tolerance
     
   
 instance (ApproxEq a) => ApproxEq (V2 a) where
@@ -103,6 +106,17 @@ instance Semigroup Box where
   (<>) = mergeBoxes
 
 
+class Pick a where
+  pick :: a -> Point -> Bool
+   
+instance Pick Box where
+  pick = intersectBoxPoint
+
+instance Pick Circle where
+  pick (Circle c r) p  = d `dot` d < r * r 
+    where d = p - c
+  
+
 class HasBounds a where
   getBounds :: a -> Box
 
@@ -126,7 +140,7 @@ instance HasBounds WideLine where
 instance HasBounds Segment where
   getBounds (Segment p1 p2) = getBounds [p1, p2]
 
-instance HasBounds Position where
+instance HasBounds Point where
   getBounds p = Box p p
 
 instance HasBounds a => HasBounds (NonEmpty a) where
@@ -153,10 +167,10 @@ boxArea :: Box -> Float
 boxArea b = x * y where
   (V2 x y) = boxSize b
 
-boxCentre :: Box -> Position
+boxCentre :: Box -> Point
 boxCentre Box{..} = centroid [lower, upper]
 
-centroid :: Foldable t => t Position -> Position
+centroid :: Foldable t => t Point -> Point
 centroid ps = sum ps / fromIntegral (length ps)
 
 boxExtents :: Simple Iso Box Extents
@@ -173,7 +187,7 @@ rangeIntersection (Range l u) (Range l' u') = if upper >= lower
         where (lower, upper) = (max l l', min u u')
 
 
-clampBox :: Box -> Position -> Position
+clampBox :: Box -> Point -> Point
 clampBox (Box (V2 lx ly) (V2 ux uy)) (V2 px py) = V2 (clamp (lx, ux) px) (clamp (ly, uy) py)
 
 intersectBoxCircle :: Box -> Circle -> Bool
@@ -184,10 +198,12 @@ intersectBoxBox (Box (V2 lx ly) (V2 ux uy)) (Box (V2 lx' ly') (V2 ux' uy')) =
     intersectRanges (Range lx ux) (Range lx' ux') &&
     intersectRanges (Range ly uy) (Range ly' uy')
 
-intersectBoxPoint :: Box -> Position -> Bool
+intersectBoxPoint :: Box -> Point -> Bool
 intersectBoxPoint (Box (V2 lx ly) (V2 ux uy)) (V2 x y) =
     x >= lx && y >= ly &&
     x <= ux && y <= uy
+
+
 
 
 boxIntersection :: Box -> Box -> Maybe Box
@@ -203,7 +219,7 @@ fromRanges (Range lx ux) (Range ly uy) = Box (V2 lx ly) (V2 ux uy)
 data Corner = TopLeft | TopRight | BottomRight | BottomLeft
   deriving (Ord, Enum, Eq, Generic, Show, Bounded)
 
-boxVertices :: Box -> (Position, Position, Position, Position)
+boxVertices :: Box -> (Point, Point, Point, Point)
 boxVertices (Box (V2 lx ly) (V2 ux uy)) =
   ( V2 lx ly
   , V2 ux ly
@@ -211,7 +227,7 @@ boxVertices (Box (V2 lx ly) (V2 ux uy)) =
   , V2 lx uy
   )
 
-boxVertices' :: Box -> [Position]
+boxVertices' :: Box -> [Point]
 boxVertices' (Box (V2 lx ly) (V2 ux uy)) =
   [ V2 lx ly
   , V2 ux ly
@@ -219,7 +235,7 @@ boxVertices' (Box (V2 lx ly) (V2 ux uy)) =
   , V2 lx uy
   ]
 
-type Position = V2 Float
+type Point = V2 Float
 type Vector = V2 Float
 
 type Size = V2 Float

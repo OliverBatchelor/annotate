@@ -168,14 +168,7 @@ sceneWidget cmds loaded = do
 
   rec 
     input <- holdInputs (current viewport) sceneEvents =<< windowInputs element
-     
-    -- element' <- canvas_ [class_ =: "expand"] 
-    -- logEvent (updated $ input ^. #mouse)
-    
-
-
-        -- sceneDefines viewport =<< view #preferences
-    
+       
     (action, maybeDoc, sceneEvents, selection, rendering) <- replaceHold' 
       (documentEditor viewport input cmds <$> loaded)
 
@@ -186,11 +179,6 @@ sceneWidget cmds loaded = do
   return (matchShortcuts input, action, maybeDoc, selection)
 
  
-annotationsPatch :: DocumentPatch' -> Maybe (PatchMap AnnotationId Annotation)
-annotationsPatch = fmap PatchMap . preview _PatchAnns'
-
-maybePatch :: Maybe DocumentPatch' -> PatchMap AnnotationId Annotation
-maybePatch maybePatch = fromMaybe mempty (maybePatch >>= annotationsPatch)
 
 
 historyEntry :: EditCmd -> HistoryEntry
@@ -229,6 +217,16 @@ appendEntry e@(time, HistoryThreshold t) = \case
 appendEntry e = cons e
 
 
+type SpatialQuery = Point -> Maybe DocPart
+
+holdPick :: (MonadHold t m, MonadFix m)  => AnnotationMap -> Event t (DeepPatchMap AnnotationId (Identity Annotation)) -> m (Behavior t SpatialQuery)
+holdPick annotations0 patches = do 
+  annotations <- foldDyn apply' annotations0 patches
+  return (flip pickAt <$> current annotations)
+
+  where
+    pickAt p = fmap (over _2 shapeParts) . find (pick p) . Map.fromList 
+    apply' p anns = fromMaybe anns (apply p anns)
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => Dynamic t Viewport 

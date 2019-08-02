@@ -47,7 +47,7 @@ data Inputs t = Inputs
   , keyUp   :: Event t Key
   , keyPress :: Event t Key
 
-  , mouseMove :: Event t Position
+  , mouseMove :: Event t Point
 }
 
 

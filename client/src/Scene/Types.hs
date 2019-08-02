@@ -53,8 +53,8 @@ data SceneInputs t = SceneInputs
   , keyboard :: !(Dynamic t (Set Key))
   , hover :: !(Dynamic t (Maybe DocPart))
 
-  , mouse    :: !(Dynamic t Position)
-  , pageMouse :: !(Dynamic t Position)
+  , mouse    :: !(Dynamic t Point)
+  , pageMouse :: !(Dynamic t Point)
 
   , keyCombo  :: !(Key -> [Key] -> Event t ())
 
@@ -65,7 +65,7 @@ data SceneInputs t = SceneInputs
 data Viewport = Viewport
   { image    :: !Dim
   , window    :: !Dim
-  , pan     :: !Position
+  , pan     :: !Point
   , zoom    :: !Float
   } deriving (Generic, Eq, Show)
 

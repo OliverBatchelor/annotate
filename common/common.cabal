@@ -23,7 +23,8 @@ library
                        Annotate.Sorting,
                        Annotate.Prelude,
                        Annotate.Colour,
-                       Annotate.TH
+                       Annotate.TH,
+                       Annotate.DeepPatchMap
                        
   default-extensions:  DuplicateRecordFields, TemplateHaskell, FlexibleInstances, FlexibleContexts,
                        GADTs, MultiParamTypeClasses, TypeApplications, OverloadedStrings,
@@ -31,10 +32,12 @@ library
                        DeriveGeneric, DeriveDataTypeable, DeriveFunctor,
                        DataKinds, RankNTypes, OverloadedLabels, TemplateHaskell, QuasiQuotes,
                        TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving, TupleSections,
-                       RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms, NoImplicitPrelude
+                       RecordWildCards, TypeOperators, NoMonomorphismRestriction, PatternSynonyms, 
+                       NoImplicitPrelude
   build-depends:       base >=4.9 && <5,
                        aeson >= 1.0, mtl, containers, lens, generic-lens == 1.1.*,
                        time, linear, text, semigroupoids, contravariant, dependent-map, dependent-sum, these,
+                       reflex,
                        data-default, hashable, fuzzy, dependent-sum-template, ieee754, witherable,  template-haskell
 
   hs-source-dirs:      src

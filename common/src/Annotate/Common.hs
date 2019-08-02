@@ -28,6 +28,8 @@ import qualified Data.Aeson.Types as Aeson
 import Data.Time.Calendar (Day(..))
 import Data.Maybe (fromJust)
 
+import Annotate.DeepPatchMap
+
 
 import Data.List (splitAt, elemIndex,  dropWhile)
 import Data.GADT.Compare.TH
@@ -92,6 +94,12 @@ instance HasBounds Shape where
  getBounds (ShapePolygon s) = getBounds s
  getBounds (ShapeLine s)    = getBounds s
 
+
+instance Pick Shape where
+  pick (ShapeCircle c) = pick c
+  pick (ShapeBox b) = pick b
+  pick _ = error "pick: not implemented"
+
 data Detection = Detection
   { label      :: ClassId
   , shape      :: Shape
@@ -142,19 +150,7 @@ data Edit
   deriving (Generic, Show, Eq)
 
 
-data AnnotationPatch
-  = Add Annotation
-  | Delete
-  | Transform Rigid (Set Int)
-  | SetTag DetectionTag
-  | SetClass ClassId
-  deriving (Generic, Show, Eq)
 
-
-data DocumentPatch
-    = PatchAnns (Map AnnotationId AnnotationPatch)
-    -- | PatchArea (Maybe Box)
-  deriving (Eq, Show, Generic)
 
 
 data OpenType = OpenNew Detections | OpenReview Detections | OpenDisconnected 
@@ -682,8 +678,6 @@ makePrisms ''ServerMsg
 makePrisms ''Shape
 
 makePrisms ''DetectionTag
-makePrisms ''DocumentPatch
-makePrisms ''AnnotationPatch
 
 
 
@@ -777,7 +771,6 @@ makeInstances
   , ''Detections  
 
 
-  , ''AnnotationPatch
   , ''HistoryEntry   
   , ''OpenSession   
   , ''Session   

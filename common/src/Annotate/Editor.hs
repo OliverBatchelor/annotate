@@ -1,11 +1,15 @@
-module Annotate.Editor where
+module Annotate.Editor 
+  ( module Annotate.DeepPatchMap
+  , module Annotate.Editor
+
+  ) where
 
 import Annotate.Prelude
+import Annotate.Common
+import Annotate.DeepPatchMap
 
 import qualified Data.Map as Map
 import qualified Data.Set as S
-
-import Annotate.Common
 
 import Data.List (uncons)
 
@@ -20,20 +24,28 @@ import Control.Lens (makePrisms)
 import Debug.Trace
 
 
-data EditError = MissingKey AnnotationId | EmptyUndos | EmptyRedos | NoDetection AnnotationId
-  deriving (Show, Generic)
-
-
+type EditError = Text
 type DocPart = (AnnotationId, Maybe Int)
 
 mergeParts :: DocParts -> DocParts -> DocParts
 mergeParts = Map.unionWith mappend
 
 
+data AnnotationPatch 
+  = Transform Rigid (Set Int)
+  | SetTag DetectionTag
+  | SetClass ClassId
+  deriving (Generic, Show, Eq)
+
+data DocumentPatch
+  = PatchAnns (DeepPatchMap AnnotationId AnnotationPatch)
+  -- | PatchArea (Maybe Box)
+  deriving (Eq, Show, Generic)
+
 -- DocumentPatch' is a non invertible version of DocumentPatch (less details)
 -- used for patching the AnnotationMap to update the view.
 data DocumentPatch'
-  = PatchAnns' (Map AnnotationId (Maybe Annotation))
+  = PatchAnns' (DeepPatchMap AnnotationId (Identity Annotation))
      deriving (Show, Eq, Generic)
 
 data Editor = Editor
@@ -44,8 +56,11 @@ data Editor = Editor
   , session :: Session
   } deriving (Generic, Show)
 
-makePrisms ''DocumentPatch'
-makePrisms ''EditCmd
+
+instance Patch AnnotationPatch where
+  type PatchTarget AnnotationPatch = Annotation
+  apply p ann = preview _Right $ fmap snd $ patchAnnotation ann p 
+  -- $ preview _Right $ fmap snd $ patchAnnotation a p
 
 
 isAnnotated :: Document -> Bool
@@ -127,7 +142,7 @@ maxEdits :: [DocumentPatch] -> Maybe AnnotationId
 maxEdits =  maybeMaximum . fmap maxEdit
 
 maxEdit :: DocumentPatch -> Maybe AnnotationId
-maxEdit (PatchAnns e) = maxKey e
+maxEdit (PatchAnns e) = maxKey $ unDeepPatchMap e
 
 
 maybeMaximum :: (Ord k) => [Maybe k] -> Maybe k
@@ -183,7 +198,7 @@ maybePatchDocument Nothing  = id
 maybePatchDocument (Just p) = patchDocument p
 
 patchDocument :: DocumentPatch' -> Editor -> Editor
-patchDocument (PatchAnns' p)  = over #annotations (patchMap p)
+patchDocument (PatchAnns' p)  = over #annotations (\anns -> fromMaybe anns $ apply p anns)
 -- patchDocument (PatchArea' b) = #validArea .~ b
 
 
@@ -196,10 +211,10 @@ applyEdit e doc = do
 
 
 takeUndo :: Editor -> Either EditError (DocumentPatch, [DocumentPatch])
-takeUndo doc = maybeError EmptyUndos $ uncons (doc ^. #undos)
+takeUndo doc = maybeError "empty undos" $ uncons (doc ^. #undos)
 
 takeRedo :: Editor -> Either EditError (DocumentPatch, [DocumentPatch])
-takeRedo doc = maybeError EmptyRedos $ uncons (doc ^. #redos)
+takeRedo doc = maybeError "empty redos" $ uncons (doc ^. #redos)
 
 
 applyPatch :: DocumentPatch -> Editor -> Either EditError (DocumentPatch, Editor)
@@ -290,11 +305,11 @@ without indexes f = toListOf (_without indexes) f
 
 
 
-transformPoint :: Position -> Rigid -> Position -> Position
+transformPoint :: Point -> Rigid -> Point -> Point
 transformPoint centre (s, t) =  (+ t) . (+ centre) . (^* s) . subtract centre
 
 
-transformVertices :: Rigid -> NonEmpty Position -> NonEmpty Position
+transformVertices :: Rigid -> NonEmpty Point -> NonEmpty Point
 transformVertices  t points = transformPoint centre t <$> points
     where centre = boxCentre (getBounds points)
 
@@ -349,7 +364,7 @@ transformParts t parts = \case
 --   ShapeLine    (WideLine points) -> ShapeLine . WideLine   <$> nonEmpty (without parts points)
 
 
-deleteParts :: Set Int -> Shape -> AnnotationPatch
+deleteParts :: Set Int -> Shape -> Modify AnnotationPatch
 deleteParts parts = \case
   ShapeCircle _     -> Delete
   ShapeBox _        -> Delete
@@ -359,10 +374,8 @@ deleteParts parts = \case
 
 
 
-
-
 addEdit :: [BasicAnnotation] -> Editor ->  DocumentPatch
-addEdit anns doc = PatchAnns $ Add <$> anns' where
+addEdit anns doc = patchAnns $ Add <$> anns' where
   anns' = Map.fromList (zip [nextId doc..] $ fromBasic <$> anns)
 
 patchMap :: (Ord k) =>  Map k (Maybe a) -> Map k a -> Map k a
@@ -371,28 +384,28 @@ patchMap patch m = m `diff` patch <> Map.mapMaybe id adds where
   diff = Map.differenceWith (flip const)
 
 
-editAnnotations :: (a -> Annotation -> AnnotationPatch) ->  Map AnnotationId a -> Editor ->  DocumentPatch
-editAnnotations f m doc = PatchAnns $ Map.intersectionWith f m (doc ^. #annotations)
+editAnnotations :: (a -> Annotation -> Modify AnnotationPatch) ->  Map AnnotationId a -> Editor ->  DocumentPatch
+editAnnotations f m doc = patchAnns $ Map.intersectionWith f m (doc ^. #annotations)
 
-editShapes :: (a -> Shape -> AnnotationPatch) ->  Map AnnotationId a -> Editor ->  DocumentPatch
+editShapes :: (a -> Shape -> Modify AnnotationPatch) ->  Map AnnotationId a -> Editor ->  DocumentPatch
 editShapes f  = editAnnotations f' 
   where f' a = f a . view #shape
   
 setClassEdit ::  ClassId -> Set AnnotationId -> Editor -> DocumentPatch
-setClassEdit classId parts = editAnnotations (const (const (SetClass classId))) (setToMap' parts)
+setClassEdit classId parts = editAnnotations (\_ _ -> Modify $ SetClass classId) (setToMap' parts)
 
 deletePartsEdit ::   DocParts -> Editor -> DocumentPatch
 deletePartsEdit = editShapes deleteParts
 
 transformPartsEdit ::  Rigid -> DocParts -> Editor ->  DocumentPatch
-transformPartsEdit t = editAnnotations (\parts _ -> Transform t parts)
+transformPartsEdit t = editAnnotations (\parts _ -> Modify $ Transform t parts)
 
 clearAllEdit :: Editor -> DocumentPatch
-clearAllEdit doc = PatchAnns $ const Delete <$> doc ^. #annotations
+clearAllEdit doc = patchAnns $ const Delete <$> doc ^. #annotations
 
   
 confirmDetectionEdit :: Map AnnotationId Bool -> Editor -> DocumentPatch
-confirmDetectionEdit = editAnnotations $ \b -> const (SetTag (Confirmed b))
+confirmDetectionEdit = editAnnotations $ \b -> const (Modify $ SetTag (Confirmed b))
 
 editPatch :: Edit -> Editor -> DocumentPatch
 editPatch = \case
@@ -408,40 +421,51 @@ maybeError _ (Just a) = Right a
 maybeError err _      = Left err
 
 lookupAnn :: AnnotationId -> Map AnnotationId a -> Either EditError a
-lookupAnn k m  = maybeError (MissingKey k) (Map.lookup k m)
+lookupAnn k m  = maybeError "missing annotation key" (Map.lookup k m)
 
 
+
+patchAnns :: Map AnnotationId (Modify AnnotationPatch) -> DocumentPatch
+patchAnns = PatchAnns . DeepPatchMap
+
+patchAnns' :: Map AnnotationId (Modify (Identity Annotation)) -> DocumentPatch'
+patchAnns' = PatchAnns' . DeepPatchMap
 
 
 patchInverse :: Editor -> DocumentPatch -> Either EditError (DocumentPatch, DocumentPatch')
 patchInverse doc (PatchAnns e) = do
-  undoPatch  <- itraverse (patchAnnotations (doc ^. #annotations)) e
-  return (PatchAnns (fst <$> undoPatch), PatchAnns' $ snd <$> undoPatch)
+  undoPatch  <- itraverse (patchAnnotationMap (doc ^. #annotations)) (unDeepPatchMap e)
+  return (patchAnns (fst <$> undoPatch), patchAnns' (snd <$> undoPatch))
 
 -- patchInverse doc (PatchArea b) =
 --   return (PatchArea (doc ^. #validArea), PatchArea' b)
 
+replace :: a -> Modify (Identity a)
+replace = Modify . Identity
 
 
-
-patchAnnotations :: AnnotationMap -> AnnotationId -> AnnotationPatch -> Either EditError (AnnotationPatch, Maybe Annotation)
-patchAnnotations anns k action  =  case action of
-  Add ann   -> return (Delete, Just ann)
+patchAnnotationMap :: AnnotationMap -> AnnotationId -> Modify AnnotationPatch -> Either EditError (Modify AnnotationPatch, Modify (Identity Annotation))
+patchAnnotationMap anns k action  =  case action of
+  Add ann   -> return (Delete, Add ann)
   Delete    -> do
     ann <- lookupAnn k anns
-    return (Add ann, Nothing)
-  Transform t parts -> do
+    return (Add ann, Delete)
+  Modify p -> do
     ann <- lookupAnn k anns
-    let (shape', parts') = transformParts t parts (ann ^. #shape)
-    return  (Transform (invert t) parts', Just (ann & #shape .~ shape'))
+    (p', ann') <- patchAnnotation ann p
+    return (Modify p', replace ann')
 
+
+patchAnnotation :: Annotation -> AnnotationPatch -> Either EditError (AnnotationPatch, Annotation)
+patchAnnotation ann  = \case 
+  Transform t parts -> do
+    let (shape', parts') = transformParts t parts (ann ^. #shape)
+    return  (Transform (invert t) parts', ann & #shape .~ shape')
   SetClass c -> do
-    ann <- lookupAnn k anns
-    return (SetClass (ann ^. #label), Just (ann & #label .~ c))
+    return (SetClass (ann ^. #label), ann & #label .~ c)
   SetTag tag -> do
-    ann <- lookupAnn k anns
-    (tag', _) <- maybeError (NoDetection k) (ann ^. #detection)
-    return (SetTag tag', Just (ann & #detection . traverse . _1 .~ tag))
+    (tag', _) <- maybeError "set tag: annotation has no detection" (ann ^. #detection)
+    return (SetTag tag', ann & #detection . traverse . _1 .~ tag)
   
 
   
@@ -489,3 +513,7 @@ checkReplays = all checkReplay . documentSessions
 
 
 
+makePrisms ''AnnotationPatch  
+makePrisms ''DocumentPatch  
+makePrisms ''DocumentPatch'
+makePrisms ''EditCmd
