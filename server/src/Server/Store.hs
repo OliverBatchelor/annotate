@@ -78,6 +78,8 @@ $(deriveSafeCopy 0 'base ''OpenSession)
 $(deriveSafeCopy 0 'base ''Session)
 $(deriveSafeCopy 0 'base ''OpenType)
 
+$(deriveSafeCopy 0 'base ''Modify)
+
 $(deriveSafeCopy 0 'base ''DocumentPatch)
 $(deriveSafeCopy 0 'base ''AnnotationPatch)
 
@@ -102,6 +104,10 @@ $(deriveSafeCopy 5 'base ''SortOptions)
 
 $(deriveSafeCopy 0 'base ''ImageSelection)
 
+
+instance (SafeCopy p, SafeCopy (PatchTarget p), Ord k, SafeCopy k) => SafeCopy (DeepPatchMap k p) where
+  putCopy (DeepPatchMap m) = contain $ safePut m
+  getCopy = contain $ DeepPatchMap <$> safeGet
 
 
 docInfo :: DocName -> Traversal' Store DocInfo

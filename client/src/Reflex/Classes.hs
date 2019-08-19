@@ -154,6 +154,8 @@ instance Reflex t => SwitchPrompt t (Event t) where
 instance Reflex t => SwitchPrompt t (Dynamic t) where
   switchPrompt = switchPromptlyDyn
 
+
+
 class Reflex t => SwitchHold t a where
   switchHold :: MonadHold t m => a -> Event t a -> m a
 
@@ -195,12 +197,8 @@ instance (Reflex t, SwitchHold t a, SwitchHold t b, SwitchHold t c, SwitchHold t
 
 
 instance Reflex t => SwitchHold t (Dynamic t a) where
-  switchHold d ed = do
-    let eb = current <$> ed
+  switchHold d ed = join <$> holdDyn d ed
 
-    b <- switchHold (current d) eb
-    e <- switchHold (updated d) (updated <$> ed)
-    buildDynamic (sample b) (pushAlways sample eb <!> e)
 
 
 class Patch p => InversePatch p where

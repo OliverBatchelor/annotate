@@ -35,9 +35,9 @@ import Language.Javascript.JSaddle (MonadJSM)
 import Annotate.Common
 
 data Inputs t = Inputs
-  { mouseDown :: Event t Button
-  , mouseUp   :: Event t Button
-  , click     :: Event t Button
+  { mouseDown :: Event t (Button, Point)
+  , mouseUp   :: Event t (Button, Point)
+  , click     :: Event t (Button, Point)
 
   , wheel     :: Event t Float
   , focus     :: Event t Bool
@@ -118,24 +118,17 @@ windowInputs scene = do
   raw <- rawElement scene
 
   -- Mouse down events on the element
-  mouseDown <- wrapDomEvent raw (`DOM.on` DOM.mouseDown)
-    (toButton <$> DOM.mouseButton)
-
-  click  <- wrapDomEvent raw  (`DOM.on` DOM.click)
-    (toButton <$> DOM.mouseButton)
+  mouseDown <- wrapDomEvent raw (`DOM.on` DOM.mouseDown) buttonCoords
+  click  <- wrapDomEvent raw  (`DOM.on` DOM.click) buttonCoords
 
   -- Other events on the window
-  mouseMove  <- wrapDomEvent window    (`DOM.on` DOM.mouseMove) $ do
-    (\(x, y) -> V2 (fromIntegral x) (fromIntegral y)) <$> DOM.uiPageXY
-
-  mouseUp    <- wrapDomEvent window    (`DOM.on` DOM.mouseUp)
-    (toButton <$> DOM.mouseButton)
-
+  mouseMove  <- wrapDomEvent window    (`DOM.on` DOM.mouseMove) mouseCoords
+  mouseUp    <- wrapDomEvent window    (`DOM.on` DOM.mouseUp) buttonCoords
+    
   wheel  <- wrapDomEvent raw    (`DOM.on` DOM.wheel) wheelNormalized
 
   focusIn <- wrapDomEvent window    (`DOM.on` DOM.focus) (return True)
   focusOut <- wrapDomEvent window   (`DOM.on` DOM.blur) (return False)
-
 
   localKeyDown <- wrapDomEvent raw    (`DOM.on` DOM.keyDown) $ do
       DOM.preventDefault
@@ -155,6 +148,10 @@ windowInputs scene = do
 
   let focus = leftmost [focusIn, focusOut]
   return  Inputs{..}
+    where
+      mouseCoords = (\(x, y) -> V2 (fromIntegral x) (fromIntegral y)) <$> DOM.uiPageXY
+      buttonCoords = liftA2 (,) (toButton <$> DOM.mouseButton) mouseCoords
+
 
 
 wheelNormalized = do 

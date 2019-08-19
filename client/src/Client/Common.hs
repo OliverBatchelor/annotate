@@ -118,14 +118,6 @@ data AppCommand
   deriving (Generic, Show)
 
 
-data SceneEvent
-  = SceneEnter
-  | SceneLeave
-  | SceneDown
-  | SceneClick
-  | SceneDoubleClick
-
-    deriving (Generic, Show, Eq)
 
 data Shortcut a where
   ShortCancel :: Shortcut ()
@@ -146,6 +138,7 @@ data Action = Action
   { cursor      :: Last (Cursor, Bool)
   , edit        :: [Edit]
   , overlay     :: Render ()
+  , highlight   :: DocParts
   } deriving (Generic)
 
 
@@ -154,13 +147,17 @@ instance Default Action where
     { cursor  = mempty
     , edit    = mempty
     , overlay = pure ()
+    , highlight = mempty
     }
 
 instance Semigroup Action where
-  (<>) (Action cursor edit overlay) (Action cursor' edit' overlay') = Action 
+  (<>) (Action cursor edit overlay highlight) 
+       (Action cursor' edit' overlay' highlight') = Action 
+
     { cursor  = cursor <> cursor'
     , edit    = edit <> edit'
     , overlay = overlay <> overlay'
+    , highlight = highlight <> highlight'
     }
 
 instance Monoid Action where
@@ -169,7 +166,18 @@ instance Monoid Action where
     { cursor  = mconcat $ view #cursor <$> actions
     , edit    = mconcat $ view #edit <$> actions
     , overlay = mconcat $ view #overlay <$> actions
+    , highlight = mconcat $ view #highlight <$> actions
     }
+
+
+data SceneQuery = SceneQuery
+  { queryPoint :: Point -> [DocPart]
+  , queryBox   :: Box   -> DocParts
+  }
+
+instance Default SceneQuery where
+  def = SceneQuery {queryPoint = const mempty, queryBox = const mempty}
+
 
 
 data AppEnv t = AppEnv
@@ -279,9 +287,17 @@ printFloat = T.pack . printf "%.2f"
 printFloat0 :: Float -> Text
 printFloat0 = T.pack . printf "%.0f"
 
-makePrisms ''AppCommand
-makePrisms ''SceneEvent
 
+
+nonEmptyList :: [a] -> Maybe [a]
+nonEmptyList = \case
+  [] -> Nothing
+  xs -> Just xs
+
+
+
+
+makePrisms ''AppCommand
 deriveGCompare ''Shortcut
 deriveGEq ''Shortcut
 

@@ -36,8 +36,11 @@ library
   exposed-modules:     Reflex.Classes, Reflex.ReflexM
                       , Scene.Viewport, Scene.Controller, Scene.Types, Scene.Events, Scene.Canvas
                       , Input.Events, Input.Window
+                      , Scene.Drawing
+                      
                       , Client.Widgets, Client.Main, Client.Common, Client.Dialog
                       , Client.Class, Client.Select, Client.Images
+                      , Client.Collection
 
   ghc-options:         -O2
 
@@ -58,6 +61,7 @@ library
                      , data-default
                      , contravariant
                      , containers
+                     , monoidal-containers
                      , lens
                      , semigroupoids
                      , mtl

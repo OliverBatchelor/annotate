@@ -26,14 +26,11 @@ import Scene.Canvas
 
 
 data SceneInputs t = SceneInputs
-  { mouseDown :: !(Button -> Event t ())
-  , mouseUp   :: !(Button -> Event t ())
-  , click     :: !(Button -> Event t ())
+  { mouseDown :: !(Button -> Event t Point)
+  , mouseUp   :: !(Button -> Event t Point)
+  , click     :: !(Button -> Event t Point)
 
-  , mouseDownOn :: Event t DocPart
-  , mouseClickOn :: Event t DocPart
-
-  , mouseDoubleClickOn :: Event t DocPart
+  , mouseDownOn :: !(Button -> Event t DocPart)
 
   , wheel     :: !(Event t Float)
   , focus     :: !(Event t Bool)
@@ -51,7 +48,7 @@ data SceneInputs t = SceneInputs
   , localKeysDown :: !(Event t Key)
 
   , keyboard :: !(Dynamic t (Set Key))
-  , hover :: !(Dynamic t (Maybe DocPart))
+  , hover :: !(Dynamic t [DocPart])
 
   , mouse    :: !(Dynamic t Point)
   , pageMouse :: !(Dynamic t Point)
@@ -86,6 +83,8 @@ data Scene t = Scene
   , shortcut     :: !(EventSelector t Shortcut)
   , viewport     :: !(Dynamic t Viewport)
   , thresholds   :: !(Dynamic t (Float, Float))
+
+  , query        :: !(Behavior t SceneQuery)
   } deriving (Generic)
 
 

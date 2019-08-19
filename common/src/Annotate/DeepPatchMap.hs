@@ -16,16 +16,27 @@ import Control.Lens (makePrisms)
 import Annotate.Prelude
 
 
-data Modify p
-  = Add (PatchTarget p)
+data Modify p pt
+  = Add pt
   | Delete
   | Modify p
-  deriving (Generic)
+  deriving (Generic, Show, Eq)
 
-deriving instance (Eq (PatchTarget p), Eq p) => Eq (Modify p)
-deriving instance (Show (PatchTarget p), Show p) => Show (Modify p)
 
-newtype DeepPatchMap k p = DeepPatchMap { unDeepPatchMap  :: Map k (Modify p) }
+type Modifies p = Modify p (PatchTarget p)
+
+
+
+instance (Patch p, PatchTarget p ~ pt)  => Patch (Modify p pt) where
+  type PatchTarget (Modify p pt) = Maybe pt
+
+  apply (Modify p) (Just a) = Just <$> (apply p a)
+  apply (Add a) Nothing     = Just (Just a)
+  apply Delete (Just _)     = Just Nothing
+  apply _ _ = Nothing
+
+
+newtype DeepPatchMap k p = DeepPatchMap { unDeepPatchMap  :: Map k (Modifies p) }
   deriving (Generic)
 
 deriving instance (Ord k, Eq (PatchTarget p), Eq p) => Eq (DeepPatchMap k p)

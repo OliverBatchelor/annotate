@@ -10,6 +10,7 @@ import Scene.Events
 
 import qualified Data.Set as S
 import qualified Data.Map as Map
+import qualified Data.Map.Monoidal as Monoidal
 import qualified Data.List.NonEmpty as NE
 
 import qualified Web.KeyCode as Key
@@ -73,17 +74,24 @@ withCursor cursor m =  withAction (#cursor .~ pure cursor)  m
 captures :: AppBuilder t m => Cursor -> ControllerT t m a -> ControllerT t m a
 captures cursor = withCursor (cursor, True)
 
-addOverlay :: (Reflex t, MonadHold t m) => Dynamic t (Render ()) -> ControllerT t m ()
-addOverlay = ControllerT . tellDyn . fmap f 
-  where f render = def & #overlay .~ render
+
+displaying :: (Reflex t, MonadHold t m) =>  Dynamic t (Action -> Action) -> ControllerT t m ()
+displaying = ControllerT . tellDyn . fmap ($ def)
 
 setCursor :: (Reflex t, MonadHold t m) => Dynamic t (Cursor, Bool) -> ControllerT t m ()
-setCursor = ControllerT . tellDyn . fmap f 
-  where f cursor = def & #cursor .~ pure cursor  
+setCursor = displaying . fmap (set #cursor . pure)
 
-showEdit :: (Reflex t, MonadHold t m) => Dynamic t Edit -> ControllerT t m ()
-showEdit = ControllerT . tellDyn . fmap f 
-  where f edit = def & #edit .~ (pure edit)
+maybeEditing :: (Reflex t, MonadHold t m) => Dynamic t (Maybe Edit) -> ControllerT t m ()
+maybeEditing = displaying . fmap (set #edit . maybeToList)
+
+editing :: (Reflex t, MonadHold t m) => Dynamic t Edit -> ControllerT t m ()
+editing = displaying . fmap (set #edit . pure)
+
+overlaying :: (Reflex t, MonadHold t m) => Dynamic t (Render ()) -> ControllerT t m ()
+overlaying = displaying . fmap (set #overlay)
+
+highlighting :: (Reflex t, MonadHold t m) => Dynamic t DocParts -> ControllerT t m ()
+highlighting = displaying . fmap (set #highlight)
 
 
 
@@ -170,29 +178,7 @@ addShapes scene e = addAnnotation (makeAnnotation e)
   where  makeAnnotation e = BasicAnnotation <$> e <#> current (scene ^. #currentClass)
 
 
-alterPart ::  AnnotationId -> (Set Int -> Set Int) -> DocParts -> DocParts
-alterPart k f = Map.alter f' k where
-  f' p = if null result then Nothing else Just result
-    where result = f (fromMaybe mempty p)
 
-
-togglePart :: Editor -> DocPart -> DocParts -> DocParts
-togglePart doc (k, sub) = alterPart k $ \existing ->
-  case sub of
-    Nothing -> if existing == allParts then S.empty else allParts
-    Just i  -> toggleSet i existing
-
-  where
-    allParts = subParts doc k
-    toggleSet i s = if S.member i s then S.delete i s else S.insert i s
-
-addPart :: Editor -> DocPart -> DocParts -> DocParts
-addPart doc part = mergeParts (toParts doc part)
-
-toParts :: Editor -> DocPart -> DocParts
-toParts doc (k, p) = case p of
-  Nothing -> Map.singleton k (subParts doc k)
-  Just i  -> Map.singleton k (S.singleton i)
 
 selectChange :: Set Key -> Editor -> DocParts -> Maybe DocPart -> DocParts
 selectChange keys doc existing target
@@ -204,7 +190,7 @@ selectParts Scene{editor, selection, input, shortcut} =
   selectChange <$> current keyboard <*> current editor <*> current selection <@> partsClicked where
 
     partsClicked = leftmost
-      [ Just <$> mouseDownOn
+      [ Just    <$>  mouseDownOn LeftButton
       , Nothing <$ mouseDown LeftButton
       ]
     SceneInputs{keyboard, mouseDown, mouseDownOn} = input
@@ -212,38 +198,24 @@ selectParts Scene{editor, selection, input, shortcut} =
 
 confirmAnnotation :: Reflex t => Scene t -> Event t (Maybe (AnnotationId, Bool))
 confirmAnnotation Scene{editor, input, preferences} 
-    = confirm <$> current editor <*> current preferences <@> clicked where
+    = confirm <$> current editor <*> current preferences <@> down where
 
   confirm Editor{annotations} prefs (i, _) = do 
     ann <- Map.lookup i annotations
     (t, d) <- ann ^. #detection
     guard (canConfirm t)
-    return (i, isHidden (t, d ^. #confidence) (prefs ^. #thresholds . _1))
+    return (i, belowThreshold t (d ^. #confidence) (prefs ^. #thresholds))
     
-  clicked = input ^. #mouseDownOn
+  down = mouseDownOn input LeftButton
   canConfirm t = t == Detected || t == Missed
-  
-  isHidden (Detected, conf) t = conf < t
-  isHidden (Missed, _)      t = True
 
   
+belowThreshold :: DetectionTag -> Float -> (Float, Float) -> Bool
+belowThreshold Detected conf (t, _) = conf < t
+belowThreshold Missed   _    (t, _) = True
 
-boxQuery :: Editor -> Box -> DocParts
-boxQuery Editor{annotations} box = Map.mapMaybe (queryShape . view #shape) annotations where
-  queryShape shape | getBounds shape `intersectBoxBox` box = queryParts shape
-                   | otherwise = Nothing
-
-  queryParts (ShapeCircle c) =  defaults (Just (S.singleton 0)) (intersectBoxCircle box c)
-  queryParts (ShapeBox b) =  maybeParts (intersectBoxPoint box <$> boxVertices' b)
-  queryParts (ShapePolygon p) = Nothing
-  queryParts (ShapeLine p)    = Nothing
-
-  maybeParts bs = case catMaybes (imap f bs) of
-    []    -> Nothing
-    parts -> Just (S.fromList parts)
-
-  f i b = if b then Just i else Nothing
-
+highlightParts :: Editor -> [DocPart] -> DocParts
+highlightParts editor parts = fromMaybe mempty (toParts editor <$> preview _head parts)
 
 
 actions :: forall t m. AppBuilder t m => Scene t -> ControllerT t m ()
@@ -269,6 +241,7 @@ actions scene@Scene{..} = holdWorkflow $
     docCommand (const DocRedo) (select shortcut ShortRedo)
 
     setCursor (bool ("default", False) ("copy", False) <$> holdingShift)
+    highlighting (liftA2 highlightParts editor hover)
 
     return (leftmost [beginSelectRect, beginDragSelection, beginDraw, beginPan])
       where 
@@ -294,6 +267,8 @@ actions scene@Scene{..} = holdWorkflow $
 
         pointer e = if isJust e then ("pointer", True) else ("default", False)
 
+    maybeEditing edit 
+
     editCommand $ filterMaybe (current edit <@ endDrag)
     setCursor (pointer <$> edit)
     return (base <$ endDrag)
@@ -316,12 +291,12 @@ actions scene@Scene{..} = holdWorkflow $
     let box = makeBox p1 <$> mouse
         done = current box <@ leftmost [click LeftButton, mouseUp LeftButton]
 
-        parts  = boxQuery <$> current editor <*> current box
-        parts' = mergeParts <$> current selection <*> parts
+        parts  = queryBox <$> query <*> current box
+        parts' = mappend <$> current selection <*> parts
 
     command SelectCmd (parts' `tag` done)
 
-    addOverlay $ selectRect <$> box 
+    overlaying (selectRect <$> box)
     return (base <$ done)
 
 

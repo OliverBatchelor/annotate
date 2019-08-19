@@ -25,10 +25,7 @@ import Debug.Trace
 
 
 type EditError = Text
-type DocPart = (AnnotationId, Maybe Int)
 
-mergeParts :: DocParts -> DocParts -> DocParts
-mergeParts = Map.unionWith mappend
 
 
 data AnnotationPatch 
@@ -159,13 +156,16 @@ nextId :: Editor -> AnnotationId
 nextId = fromMaybe 0 .  fmap (+1) . maxId
 
 
-subParts :: Editor -> AnnotationId -> Set Int
-subParts doc k = fromMaybe mempty $  do
-  ann <- Map.lookup k (doc ^. #annotations)
+subParts' :: AnnotationMap -> AnnotationId -> Set Int
+subParts' anns k = fromMaybe mempty $  do
+  ann <- Map.lookup k anns
   return $ shapeParts (ann ^. #shape)
 
+subParts :: Editor -> AnnotationId -> Set Int
+subParts doc k = subParts' (doc ^. #annotations) k
+
 documentParts :: Editor -> DocParts
-documentParts = fmap (shapeParts . view #shape) . view #annotations
+documentParts =  fmap (shapeParts . view #shape) . view #annotations
 
 shapeParts :: Shape -> Set Int
 shapeParts = \case
@@ -173,6 +173,36 @@ shapeParts = \case
     ShapeCircle _               -> S.singleton 0
     ShapeLine (WideLine points)   -> S.fromList [0..length points]
     ShapePolygon (Polygon points) -> S.fromList [0..length points]
+
+
+alterPart ::  AnnotationId -> (Set Int -> Set Int) -> DocParts -> DocParts
+alterPart k f = Map.alter f' k where
+  f' p = if null result then Nothing else Just result
+    where result = f (fromMaybe mempty p)
+
+
+togglePart :: Editor -> DocPart -> DocParts -> DocParts
+togglePart doc (k, sub) = alterPart k $ \existing ->
+  case sub of
+    Nothing -> if existing == allParts then S.empty else allParts
+    Just i  -> toggleSet i existing
+
+  where
+    allParts = subParts doc k
+    toggleSet i s = if S.member i s then S.delete i s else S.insert i s
+
+addPart :: Editor -> DocPart -> DocParts -> DocParts
+addPart doc part = mergeParts (toParts doc part)
+
+mergeParts :: DocParts -> DocParts -> DocParts
+mergeParts = Map.unionWith mappend
+
+toParts :: Editor -> DocPart -> DocParts
+toParts doc (k, p) = case p of
+  Nothing -> Map.singleton k (subParts doc k)
+  Just i  -> Map.singleton k (S.singleton i)
+
+
 
 
 lookupTargets :: Editor -> [AnnotationId] -> Map AnnotationId (Maybe Annotation)
@@ -364,7 +394,7 @@ transformParts t parts = \case
 --   ShapeLine    (WideLine points) -> ShapeLine . WideLine   <$> nonEmpty (without parts points)
 
 
-deleteParts :: Set Int -> Shape -> Modify AnnotationPatch
+deleteParts :: Set Int -> Shape -> Modifies AnnotationPatch
 deleteParts parts = \case
   ShapeCircle _     -> Delete
   ShapeBox _        -> Delete
@@ -384,10 +414,10 @@ patchMap patch m = m `diff` patch <> Map.mapMaybe id adds where
   diff = Map.differenceWith (flip const)
 
 
-editAnnotations :: (a -> Annotation -> Modify AnnotationPatch) ->  Map AnnotationId a -> Editor ->  DocumentPatch
+editAnnotations :: (a -> Annotation -> Modifies AnnotationPatch) ->  Map AnnotationId a -> Editor ->  DocumentPatch
 editAnnotations f m doc = patchAnns $ Map.intersectionWith f m (doc ^. #annotations)
 
-editShapes :: (a -> Shape -> Modify AnnotationPatch) ->  Map AnnotationId a -> Editor ->  DocumentPatch
+editShapes :: (a -> Shape -> Modifies AnnotationPatch) ->  Map AnnotationId a -> Editor ->  DocumentPatch
 editShapes f  = editAnnotations f' 
   where f' a = f a . view #shape
   
@@ -395,10 +425,10 @@ setClassEdit ::  ClassId -> Set AnnotationId -> Editor -> DocumentPatch
 setClassEdit classId parts = editAnnotations (\_ _ -> Modify $ SetClass classId) (setToMap' parts)
 
 deletePartsEdit ::   DocParts -> Editor -> DocumentPatch
-deletePartsEdit = editShapes deleteParts
+deletePartsEdit = editShapes deleteParts 
 
 transformPartsEdit ::  Rigid -> DocParts -> Editor ->  DocumentPatch
-transformPartsEdit t = editAnnotations (\parts _ -> Modify $ Transform t parts)
+transformPartsEdit t = editAnnotations (\parts _ -> Modify $ Transform t parts) 
 
 clearAllEdit :: Editor -> DocumentPatch
 clearAllEdit doc = patchAnns $ const Delete <$> doc ^. #annotations
@@ -425,10 +455,10 @@ lookupAnn k m  = maybeError "missing annotation key" (Map.lookup k m)
 
 
 
-patchAnns :: Map AnnotationId (Modify AnnotationPatch) -> DocumentPatch
+patchAnns :: Map AnnotationId (Modifies AnnotationPatch) -> DocumentPatch
 patchAnns = PatchAnns . DeepPatchMap
 
-patchAnns' :: Map AnnotationId (Modify (Identity Annotation)) -> DocumentPatch'
+patchAnns' :: Map AnnotationId (Modifies (Identity Annotation)) -> DocumentPatch'
 patchAnns' = PatchAnns' . DeepPatchMap
 
 
@@ -440,11 +470,11 @@ patchInverse doc (PatchAnns e) = do
 -- patchInverse doc (PatchArea b) =
 --   return (PatchArea (doc ^. #validArea), PatchArea' b)
 
-replace :: a -> Modify (Identity a)
+replace :: a -> Modifies (Identity a)
 replace = Modify . Identity
 
 
-patchAnnotationMap :: AnnotationMap -> AnnotationId -> Modify AnnotationPatch -> Either EditError (Modify AnnotationPatch, Modify (Identity Annotation))
+patchAnnotationMap :: AnnotationMap -> AnnotationId -> Modifies AnnotationPatch -> Either EditError (Modifies AnnotationPatch, Modifies (Identity Annotation))
 patchAnnotationMap anns k action  =  case action of
   Add ann   -> return (Delete, Add ann)
   Delete    -> do

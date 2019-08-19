@@ -155,15 +155,19 @@ pushState r = render C.save >> r <* render C.restore
 
 
 strokePath :: Render a -> Render a 
-strokePath r = render C.beginPath >> r <* render C.stroke
+strokePath r = beginPath >> r <* render C.stroke
 
+
+beginPath :: Render ()
+beginPath = render C.beginPath
 
 nonScalingStrokePath :: Render a -> Render a 
-nonScalingStrokePath r = render C.beginPath >> r <* nonScalingStroke
+nonScalingStrokePath r = beginPath >> r <* nonScalingStroke
 
 
 fillPath :: Render a -> Render a 
-fillPath r = render C.beginPath >> r <* render (flip C.fill Nothing)
+fillPath r = beginPath >> r <* render (flip C.fill Nothing)
+
 
 
 rect :: Box -> Render ()
@@ -236,4 +240,3 @@ fill = fill' DOM.CanvasWindingRuleNonzero
 
 nonScalingStroke :: Render ()
 nonScalingStroke = pushState $ resetTransform >> stroke
-

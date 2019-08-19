@@ -35,6 +35,12 @@ holdKeys focus (keyDown, keyUp) = foldDyn ($) S.empty $ mergeWith (.)
 selectEq :: (Eq a, Reflex t) => Event t a -> a -> Event t ()
 selectEq e a = guard . (== a) <?> e
 
+selectKey :: (Eq k, Reflex t) => Event t (k, a) -> k -> Event t a
+selectKey e k = f <?> e where
+  f (k', a) | k == k'   = Just a
+            | otherwise = Nothing
+
+
 testCombo ::  Key -> Set Key -> (Set Key, Key) -> Maybe ()
 testCombo key modifiers (held, pressed)
   | key == pressed && modifiers == S.delete key held = Just ()
@@ -57,64 +63,45 @@ numericKey = \case
 
 
 holdInputs :: (MonadFix m, MonadHold t m, Reflex t)
-           => Behavior t Viewport -> Event t (DocPart, SceneEvent) -> E.Inputs t  -> m (SceneInputs t)
-holdInputs viewport sceneEvents inp = do
+           => Behavior t Viewport -> Behavior t SceneQuery -> E.Inputs t  -> m (SceneInputs t)
+holdInputs viewport query inp = do
 
-  mousePos      <- holdDyn (V2 0 0) (E.mouseMove inp)
-  localMousePos <- holdDyn (V2 0 0) (toLocal <$> viewport <@> E.mouseMove inp)
+  let localEvent e = toLocal <$> viewport <@> e
+      pickEvent e = queryPoint <$> query <@> e
 
-  let eventType e (part, e') = if e == e' then Just part else Nothing
-      sceneEvent e = eventType e <?> sceneEvents
-
-  hover <- holdDyn Nothing $ leftmost
-      [ Just          <$> sceneEvent SceneEnter
-      , const Nothing <$> sceneEvent SceneLeave
-      ]
-
+  pageMouse    <- holdDyn (V2 0 0) (E.mouseMove inp)
+  mouse <- holdDyn (V2 0 0) (localEvent (E.mouseMove inp))
+  
+  hover <- holdUniqDyn =<< holdDyn [] (pickEvent (updated mouse))
+  
   rec
-    keys <- holdKeys (E.focus inp) (keysDown, E.keyUp inp)
-    let keysDown = attachWithMaybe uniqueKey (current keys) (E.keyDown inp)
+    keyboard <- holdKeys (E.focus inp) (keysDown, E.keyUp inp)
+    let keysDown = attachWithMaybe uniqueKey (current keyboard) (E.keyDown inp)
         uniqueKey s (k :: Key) = if S.member k s then Nothing else Just k
+    
+  let mouseDown = localEvent . selectKey (E.mouseDown inp)
+      mouseUp   = localEvent . selectKey (E.mouseUp inp)
+      click = localEvent . selectKey (E.click inp)
 
+      mouseDownOn = mapMaybe (preview _head) . pickEvent . mouseDown
 
+      keysDown = E.keyDown inp
+      keysUp = E.keyUp inp
+      keysPressed = E.keyPress inp
+      localKeysDown = E.localKeyDown inp
+  
+      keyDown = selectEq (E.keyDown inp)
+      keyUp = selectEq (E.keyUp inp)
+      keyPress = selectEq (E.keyPress inp)
+      localKeyDown = selectEq (E.localKeyDown inp)
       
-  let mouseDown = selectEq (E.mouseDown inp)
+      wheel = E.wheel inp
+      focus = E.focus inp
 
-  return
-    SceneInputs
-    { pageMouse =  mousePos
-    , mouse     =  localMousePos
+      keyCombo = \k held -> testCombo k (S.fromList held) <?>
+        (current keyboard `attach` E.keyDown inp)
 
-    , mouseDown = mouseDown
-    , mouseUp = selectEq (E.mouseUp inp)
-    , click = selectEq (E.click inp)
-
-    , mouseDownOn = sceneEvent SceneDown
-    , mouseClickOn = sceneEvent SceneClick
-
-    , mouseDoubleClickOn = sceneEvent SceneDoubleClick
-
-    , keysDown = E.keyDown inp
-    , keysUp = E.keyUp inp
-    , keysPressed = E.keyPress inp
-
-    , localKeysDown = E.localKeyDown inp
-
-    , keyDown = selectEq (E.keyDown inp)
-    , keyUp = selectEq (E.keyUp inp)
-    , keyPress = selectEq (E.keyPress inp)
-
-    , localKeyDown = selectEq (E.localKeyDown inp)
-
-    , wheel = E.wheel inp
-    , focus = E.focus inp
-
-    , keyboard = keys
-    , hover = hover
-
-    , keyCombo = \k held -> testCombo k (S.fromList held) <?>
-        (current keys `attach` E.keyDown inp)
-  }
+  return SceneInputs {..}
 
 
 matchShortcuts :: Reflex t => SceneInputs t -> Event t (DMap Shortcut Identity)

@@ -32,7 +32,6 @@ newtype Polygon = Polygon { points :: NonEmpty Vec} deriving (Generic, Show, Eq)
 newtype WideLine = WideLine { points :: NonEmpty Circle} deriving (Generic, Show, Eq)
 
 data Segment = Segment { point1 :: Point, point2 :: Point } deriving (Generic, Show, Eq)
-
 data Range = Range { lower :: Float, upper :: Float } deriving (Generic, Eq, Show)
 
 infix 4 ~=
@@ -106,16 +105,56 @@ instance Semigroup Box where
   (<>) = mergeBoxes
 
 
-class Pick a where
-  pick :: a -> Point -> Bool
-   
-instance Pick Box where
-  pick = intersectBoxPoint
+class Intersects a b where
+  intersects :: a -> b -> Bool
+  default intersects :: Intersects b a => a -> b -> Bool
+  intersects a b = intersects b a
 
-instance Pick Circle where
-  pick (Circle c r) p  = d `dot` d < r * r 
-    where d = p - c
+instance Intersects Point Box   
+instance Intersects Box Point where
+  intersects = intersectBoxPoint
+
+instance Intersects Box Box where  
+  intersects = intersectBoxBox
+
+
+instance Intersects Circle Circle where
+  intersects (Circle c r) (Circle c' r')  = quadrance (c - c') < (r + r') * (r + r')
+
   
+closestPointSegment :: Segment -> Point -> Point
+closestPointSegment (Segment a b) p = a + v ^* t  where
+  t = clamp (0, 1) (((p - a) `dot` v) / quadrance v)
+  v = b - a
+  
+
+instance Intersects Segment Circle  
+instance Intersects Circle Segment where
+  intersects (Circle c r) seg = quadrance (c - p) <= r * r where
+    p = closestPointSegment seg c
+
+instance Intersects Circle Box 
+instance Intersects Box Circle where
+  intersects box circle@(Circle c r) 
+    =  intersects box c 
+    || intersects (Segment a b) circle
+    || intersects (Segment b c) circle
+    || intersects (Segment c d) circle
+    || intersects (Segment d a) circle
+  
+      where (a, b, c, d) = boxCorners box
+
+
+boxCorners :: Box -> (Point, Point, Point, Point)
+boxCorners (Box (V2 lx ly) (V2 ux uy)) = (V2 lx ly, V2 lx uy, V2 ux uy, V2 ux ly)
+
+
+
+
+instance Intersects Point Circle 
+instance Intersects Circle Point where
+  intersects (Circle c r) p  = quadrance (p - c) < r * r 
+        
 
 class HasBounds a where
   getBounds :: a -> Box

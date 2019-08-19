@@ -149,10 +149,6 @@ network host send = do
   where
     close (True,  _, _)       = Nothing
     close (False, _, reason)  = Just reason
-
-
-
-
   
 
 sceneWidget :: forall t m. (GhcjsAppBuilder t m)
@@ -167,9 +163,9 @@ sceneWidget cmds loaded = do
   viewport <- viewControls cmds dim
 
   rec 
-    input <- holdInputs (current viewport) sceneEvents =<< windowInputs element
+    input <- holdInputs (current viewport) query =<< windowInputs element
        
-    (action, maybeDoc, sceneEvents, selection, rendering) <- replaceHold' 
+    (action, maybeDoc, query, selection, rendering) <- replaceHold' 
       (documentEditor viewport input cmds <$> loaded)
 
     element <- sceneCanvas (view #window <$> viewport) rendering            
@@ -217,24 +213,33 @@ appendEntry e@(time, HistoryThreshold t) = \case
 appendEntry e = cons e
 
 
-type SpatialQuery = Point -> Maybe DocPart
-
-holdPick :: (MonadHold t m, MonadFix m)  => AnnotationMap -> Event t (DeepPatchMap AnnotationId (Identity Annotation)) -> m (Behavior t SpatialQuery)
-holdPick annotations0 patches = do 
-  annotations <- foldDyn apply' annotations0 patches
-  return (flip pickAt <$> current annotations)
-
+queryAnnotations :: AnnotationMap -> SceneQuery
+queryAnnotations anns = SceneQuery {..}     
   where
-    pickAt p = fmap (over _2 shapeParts) . find (pick p) . Map.fromList 
+    queryPoint p = Map.toList $ const Nothing <$> Map.filter (intersects p) shapes
+    queryBox b = shapeParts <$> Map.filter (intersects b) shapes
+
+    shapes = view #shape <$> anns
+    
+    
+
+holdScene :: (Reflex t, MonadHold t m, MonadFix m)  => AnnotationMap -> Event t (DeepPatchMap AnnotationId (Identity Annotation)) -> m (Behavior t SceneQuery)
+holdScene annotations0 patches = do 
+  annotations <- foldDyn apply' annotations0 patches
+  return (queryAnnotations <$> current annotations)
+  where
     apply' p anns = fromMaybe anns (apply p anns)
+
+
+
 
 documentEditor :: forall t m. (GhcjsAppBuilder t m)
             => Dynamic t Viewport 
             -> SceneInputs t
             -> Event t [AppCommand]
             -> Document
-            -> m (Dynamic t Action, Dynamic t (Maybe Editor)
-                 , Event t (DocPart, SceneEvent), Dynamic t DocParts, Dynamic t (Render ()))
+            -> m (Dynamic t Action, Dynamic t (Maybe Editor),
+                 Behavior t SceneQuery, Dynamic t DocParts, Dynamic t (Render ()))
 
 documentEditor viewport input cmds document = do
 
@@ -272,33 +277,35 @@ documentEditor viewport input cmds document = do
 
   -- Set selection to the last added annotations (including undo/redo etc.)
   selection <- holdDyn mempty $ oneOf _SelectCmd cmds
-  logEvent errors
+  query <- holdScene (editor0  ^. #annotations) (preview _PatchAnns' <?> patch)
 
   showing     <- slideShow input (neighbourhood document images0)
   loadedImage <- loadImage showing
 
+  logEvent errors 
+
   rec
     let pending = applyEdits <$> action <*> editor 
-        render = drawAnnotations <$> viewport <*> pure loadedImage <*> pending <*> (view #overlay <$> action)
+        render = drawAnnotations <$> viewport <*> pure loadedImage <*> pending <*> action <*> selection
 
     
     action <- controller $ Scene
-      { input       = input
-      , editor      = editor
-      , selection   = selection
-
+      { input       
+      , editor      
+      , selection  
       , thresholds
+      , query
+      , viewport
 
       , currentClass = view #currentClass env
       , config       = view #config env
       , shortcut     = view #shortcut env
       , preferences  = view #preferences env
-      , viewport     = viewport
       }
   
       
  
-  return (action, Just <$> editor, never, selection, render)
+  return (action, Just <$> editor, query, selection, render)
       -- withHistory editor entries = Just (editor & #session . #history .~ entries)
 
  
@@ -321,10 +328,6 @@ applyEdits action doc = fromMaybe doc $ preview _Right
 oneOf :: Reflex t => Getting (First a) s a -> Event t [s] -> Event t a
 oneOf getter = fmapMaybe (preview (traverse . getter))
 
-nonEmptyList :: [a] -> Maybe [a]
-nonEmptyList = \case
-  [] -> Nothing
-  xs -> Just xs
 
 someOf :: Reflex t => Getting (First a) s a -> Event t [s] -> Event t [a]
 someOf getter cmds = nonEmptyList . fmapMaybe (preview getter) <?> cmds
@@ -379,9 +382,7 @@ manageDocument hello serverMsg (userNext, userTo) = mdo
         , NavTo <$> attachWithMaybe needsLoad loaded (updated selected)
         , initialNav <$> current selected <@ hello
         ]
-
       clientMsg = ClientNav <$> current navId <@> request
-
 
   return (selected, validLoad, clientMsg)
     where
@@ -918,8 +919,8 @@ mainInterface AppEnv{shortcut, document, editor, modified, preferences, collecti
     header = buttonRow $ do
       clickSelect <- asks selectedClass >>= classToolButton
       selection   <- view #selection
-      command (DialogCmd . ClassDialog) $
-        current selection `tag` leftmost [clickSelect, select shortcut ShortClass]
+      -- command (DialogCmd . ClassDialog) $
+      --   current selection `tag` leftmost [clickSelect, select shortcut ShortClass]
 
       spacer
 

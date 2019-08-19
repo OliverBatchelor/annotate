@@ -59,11 +59,15 @@ import Data.Bool as X
 
 import Data.Default as X
 
+import Data.Coerce as X (coerce)
+
 import Data.Char as X
 import Data.Void as X
 
 import Data.Set as X (Set)
 import Data.Map as X (Map)
+
+import Data.Map.Monoidal as X (MonoidalMap(..))
 
 import Data.Dependent.Map as X (DMap)
 import Data.Dependent.Sum as X (DSum(..))

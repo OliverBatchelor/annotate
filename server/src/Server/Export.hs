@@ -79,23 +79,6 @@ initialEntry ann = do
 
 
 
-summarise :: [AnnEntry] ->  AnnSummary
-summarise history = AnnSummary 
-  { status = case (preview _last history) of
-    (Just (AnnSaved ann))   -> StatusActive ann
-    (Just (AnnEdit Delete)) -> StatusDeleted
-    _ -> StatusThresholded
-
-  , createdBy = case history of
-    (AnnEdit (Add _) : _) -> CreatedAdd
-    (AnnDetected d : AnnEdit (SetTag (Confirmed True)) : _) -> CreatedConfirm d
-    (AnnDetected d : _) -> CreatedDetect d
-    _ -> error $ "unknown creation method: " <> show history
-  
-  , changedClass = any (has (_AnnEdit . _SetClass)) history
-  , transformed = any (has (_AnnEdit . _Transform)) history
-  , actions = length $ filter (has _AnnEdit) history
-  }
 
 
 getActions :: Editor -> [DocumentPatch]
@@ -108,38 +91,13 @@ getActions final = case foldM f (final, []) (final ^. #undos) of
         (inverse, editor') <- applyPatch patch editor
         return (editor', inverse : acts)
 
-sessionSummaries :: Session -> Map AnnotationId AnnSummary
-sessionSummaries = fmap summarise . sessionHistories 
 
-sessionHistories :: Session -> Map AnnotationId [AnnEntry]
-sessionHistories session = sessionHistories' session mempty
-      
-sessionHistories' :: Session -> Map AnnotationId [AnnEntry] -> Map AnnotationId [AnnEntry]
-sessionHistories' session existing = Map.mapWithKey saved histories where
-
-    initial = Map.mapMaybe initialEntry (openSession "" session ^. #annotations)
-    (editor, result) = replay session
-    saved k history = case Map.lookup k result of
-      Nothing   ->  history
-      Just ann  ->  snoc history (AnnSaved ann)
-
-    undos = fmap (pure . AnnEdit) <$> 
-        catMaybes (preview _PatchAnns <$> getActions editor)
-
-    histories = foldl (Map.unionWith (<>)) existing ((pure <$> initial) : undos)
-
-
-
-imageHistories :: Document -> Map AnnotationId [AnnEntry]
-imageHistories Document{sessions} = foldl f mempty sessions where
-  f prev session  = sessionHistories' session (Map.filter isSaved prev)
-  isSaved = has (_last . _AnnSaved)
 
 
 exportImage :: Document -> TrainImage
 exportImage doc = (updateImage doc) 
   {  sessions  = doc ^. #sessions
-  ,  summaries = maybe [] Map.elems $ sessionSummaries <$> doc ^? (#sessions . _head)
+  ,  summaries = []
   }
 
 
@@ -157,9 +115,9 @@ debugHistory = withLog $ \Store{images} -> do
   for_ images $ \image -> do 
     forM_ (preview (#sessions . _head) image) $ \session -> do
       putStrLn $ "Image: " <> show (image ^. #name) <> " - " <> show (image ^. (#info . #category))
-      forM_ (sessionSummaries session) $ \summary -> do
-        -- traverse_ print history
-        print summary
+      -- forM_ (sessionSummaries session) $ \summary -> do
+      --   -- traverse_ print history
+      --   print summary
       putStrLn "-------------"
 
 

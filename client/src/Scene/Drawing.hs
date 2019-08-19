@@ -22,7 +22,7 @@ import Scene.Canvas
 import Data.Coerce
 import qualified GHCJS.DOM.Types as DOM
 
-
+import qualified Data.Map as Map
 
 selectRect :: Box -> Render ()
 selectRect box = pushState $ do
@@ -45,9 +45,18 @@ rawCanvas e = return $ coerce (_element_raw e)
 
 
 
-drawAnnotation :: Annotation -> Render ()
-drawAnnotation Annotation{shape} = case shape of
-  (ShapeCircle c) -> nonScalingStrokePath $ circle c 
+drawAnnotation :: Annotation -> Maybe AnnParts -> Maybe AnnParts -> Render ()
+drawAnnotation Annotation{shape} selected highlight = case shape of
+  (ShapeCircle c) -> do 
+    circle c 
+    pushState $ do 
+      resetTransform 
+
+      traverse_ (const $ setLineWidth 2) highlight
+      stroke
+
+      traverse_ (const $ fill) selected
+    
 
   (ShapeBox b) -> error "not implemented"
   (ShapeLine l) -> error "not implemented"
@@ -56,16 +65,17 @@ drawAnnotation Annotation{shape} = case shape of
 
 
 
-drawAnnotations :: Viewport -> DOM.HTMLImageElement -> Editor -> Render () -> Render ()
-drawAnnotations vp image Editor{annotations} overlay = renderViewport vp $ do 
+drawAnnotations :: Viewport -> DOM.HTMLImageElement -> Editor -> Action -> DocParts -> Render ()
+drawAnnotations vp image Editor{annotations} Action{overlay, highlight}  selection = renderViewport vp $ do 
     drawImageAt image (V2 0 0)
 
     setLineWidth 1
-    traverse_ drawAnnotation annotations
+    itraverse_ drawAnnotation' annotations
 
     overlay
 
-
+  where
+    drawAnnotation' k v = drawAnnotation v (Map.lookup k selection) (Map.lookup k highlight)
 
 sceneCanvas :: forall t m. (GhcjsAppBuilder t m)
   => Dynamic t Dim

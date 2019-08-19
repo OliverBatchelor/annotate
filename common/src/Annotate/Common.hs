@@ -95,10 +95,19 @@ instance HasBounds Shape where
  getBounds (ShapeLine s)    = getBounds s
 
 
-instance Pick Shape where
-  pick (ShapeCircle c) = pick c
-  pick (ShapeBox b) = pick b
-  pick _ = error "pick: not implemented"
+instance Intersects Point Shape 
+instance Intersects Shape Point where
+  intersects (ShapeCircle c) = intersects c
+  intersects (ShapeBox b) = intersects b
+  intersects _ = error "pick: not implemented"
+
+instance Intersects Box Shape 
+instance Intersects Shape Box where
+  intersects (ShapeCircle c) = intersects c
+  intersects (ShapeBox b) = intersects b
+  intersects _ = error "pick: not implemented"
+  
+
 
 data Detection = Detection
   { label      :: ClassId
@@ -134,10 +143,15 @@ instance ApproxEq BasicAnnotation where
   (~=) (BasicAnnotation s l) (BasicAnnotation s' l') = s ~= s' && l == l'
   
 
+
 type AnnotationMap = Map AnnotationId Annotation
 type BasicAnnotationMap = Map AnnotationId BasicAnnotation
 
-type DocParts = Map AnnotationId (Set Int)
+type DocPart = (AnnotationId, Maybe Int)
+
+type AnnParts = Set Int
+type DocParts = Map AnnotationId AnnParts
+
 type Rigid = (Float, Vec)
 
 data Edit
@@ -370,7 +384,7 @@ data DisplayPreferences = DisplayPreferences
   , showConfidence    :: Bool
   , opacity           :: Float
   , border            :: Float
-  , hiddenClasses     :: Set Int
+  , hiddenClasses     :: Set ClassId
   , gamma             :: Float
   , brightness        :: Float
   , contrast          :: Float
