@@ -240,7 +240,7 @@ actions scene@Scene{..} = holdWorkflow $
     docCommand (const DocUndo) (select shortcut ShortUndo)
     docCommand (const DocRedo) (select shortcut ShortRedo)
 
-    setCursor (bool ("default", False) ("copy", False) <$> holdingShift)
+    setCursor (cursor <$> holdingShift <*> hover)
     highlighting (liftA2 highlightParts editor hover)
 
     return (leftmost [beginSelectRect, beginDragSelection, beginDraw, beginPan])
@@ -250,6 +250,10 @@ actions scene@Scene{..} = holdWorkflow $
         selectionClick   = selectParts scene
         mouseDownAt = current mouse <@ mouseDown LeftButton      
 
+        cursor additive hovering = (name, False)
+          where name = if not (null hovering) then "grab"
+                  else (if additive then "crosshair" else "default")
+
   -- Translate dragged annotations
   drag :: Vec -> Editor -> DocParts -> Maybe (ControllerAction t m)
   drag origin doc target
@@ -258,7 +262,7 @@ actions scene@Scene{..} = holdWorkflow $
     let offset  = mouse - pure origin
         endDrag = mouseUp LeftButton
 
-    scale <- foldDyn (\z -> max 0.1 . (z *)) 1.0 (wheelScale <$> wheel)
+    scale <- foldDyn (\z -> max 0.1 . (z *)) 1.0 zoom
 
     let maybeEdit s t = do
           guard $ abs (s - 1.0) > 0.01 || norm t > 0.01
@@ -309,7 +313,9 @@ actions scene@Scene{..} = holdWorkflow $
       ]
     return (base <$ mouseUp LeftButton)
 
-  zoomCmd = attachWith (flip ZoomView) (current mouse) wheel
+
+  zoom = wheelZoom <$> (S.member Key.Control <$> current keyboard) <@> wheel
+  zoomCmd = attachWith (flip ZoomView) (current mouse) zoom
   cancel = leftmost [void focus, select shortcut ShortCancel]
 
   SceneInputs{..} = input

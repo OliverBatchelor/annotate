@@ -89,7 +89,7 @@ data Scene t = Scene
 
 
 newtype ControllerT t m a = ControllerT { unController :: DynamicWriterT t Action m a }
-  deriving (Functor, Applicative, Monad, DynamicWriter t Action, MonadFix, MonadHold t, MonadSample t)
+  deriving (Functor, Applicative, Monad, DynamicWriter t Action, MonadFix, MonadHold t, MonadSample t, MonadTrans)
 
 
 deriving instance EventWriter t w m => EventWriter t w (ControllerT t m)
@@ -100,6 +100,10 @@ instance (Adjustable t m, MonadHold t m, MonadFix m) => Adjustable t (Controller
 
   traverseIntMapWithKeyWithAdjust f v e = ControllerT $ 
     traverseIntMapWithKeyWithAdjust (\k v -> unController (f k v)) v e
+  
+  traverseDMapWithKeyWithAdjustWithMove f v e = ControllerT $ 
+    traverseDMapWithKeyWithAdjustWithMove (\k v -> unController (f k v)) v e
+
 
 
 runController :: (Reflex t, Monad m, MonadFix m) => ControllerT t m () -> m (Dynamic t Action)

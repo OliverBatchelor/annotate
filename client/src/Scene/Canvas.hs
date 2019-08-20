@@ -11,12 +11,13 @@ import qualified GHCJS.DOM.GlobalEventHandlers as DOM
 import qualified GHCJS.DOM.Enums as DOM
 
 
-import GHCJS.DOM.Types (CanvasStyle(..), CanvasRenderingContext2D(..), toJSString, RenderingContext)
+import GHCJS.DOM.Types (CanvasStyle(..), CanvasRenderingContext2D(..), RenderingContext)
 
 import qualified  GHCJS.DOM.CanvasPath               as C
 import qualified  GHCJS.DOM.CanvasRenderingContext2D as C
 
-import Language.Javascript.JSaddle as JS
+import qualified Language.Javascript.JSaddle as JS
+import Language.Javascript.JSaddle 
 
 import Annotate.Geometry
 import Annotate.Prelude
@@ -147,7 +148,7 @@ arc (Circle (V2 x y) r) (begin, end) clockwise = render $ \context ->
   C.arc context (realToFrac x) (realToFrac y) (realToFrac r) (realToFrac begin) (realToFrac end) clockwise
 
 circle :: Circle -> Render ()
-circle c = arc c (0, pi * 2) False
+circle c = beginPath >> arc c (0, pi * 2) False
 
 
 pushState :: Render a -> Render a 
@@ -171,7 +172,8 @@ fillPath r = beginPath >> r <* render (flip C.fill Nothing)
 
 
 rect :: Box -> Render ()
-rect (Box l u) = render $ \context ->
+rect (Box l u) = render $ \context -> do
+  C.beginPath context
   C.rect context (realToFrac x) (realToFrac y) (realToFrac w) (realToFrac h) 
     where 
       (V2 x y) = l

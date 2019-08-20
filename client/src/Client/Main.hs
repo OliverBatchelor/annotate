@@ -531,7 +531,7 @@ runDialog (ErrorDialog code) = errorDialog code
 updatePrefs :: [PrefCommand] -> Preferences -> Preferences
 updatePrefs cmds = flip (foldr updatePref) cmds where
   updatePref :: PrefCommand -> Preferences -> Preferences
-  updatePref (ZoomBrush delta)          = #display . #brushSize %~ clamp (2, 400) . (* wheelZoom delta)
+  updatePref (ZoomBrush delta)          = #display . #brushSize %~ clamp (2, 400) . (* delta)
   updatePref (SetOpacity opacity)       = #display . #opacity .~ opacity
   updatePref (SetBorder border)         = #display . #border .~ border
   updatePref (SetGamma gamma)           = #display . #gamma .~ gamma

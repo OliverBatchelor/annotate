@@ -82,7 +82,7 @@ sceneCanvas :: forall t m. (GhcjsAppBuilder t m)
   -> Dynamic t (Render ())
   -> m (ElemType t m)
 sceneCanvas size render  = do 
-  e <- canvas_ [class_ =: "expand"]
+  e <- canvas_ [class_ =: "expand enable-cursor"]
   canvas <- rawCanvas e
 
   renderCanvas canvas state

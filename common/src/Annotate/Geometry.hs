@@ -135,8 +135,8 @@ instance Intersects Circle Segment where
 
 instance Intersects Circle Box 
 instance Intersects Box Circle where
-  intersects box circle@(Circle c r) 
-    =  intersects box c 
+  intersects box circle@(Circle p r) 
+    =  intersects box p 
     || intersects (Segment a b) circle
     || intersects (Segment b c) circle
     || intersects (Segment c d) circle

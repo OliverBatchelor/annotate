@@ -5,5 +5,5 @@ import qualified Client.Main as M
 import Reflex.Dom.Location
 
 main :: IO ()
-main = getLocationHost >>= Map.main
+main = getLocationHost >>= M.main
   
