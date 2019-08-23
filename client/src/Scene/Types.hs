@@ -48,6 +48,8 @@ data SceneInputs t = SceneInputs
   , localKeysDown :: !(Event t Key)
 
   , keyboard :: !(Dynamic t (Set Key))
+  , mouseButtons :: !(Dynamic t (Set Button))
+  
   , hover :: !(Dynamic t [DocPart])
 
   , mouse    :: !(Dynamic t Point)

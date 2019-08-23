@@ -180,17 +180,18 @@ addShapes scene e = addAnnotation (makeAnnotation e)
 
 
 
-selectChange :: Set Key -> Editor -> DocParts -> Maybe DocPart -> DocParts
-selectChange keys doc existing target
-  | S.member Key.Shift keys = fromMaybe existing (flip (addPart doc) existing <$> target)
-  | otherwise               = fromMaybe mempty (toParts doc <$> target)
+selectChange :: Set Key -> Editor -> DocParts -> Maybe DocPart -> (DocParts, Maybe DocPart)
+selectChange keys doc existing target = (selection', target) where
+  selection' = if S.member Key.Shift keys 
+    then fromMaybe existing (flip (addPart doc) existing <$> target)
+    else fromMaybe mempty (toParts doc <$> target)
 
-selectParts :: Reflex t => Scene t -> Event t DocParts
+selectParts :: Reflex t => Scene t -> Event t (DocParts, Maybe DocPart)
 selectParts Scene{editor, selection, input, shortcut} =
   selectChange <$> current keyboard <*> current editor <*> current selection <@> partsClicked where
 
     partsClicked = leftmost
-      [ Just    <$>  mouseDownOn LeftButton
+      [ Just    <$> mouseDownOn LeftButton
       , Nothing <$ mouseDown LeftButton
       ]
     SceneInputs{keyboard, mouseDown, mouseDownOn} = input
@@ -219,8 +220,9 @@ highlightParts editor parts = fromMaybe mempty (toParts editor <$> preview _head
 
 
 actions :: forall t m. AppBuilder t m => Scene t -> ControllerT t m ()
-actions scene@Scene{..} = holdWorkflow $
-  commonTransition (base <$ cancel) base where
+actions scene@Scene{..} = do 
+  holdWorkflow $
+      commonTransition (base <$ cancel) base where
 
   base :: ControllerAction t m
   base = action $ do
@@ -228,7 +230,7 @@ actions scene@Scene{..} = holdWorkflow $
         beginSelectRect = rectSelect <$> gate (current holdingShift) mouseDownAt
 
         beginDraw   = (drawMode <$> current currentClass <*> current config) `tag` localKeyDown drawKey
-        beginDragSelection   = filterMaybe $ drag <$> current mouse <*> current editor <@> selectionClick
+        beginDragSelection   = filterMaybe $ drag <$> current mouse <@> selectionClick
 
     viewCommand zoomCmd
     command SelectCmd $ leftmost [selectAll, selectionClick]
@@ -243,7 +245,7 @@ actions scene@Scene{..} = holdWorkflow $
     setCursor (cursor <$> holdingShift <*> hover)
     highlighting (liftA2 highlightParts editor hover)
 
-    return (leftmost [beginSelectRect, beginDragSelection, beginDraw, beginPan])
+    return (leftmost [beginDragSelection, beginSelectRect, beginDraw, beginPan])
       where 
         holdingShift   = S.member Key.Shift <$> keyboard
         selectAll        = documentParts <$> current editor `tag` select shortcut ShortSelectAll
@@ -251,16 +253,13 @@ actions scene@Scene{..} = holdWorkflow $
         mouseDownAt = current mouse <@ mouseDown LeftButton      
 
         cursor additive hovering = (name, False)
-          where name = if not (null hovering) then "grab"
-                  else (if additive then "crosshair" else "default")
+          where name = if additive then "copy" else "default"
 
   -- Translate dragged annotations
-  drag :: Vec -> Editor -> DocParts -> Maybe (ControllerAction t m)
-  drag origin doc target
-        | null   target = Nothing
-        | otherwise     = Just $ action $ do
+  drag :: Vec -> (DocParts, Maybe DocParts) -> Maybe (ControllerAction t m)
+  drag origin (selected, clicked) = for clicked $ \_ -> action $ do
     let offset  = mouse - pure origin
-        endDrag = mouseUp LeftButton
+        endDrag = leftmost [mouseUp LeftButton, click LeftButton]
 
     scale <- foldDyn (\z -> max 0.1 . (z *)) 1.0 zoom
 
@@ -269,7 +268,7 @@ actions scene@Scene{..} = holdWorkflow $
           return $ EditTransformParts (s, t) target 
         edit = maybeEdit <$> scale <*> offset
 
-        pointer e = if isJust e then ("pointer", True) else ("default", False)
+        pointer e = ("default", False)--if isJust e then ("pointer", True) else ("default", False)
 
     maybeEditing edit 
 
@@ -291,7 +290,7 @@ actions scene@Scene{..} = holdWorkflow $
         where finish = keyUp drawKey
 
   rectSelect  :: Vec -> ControllerAction t m
-  rectSelect p1 = action $ withCursor ("crosshair", True) $ do
+  rectSelect p1 = action $ withCursor ("copy", True) $ do
     let box = makeBox p1 <$> mouse
         done = current box <@ leftmost [click LeftButton, mouseUp LeftButton]
 

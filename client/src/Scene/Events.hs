@@ -25,7 +25,7 @@ import qualified Web.KeyCode as Key
 
 
 
-holdKeys :: (MonadFix m, Reflex t, MonadHold t m) => Event t Bool -> (Event t Key, Event t Key) -> m (Dynamic t (Set Key))
+holdKeys :: (MonadFix m, Reflex t, MonadHold t m, Ord k) => Event t Bool -> (Event t k, Event t k) -> m (Dynamic t (Set k))
 holdKeys focus (keyDown, keyUp) = foldDyn ($) S.empty $ mergeWith (.)
     [ const mempty <$ focus
     , S.insert     <$> keyDown
@@ -75,8 +75,10 @@ holdInputs viewport query inp = do
   hover <- holdUniqDyn =<< holdDyn [] (pickEvent (updated mouse))
   
   rec
-    keyboard <- holdKeys (E.focus inp) (keysDown, E.keyUp inp)
-    let keysDown = attachWithMaybe uniqueKey (current keyboard) (E.keyDown inp)
+    keyboard <- holdKeys (E.focus inp) (noRepeat, E.keyUp inp)
+    mouseButtons <- holdKeys (E.focus inp) (fst <$> E.mouseDown inp, fst <$> E.mouseUp inp)
+
+    let noRepeat = attachWithMaybe uniqueKey (current keyboard) (E.keyDown inp)   
         uniqueKey s (k :: Key) = if S.member k s then Nothing else Just k
     
   let mouseDown = localEvent . selectKey (E.mouseDown inp)

@@ -9,7 +9,7 @@ import Control.Monad.Trans as X
 import Control.Category as X
 import Control.Arrow as X ((***), (&&&))
 
-import Debug.Trace as X
+import Debug.Trace as X (trace, traceShow)
 
 import Control.Monad.Reader.Class as X (MonadReader (..), asks)
 import Control.Monad.State.Class as X (MonadState(..), gets)

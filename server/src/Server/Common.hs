@@ -142,26 +142,6 @@ data FromTrainer
     deriving (Show, Generic)
 
 
-data AnnCreated 
-  = CreatedAdd
-  | CreatedConfirm Detection
-  | CreatedDetect Detection
-  deriving (Show, Generic)
-
-
-data AnnStatus
-  = StatusActive BasicAnnotation
-  | StatusDeleted 
-  | StatusThresholded
-  deriving (Show, Generic)
-
-data AnnSummary = AnnSummary 
-  { createdBy    :: AnnCreated
-  , transformed  :: Bool
-  , changedClass :: Bool
-  , status       :: AnnStatus
-  , actions      :: Int
-  } deriving (Show, Generic)
 
 
 -- Input/export types
