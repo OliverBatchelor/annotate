@@ -51,153 +51,65 @@ type RunId = Int
 
 type NetworkId = (RunId, Epoch)
 
-data Shape = ShapeBox     Box
-           | ShapeCircle  Circle
-           | ShapePolygon Polygon
-           | ShapeLine    WideLine
-     deriving (Generic, Show, Eq)
+
+data Attribute a where
+  Confidence  :: Attribute Float
+  Uncertainty :: Attribute Float
 
 
-instance ApproxEq Shape where
-  (~=) (ShapeBox b) (ShapeBox b') = b ~= b'
-  (~=) (ShapeCircle b) (ShapeCircle b') = b ~= b'
-  (~=) (ShapePolygon b) (ShapePolygon b') = b ~= b'
-  (~=) (ShapeLine b) (ShapeLine b') = b ~= b'
-  (~=) _ _ = False
-
-
-data ShapeKey a where
-  BoxKey      :: ShapeKey Box
-  CircleKey   :: ShapeKey Circle
-  PolygonKey  :: ShapeKey Polygon
-  LineKey     :: ShapeKey WideLine
-
-deriving instance Eq a => Eq (ShapeKey a)
-
-shapeKey :: Shape -> DSum ShapeKey Identity
-shapeKey (ShapeBox b)     = BoxKey      :=> Identity b
-shapeKey (ShapeCircle c)  = CircleKey   :=> Identity c
-shapeKey (ShapePolygon p) = PolygonKey  :=> Identity p
-shapeKey (ShapeLine l)    = LineKey    :=> Identity l
-
-
-deriveGEq ''ShapeKey
-deriveGCompare ''ShapeKey
-
-data ShapeConfig = ConfigCircle | ConfigBox | ConfigPolygon | ConfigLine
-  deriving (Generic, Show, Eq, Ord)
- 
-
-instance HasBounds Shape where
- getBounds (ShapeCircle s)  = getBounds s
- getBounds (ShapeBox s)     = getBounds s
- getBounds (ShapePolygon s) = getBounds s
- getBounds (ShapeLine s)    = getBounds s
-
-
-instance Intersects Point Shape 
-instance Intersects Shape Point where
-  intersects (ShapeCircle c) = intersects c
-  intersects (ShapeBox b) = intersects b
-  intersects _ = error "pick: not implemented"
-
-instance Intersects Box Shape 
-instance Intersects Shape Box where
-  intersects (ShapeCircle c) = intersects c
-  intersects (ShapeBox b) = intersects b
-  intersects _ = error "pick: not implemented"
-  
-
-
-data Detection = Detection
-  { label      :: ClassId
-  , shape      :: Shape
-  , confidence :: Float
-  , match      :: Maybe AnnotationId
+data Annotation a = Annotation a
+  { shape      :: !a
+  , label      :: !ClassId
+  , confidence :: !Float
   } deriving (Generic, Show, Eq)
 
-data DetectionTag 
-  = Detected
-  | Review
-  | Missed
-  | Deleted 
-  | Confirmed Bool
-    deriving (Generic, Show, Eq)
 
-
-data Annotation = Annotation
-  { shape :: Shape
-  , label :: ClassId
-  , detection :: Maybe (DetectionTag, Detection)
-  } deriving (Generic, Show, Eq)
-
-data BasicAnnotation = BasicAnnotation 
-  { shape :: Shape
-  , label :: ClassId
-  } deriving (Generic, Show, Eq)
-
-instance ApproxEq Annotation where
+instance ApproxEq a => Annotation a where
   (~=) (Annotation s l d) (Annotation s' l' d') = s ~= s' && l == l' && d == d'
 
-instance ApproxEq BasicAnnotation where
-  (~=) (BasicAnnotation s l) (BasicAnnotation s' l') = s ~= s' && l == l'
-  
+
+type AnnotationMap a = Map AnnotationId (Annotation a)
+type ReviewMap a = Map AnnotationId (These (Annotation a) (Annotation a))
 
 
-type AnnotationMap = Map AnnotationId Annotation
-type BasicAnnotationMap = Map AnnotationId BasicAnnotation
+class Monoid (Selection a) => Editable a where
+  type Part a 
+  type Selection a
 
-type DocPart = (AnnotationId, Maybe Int)
+  selectPart :: a -> Part a -> Selection a
+  allParts   :: a -> Selection a
 
-type AnnParts = Set Int
-type DocParts = Map AnnotationId AnnParts
 
 type Rigid = (Float, Vec)
 
-data Edit
-  = EditSetClass ClassId (Set AnnotationId)
-  | EditDeleteParts DocParts
-  | EditTransformParts Rigid DocParts
-  | EditClearAll
-  | EditAdd [BasicAnnotation]
-  | EditConfirmDetection (Map AnnotationId Bool)
+class Monoid (Selection a) => Shape a where
+
+data Edit shape
+  = EditSetClass ClassId (Selection shape)
+  | EditDelete (Selection shape)
+  | EditTransform Rigid (Selection shape)
+  | EditAdd (Annotation shape)
+  | EditConfirm (Selection shape)
   deriving (Generic, Show, Eq)
 
 
+type Review = (Maybe AnnotationId, Annotation)
 
-
-
-data OpenType = OpenNew Detections | OpenReview Detections | OpenDisconnected 
+data OpenType = OpenNew Review | OpenReview Review | OpenDisconnected 
   deriving (Show,  Generic)
 
 
-data Session = Session 
-  { initial    :: Map AnnotationId BasicAnnotation
-  , threshold  :: Float
+data Session a = Session a
+  { initial    :: AnnotationMap
   , open       :: OpenType
   , time       :: UTCTime
-  , history    :: [HistoryPair]
+  , history    :: [HistoryPair a]
   } deriving (Show, Generic)
 
-type HistoryPair = (UTCTime, HistoryEntry)  
-
-data OpenSession = OpenSession 
-  { initial    :: BasicAnnotationMap
-  , threshold  :: Float
-  , openType :: OpenType
-  }   deriving (Show,  Generic)
+type HistoryPair anns = (UTCTime, EditCmd shape)  
 
 
-data HistoryEntry 
-  = HistoryEdit Edit 
-  | HistoryUndo 
-  | HistoryRedo 
-  | HistoryThreshold Float
-  | HistoryOpen OpenSession
-  | HistoryClose 
-  deriving (Show,  Generic)
-
-data EditCmd = DocEdit Edit | DocUndo | DocRedo
+data EditCmd anns = DocEdit (Edit anns) | DocUndo | DocRedo
   deriving (Show, Eq, Generic)
 
 
@@ -732,39 +644,6 @@ instance FromJSON NaturalKey where
   parseJSON _ = fail "expected array value"
 
 
-{-
-instance Flat Hash32
-instance Flat NaturalKey  
-
-instance Flat DiffTime where
-  encode = Flat.encode . diffTimeToPicoseconds
-  decode = picosecondsToDiffTime <$> Flat.decode
-
-  size dt = Flat.size (diffTimeToPicoseconds dt)
-
-instance Flat UTCTime where
-  encode (UTCTime (ModifiedJulianDay d) dt) = Flat.encode (d, dt)
-  decode = do 
-    (d, dt) <- Flat.decode 
-    return (UTCTime (ModifiedJulianDay d) dt)
-
-  size (UTCTime (ModifiedJulianDay d) dt) bits = Flat.size (d, dt) bits
-
-instance Flat a => Flat (Margins a)
-
-instance Flat a => Flat (Set a) where
-  encode = Flat.encode . S.toAscList
-  decode = S.fromDistinctAscList <$> Flat.decode
-  size  s = Flat.size (S.toAscList s)
-
-
-instance Flat a => Flat (NonEmpty a) where
-  encode = Flat.encode . toList
-  decode = fromJust . nonEmpty <$> Flat.decode
-  size  s = Flat.size (toList s)  
-
-instance Flat a => Flat (V2 a)
--}
 
 instance FromJSON a => FromJSON (V2 a)
 instance ToJSON a => ToJSON (V2 a)
@@ -786,7 +665,6 @@ makeInstances
 
 
   , ''HistoryEntry   
-  , ''OpenSession   
   , ''Session   
   , ''OpenType   
 

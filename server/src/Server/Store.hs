@@ -74,7 +74,6 @@ $(deriveSafeCopy 2 'base ''Edit)
 
 $(deriveSafeCopy 0 'base ''HistoryEntry)
 
-$(deriveSafeCopy 0 'base ''OpenSession)
 $(deriveSafeCopy 0 'base ''Session)
 $(deriveSafeCopy 0 'base ''OpenType)
 

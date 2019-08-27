@@ -26,32 +26,28 @@ import Debug.Trace
 
 type EditError = Text
 
-
-
-data AnnotationPatch 
-  = Transform Rigid (Set Int)
-  | SetTag DetectionTag
-  | SetClass ClassId
+data AnnotationPatch shape
+  = PatchShape (Patch shape)
+  | PatchConfirm 
+  | PatchClass ClassId
   deriving (Generic, Show, Eq)
 
-data DocumentPatch
-  = PatchAnns (DeepPatchMap AnnotationId AnnotationPatch)
-  -- | PatchArea (Maybe Box)
+data DocumentPatch shape
+  = PatchAnns (DeepPatchMap AnnotationId (AnnotationPatch shape))
+  | PatchThreshold Float
   deriving (Eq, Show, Generic)
 
--- DocumentPatch' is a non invertible version of DocumentPatch (less details)
--- used for patching the AnnotationMap to update the view.
-data DocumentPatch'
-  = PatchAnns' (DeepPatchMap AnnotationId (Identity Annotation))
-     deriving (Show, Eq, Generic)
 
-data Editor = Editor
+data Editor = Editor shape
   { name  :: DocName
-  , undos :: [DocumentPatch]
-  , redos :: [DocumentPatch]
-  , annotations :: AnnotationMap
-  , session :: Session
+  , undos :: [DocumentPatch shape]
+  , redos :: [DocumentPatch shape]
+  , editorState :: PatchTarget patch
+  , nextId      :: AnnotationId
+  , session     :: Session shape
+  , threshold   :: Float
   } deriving (Generic, Show)
+
 
 
 instance Patch AnnotationPatch where
@@ -101,7 +97,7 @@ openSession name session = Editor
   , redos = []
   } 
 
-initialAnnotations :: Session -> AnnotationMap
+initialAnnotations :: Session a -> Annotations a
 initialAnnotations Session{initial, open} = case open of
     OpenNew d        ->  fromDetections 0 (d ^. #instances)
     OpenReview d     ->  reviewDetections (d ^. #instances) (fromBasic <$> initial)
@@ -135,44 +131,10 @@ lookupAnnotations objs Editor{annotations} = Map.fromList $ catMaybes $ fmap loo
     where lookup' k = (k, ) <$> Map.lookup k annotations
 
 
-maxEdits :: [DocumentPatch] -> Maybe AnnotationId
-maxEdits =  maybeMaximum . fmap maxEdit
-
-maxEdit :: DocumentPatch -> Maybe AnnotationId
-maxEdit (PatchAnns e) = maxKey $ unDeepPatchMap e
-
-
-maybeMaximum :: (Ord k) => [Maybe k] -> Maybe k
-maybeMaximum = fmap maximum . nonEmpty . catMaybes
-
-maxId :: Editor -> Maybe AnnotationId
-maxId Editor{..} = maybeMaximum
-  [ maxEdits undos
-  , maxEdits redos
-  , maxKey annotations
-  ]
-
-nextId :: Editor -> AnnotationId
-nextId = fromMaybe 0 .  fmap (+1) . maxId
-
-
-subParts' :: AnnotationMap -> AnnotationId -> Set Int
-subParts' anns k = fromMaybe mempty $  do
-  ann <- Map.lookup k anns
-  return $ shapeParts (ann ^. #shape)
-
-subParts :: Editor -> AnnotationId -> Set Int
-subParts doc k = subParts' (doc ^. #annotations) k
-
 documentParts :: Editor -> DocParts
 documentParts =  fmap (shapeParts . view #shape) . view #annotations
 
-shapeParts :: Shape -> Set Int
-shapeParts = \case
-    ShapeBox _                  -> S.fromList [0..3]
-    ShapeCircle _               -> S.singleton 0
-    ShapeLine (WideLine points)   -> S.fromList [0..length points]
-    ShapePolygon (Polygon points) -> S.fromList [0..length points]
+
 
 
 alterPart ::  AnnotationId -> (Set Int -> Set Int) -> DocParts -> DocParts
