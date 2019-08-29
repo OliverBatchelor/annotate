@@ -424,7 +424,7 @@ patchAnns' :: Map AnnotationId (Modifies (Identity Annotation)) -> DocumentPatch
 patchAnns' = PatchAnns' . DeepPatchMap
 
 
-patchInverse :: Editor -> DocumentPatch -> Either EditError (DocumentPatch, DocumentPatch')
+patchInverse :: EditorState -> DocumentPatch -> Either EditError (DocumentPatch, EditorState)
 patchInverse doc (PatchAnns e) = do
   undoPatch  <- itraverse (patchAnnotationMap (doc ^. #annotations)) (unDeepPatchMap e)
   return (patchAnns (fst <$> undoPatch), patchAnns' (snd <$> undoPatch))

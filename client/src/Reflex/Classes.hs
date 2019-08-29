@@ -201,9 +201,7 @@ instance Reflex t => SwitchHold t (Dynamic t a) where
 
 
 
-class Patch p => InversePatch p where
-  -- t `apply` p `apply` (inverse t p) == t
-  inverse :: PatchTarget p -> p -> p
+
 
 
 instance Ord k => InversePatch (PatchMap k v) where

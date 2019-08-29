@@ -52,9 +52,6 @@ type RunId = Int
 type NetworkId = (RunId, Epoch)
 
 
-data Attribute a where
-  Confidence  :: Attribute Float
-  Uncertainty :: Attribute Float
 
 
 data Annotation a = Annotation a
@@ -71,18 +68,47 @@ instance ApproxEq a => Annotation a where
 type AnnotationMap a = Map AnnotationId (Annotation a)
 type ReviewMap a = Map AnnotationId (These (Annotation a) (Annotation a))
 
+class Patch p => InversePatch p where
+  -- t `apply` p `apply` (inverse t p) == t
+  inverse :: PatchTarget p -> p -> Maybe p
+  
+  applyInverse :: PatchTarget p -> p -> Maybe (PatchTarget p, p)
+  applyInverse t p = liftA2 (,) (apply p t) (inverse t p) 
 
-class Monoid (Selection a) => Editable a where
-  type Part a 
-  type Selection a
 
-  selectPart :: a -> Part a -> Selection a
-  allParts   :: a -> Selection a
+class Patch p => CompressPatch p where
+  compressPatch :: p -> p -> Maybe p
 
+class Monoid (Parts a) => HasParts a where
+  type Parts a
+
+  subtractParts :: Parts a -> Parts a -> Maybe (Parts a)
+  allParts    :: a -> Parts a 
+
+
+instance (Ord k, Parts a) => HasParts (Map k a) where
+  type Parts a = Set k
+
+  subtractParts = alignWith f  where
+    f (This a) = Just a
+    f (That a) = Nothing
+    f (These a b) = subtractParts a b
+
+  allParts = M.keysSet
+
+
+instance HasParts Circle where
+  type Parts a = ()
+
+  subtractParts (Just ()) Nothing = Just ()
+  subtractParts _         _       = Nothing
+
+  allParts _ = Just ()
+
+
+  
 
 type Rigid = (Float, Vec)
-
-class Monoid (Selection a) => Shape a where
 
 data Edit shape
   = EditSetClass ClassId (Selection shape)
