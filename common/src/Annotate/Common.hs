@@ -37,106 +37,17 @@ import Data.GADT.Compare.TH
 import Annotate.TH
 
 
-type AnnotationId = Int
 type ClientId = Int
 type UserId = Int
 
-type ClassId = Int
 
 type DocName = Text
-type DateTime = UTCTime
+type DateTime = UTCTimeFilterOption
 
 type Epoch = Int
 type RunId = Int
 
 type NetworkId = (RunId, Epoch)
-
-
-
-
-data Annotation a = Annotation a
-  { shape      :: !a
-  , label      :: !ClassId
-  , confidence :: !Float
-  } deriving (Generic, Show, Eq)
-
-
-instance ApproxEq a => Annotation a where
-  (~=) (Annotation s l d) (Annotation s' l' d') = s ~= s' && l == l' && d == d'
-
-
-type AnnotationMap a = Map AnnotationId (Annotation a)
-type ReviewMap a = Map AnnotationId (These (Annotation a) (Annotation a))
-
-class Patch p => InversePatch p where
-  -- t `apply` p `apply` (inverse t p) == t
-  inverse :: PatchTarget p -> p -> Maybe p
-  
-  applyInverse :: PatchTarget p -> p -> Maybe (PatchTarget p, p)
-  applyInverse t p = liftA2 (,) (apply p t) (inverse t p) 
-
-
-class Patch p => CompressPatch p where
-  compressPatch :: p -> p -> Maybe p
-
-class Monoid (Parts a) => HasParts a where
-  type Parts a
-
-  subtractParts :: Parts a -> Parts a -> Maybe (Parts a)
-  allParts    :: a -> Parts a 
-
-
-instance (Ord k, Parts a) => HasParts (Map k a) where
-  type Parts a = Set k
-
-  subtractParts = alignWith f  where
-    f (This a) = Just a
-    f (That a) = Nothing
-    f (These a b) = subtractParts a b
-
-  allParts = M.keysSet
-
-
-instance HasParts Circle where
-  type Parts a = ()
-
-  subtractParts (Just ()) Nothing = Just ()
-  subtractParts _         _       = Nothing
-
-  allParts _ = Just ()
-
-
-  
-
-type Rigid = (Float, Vec)
-
-data Edit shape
-  = EditSetClass ClassId (Selection shape)
-  | EditDelete (Selection shape)
-  | EditTransform Rigid (Selection shape)
-  | EditAdd (Annotation shape)
-  | EditConfirm (Selection shape)
-  deriving (Generic, Show, Eq)
-
-
-type Review = (Maybe AnnotationId, Annotation)
-
-data OpenType = OpenNew Review | OpenReview Review | OpenDisconnected 
-  deriving (Show,  Generic)
-
-
-data Session a = Session a
-  { initial    :: AnnotationMap
-  , open       :: OpenType
-  , time       :: UTCTime
-  , history    :: [HistoryPair a]
-  } deriving (Show, Generic)
-
-type HistoryPair anns = (UTCTime, EditCmd shape)  
-
-
-data EditCmd anns = DocEdit (Edit anns) | DocUndo | DocRedo
-  deriving (Show, Eq, Generic)
 
 
 newtype NaturalKey = NaturalKey [Either Int Text]
@@ -162,8 +73,8 @@ data DetectionStats = DetectionStats
   } deriving (Generic, Eq, Show)  
 
 
-data Detections = Detections 
-  { instances :: [Detection]
+data Detections shape = Detections shape 
+  { instances :: [Review shape]
   , networkId :: NetworkId
   , stats     :: DetectionStats
   } deriving (Show,  Generic)
@@ -175,28 +86,21 @@ data SubmitType
     | SubmitAutoSave
   deriving (Show,  Generic)
 
-  
-data Submission = Submission 
-  { name        :: DocName
-  , annotations :: BasicAnnotationMap
-  , session     :: Session
-  , method      :: SubmitType
-  } deriving (Generic, Show)
 
 data TrainSummary = TrainSummary 
   { loss  :: Float
   } deriving (Show, Eq, Generic)  
 
-data Document = Document
+data Document shape = Document shape
   { name  :: DocName
   , info  :: DocInfo
+  , state       :: DocumentState shape
+  , sessions    :: [Session shape]
 
-  , annotations    :: BasicAnnotationMap
-  , sessions       :: [Session]
-
-  , detections     :: Maybe Detections
-  , training       :: [TrainSummary]
+  , detections  :: Maybe (Detections shape)
+  , training    :: [TrainSummary]
   } deriving (Generic, Show)
+
 
 
 data ImageCat = CatNew | CatTrain | CatValidate | CatDiscard | CatTest

@@ -27,14 +27,13 @@ import Debug.Trace
 type EditError = Text
 
 data AnnotationPatch shape
-  = PatchShape (Patch shape)
+  = PatchShape (Patched shape)
   | PatchConfirm 
   | PatchClass ClassId
   deriving (Generic, Show, Eq)
 
-data DocumentPatch shape
+newtype DocumentPatch shape
   = PatchAnns (DeepPatchMap AnnotationId (AnnotationPatch shape))
-  | PatchThreshold Float
   deriving (Eq, Show, Generic)
 
 
@@ -42,10 +41,11 @@ data Editor = Editor shape
   { name  :: DocName
   , undos :: [DocumentPatch shape]
   , redos :: [DocumentPatch shape]
-  , editorState :: PatchTarget patch
+  , annotations :: ReviewMap shape
   , nextId      :: AnnotationId
-  , session     :: Session shape
   , threshold   :: Float
+
+  , session     :: Session shape
   } deriving (Generic, Show)
 
 
@@ -104,11 +104,6 @@ initialAnnotations Session{initial, open} = case open of
     OpenDisconnected ->  fromBasic <$> initial
 
 
-
-insertAuto :: (Ord k, Num k) => a -> Map k a -> Map k a
-insertAuto a m = Map.insert k a m
-    where k = 1 + fromMaybe 0 (maxKey m)  
-       
 
 thresholdDetection :: Float -> Annotation -> Bool
 thresholdDetection t Annotation{detection} = case detection of 

@@ -34,6 +34,9 @@ newtype WideLine = WideLine { points :: NonEmpty Circle} deriving (Generic, Show
 data Segment = Segment { point1 :: Point, point2 :: Point } deriving (Generic, Show, Eq)
 data Range = Range { lower :: Float, upper :: Float } deriving (Generic, Eq, Show)
 
+
+type Rigid = (Float, Vec)
+
 infix 4 ~=
 
 class Eq a => ApproxEq a where
