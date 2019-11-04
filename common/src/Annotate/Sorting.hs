@@ -39,16 +39,22 @@ reverseOrdering GT = LT
 reverseOrdering EQ = EQ
 
 detectionScore :: DocInfo -> Maybe Float
-detectionScore = preview (#detections . traverse . #score)
+detectionScore = preview (#detections . traverse . #score) 
+
+recentDetections :: DocInfo -> Maybe (NetworkId, Float)
+recentDetections info = do 
+  DetectionStats{score, networkId} <- preview (#detections . traverse) info
+  return (networkId, score)
+
 
 variationScore :: DocInfo -> Maybe Float
-variationScore = join . preview (#detections . traverse . #frameVariation)
+variationScore =  preview (#detections . traverse . #frameVariation . traverse)
 
 totalCounts :: DocInfo -> Maybe (Margins Int)
-totalCounts = join . preview (#detections . traverse . #counts)
+totalCounts =  preview (#detections . traverse . #counts)
 
 countVariation :: DocInfo -> Maybe Int
-countVariation = fmap variation . join . preview (#detections . traverse . #classCounts)
+countVariation = fmap variation . preview (#detections . traverse . #classCounts)
     where variation counts = sum (marginRange <$> counts)
       
 marginRange :: Margins Count -> Int
@@ -146,6 +152,8 @@ selectionKey = \case
     SelFrameVariation   -> SortFrameVariation
     SelCountVariation   -> SortCountVariation
     SelLoss        -> SortLossRunning
+    SelRecentDetections  -> SortRecentDetections
+
 
 selectingMax :: ImageSelection -> Bool
 selectingMax = \case

@@ -122,18 +122,10 @@ updateDocument :: Document -> (Store -> Store)
 updateDocument doc = #images . at (doc ^. #name) .~ Just doc
 
 
-updateStats :: Maybe DetectionStats -> DetectionStats -> DetectionStats 
-updateStats Nothing stats = stats
-updateStats (Just stats) stats' = stats' 
-  { counts = stats' ^. #counts <|> stats ^. #counts 
-  , frameVariation = stats' ^. #frameVariation <|> stats ^. #frameVariation
-  }
-
 updateDetections :: (DocName, Detections) -> Map DocName Document -> Map DocName Document
 updateDetections (k, detections) = over (ix k) $ \doc -> doc 
   & #detections         .~ Just detections
-  & #info . #detections .~ Just (updateStats (doc ^. (#info . #detections)) stats)
-    where stats = detections ^. #stats
+  & #info . #detections .~ detections ^. #stats
 
 
 interp :: Fractional a => a -> a -> a -> a
