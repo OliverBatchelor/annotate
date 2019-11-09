@@ -12,7 +12,7 @@ import Data.List (uncons)
 import Control.Lens hiding (uncons, without)
 import Data.List.NonEmpty (nonEmpty)
 
-import Data.Align
+import Data.Align hiding (zip)
 import Data.These
 
 import Control.Lens (makePrisms)
