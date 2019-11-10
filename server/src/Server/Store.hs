@@ -44,8 +44,8 @@ instance Migrate DetectionStats where
   migrate DetectionStats4{..} = DetectionStats{..}
     where 
       networkId = def
-      counts = def
-      classCounts = def
+      counts = undefined
+      classCounts = undefined
 
 data DetectionStats4 = DetectionStats4   
   { score       ::  Float
