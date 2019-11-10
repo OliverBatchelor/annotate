@@ -359,8 +359,6 @@ deleteParts parts = \case
 
 
 
-
-
 addEdit :: [BasicAnnotation] -> Editor ->  DocumentPatch
 addEdit anns doc = PatchAnns $ Add <$> anns' where
   anns' = M.fromList (zip [nextId doc..] $ fromBasic <$> anns)
