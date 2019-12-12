@@ -66,6 +66,7 @@ data Command
  | CmdSubmit        UserId Submission UTCTime  
  | CmdTraining      (Map DocName [TrainSummary])
  | CmdUpdateImages  [(DocName, Maybe ImageInfo)] 
+ | CmdMerge         Store
     deriving (Show, Generic)
 
 

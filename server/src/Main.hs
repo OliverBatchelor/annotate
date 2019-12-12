@@ -98,6 +98,9 @@ main = do
 
   traverse_ (atomically . updateLog store . CmdSetRoot . fromString) setRoot
 
+  forM_ merge $ \database' -> do
+    store' <- readLogFile database' >>= either (throw . LogError) return
+    atomically $ updateLog store (CmdMerge store')
 
   case exportJson of
     Just file -> do

@@ -15,6 +15,7 @@ reflex-platform.project ({ pkgs, ... }: {
     server = ./server;
     reflex-html = ./reflex-html;
     stm-persist = ./stm-persist;
+    record-hasfield = ./record-hasfield;
   };
 
 

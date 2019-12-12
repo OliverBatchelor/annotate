@@ -47,12 +47,12 @@ instance Migrate DetectionStats where
       counts = undefined
       classCounts = undefined
 
-data DetectionStats4 = DetectionStats4   
+data DetectionStats4 = DetectionStats4
   { score       ::  Float
-  , classScore  ::  Map ClassId Float	
-  , counts      ::  Maybe (Margins Int)	
-  , classCounts ::  Maybe (Map ClassId (Margins Count))	
-  , frameVariation :: Maybe Float	
+  , classScore  ::  Map ClassId Float
+  , counts      ::  Maybe (Margins Int)
+  , classCounts ::  Maybe (Map ClassId (Margins Count))
+  , frameVariation :: Maybe Float
   }
 
 instance Migrate Detections where
@@ -296,7 +296,15 @@ instance Persistable Store where
   update (CmdTraining summaries) = over #images $ 
     (flip (foldr addTraining)) (M.toList summaries)
 
+  update (CmdMerge store)  = over #images (M.unionWith keep (store ^. #images))
+    where 
+      keep old new = case new ^. #info . #category of 
+        CatNew      -> old
+        CatDiscard  -> old
+        _           -> new
 
+
+    
 
 applyWhen :: Bool -> (a -> a) -> a -> a
 applyWhen True f = f
