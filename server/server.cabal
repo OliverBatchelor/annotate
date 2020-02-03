@@ -35,7 +35,7 @@ executable server
                        warp, http-types, websockets, aeson, mtl, containers,
                        cmdargs, lens, generic-lens, filepath, directory,
                        safecopy, time, stm, stm-persist, servant-server, process,
-                       megaparsec <= 7, parser-combinators, linear, aeson-pretty,
+                       megaparsec, parser-combinators, linear, aeson-pretty,
                        pipes, pipes-aeson, pipes-bytestring, unix, hashable
 
   hs-source-dirs:      src

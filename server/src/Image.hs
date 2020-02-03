@@ -10,9 +10,6 @@ import qualified Data.Set as S
 import System.Process (readProcessWithExitCode)
 
 import qualified Data.ByteString.Lazy.Char8 as BS
-import Text.Megaparsec hiding (some, many)
-import Text.Megaparsec.Char
-import Text.Megaparsec.Char.Lexer (decimal)
 --import Control.Monad.Combinators
 
 import qualified Data.Text as Text
@@ -86,40 +83,3 @@ findNewImages config root existing = do
   for (filter (`S.notMember` existing) images) $ 
     (\k -> (k,) <$> imageInfo root k)
 
-
-type Parser = Parsec Void String
-
--- example: 3927x500;2018:12:20 13:22:53%
-parseIdentify :: Parser (Dim, Maybe LocalTime)
-parseIdentify = do
-  dim <- parseDim
-  void $ char ';'
-  datestr <- optional $ takeWhile1P (Just "date") (/= ';')
-  void $ char ';'
-  return (dim, join (fmap toDate datestr))
-    where
-      toDate :: String -> Maybe LocalTime
-      toDate = parseTimeM True defaultTimeLocale "%Y:%m:%d %H:%M:%S"
-
-
-fileCode :: Parser String
-fileCode = some letterChar <?> "file code"
-
-parseDim :: Parser Dim
-parseDim = do
-  w <- decimal
-  void $ char 'x'
-  h <- decimal
-  return (w, h)
-
-
--- imageInfo :: FilePath -> IO (Maybe DocInfo)
--- imageInfo filename = do
---   info <- docInfo <$> Codec.readImageWithMetadata filename
---   info <$ print (filename, info)
---   where
---     docInfo (Left _)              = Nothing
---     docInfo (Right (_, metadata)) = toInfo <$>
---       (Codec.lookup Width metadata) <*> (Codec.lookup Height metadata)
---
---     toInfo w h = DocInfo Nothing False (fromIntegral w, fromIntegral h)
