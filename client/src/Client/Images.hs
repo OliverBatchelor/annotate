@@ -309,6 +309,7 @@ openRequest userSelect = do
       makeCmd Nothing k          = OpenCmd k Nothing
       makeCmd (Just save) k  = DialogCmd (SaveDialog save k)
 
+      needsSave :: Maybe Document -> Bool -> Maybe (DocName, ImageCat)
       needsSave (Just doc) True = Just (doc ^. #name, doc ^. #info . #category)
       needsSave _  _ = Nothing
 

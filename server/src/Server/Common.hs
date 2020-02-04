@@ -354,6 +354,7 @@ lookupDocument env k = withImages env (M.lookup k)
 
 documentMap :: [Document] -> Map DocName Document
 documentMap = M.fromList . fmap toKey where
+  toKey :: Document -> (DocName, Document)
   toKey doc = (doc ^. #name, doc)
 
 lookupDocuments :: Env -> [DocName] -> STM (Map DocName Document)

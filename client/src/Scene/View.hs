@@ -65,8 +65,8 @@ sceneDefines vp preferences = void $ defs [] $ do
     --     feBlend_         [in2_ =: "SourceGraphic", mode_ =: "normal"]
     
   where
-    zoomFactor x vp = x / (vp ^. #zoom)
 
+    makeBox :: DisplayPreferences -> Viewport -> Box
     makeBox prefs vp = getBounds $ Extents (V2 0 0) (V2 s s)
       where s = (prefs ^. #controlSize) / (vp ^. #zoom)
 
@@ -360,9 +360,9 @@ shapeProperties classMap thresholds reviewing instanceCols selected k annotation
   } where 
     classInfo = M.lookup <$> (view #label <$> annotation) <*> classMap
     (hidden, marginal) = split (liftA3 isShown annotation reviewing thresholds)
+
+    hiddenClass :: Maybe ClassAttrs -> Bool
     hiddenClass = fromMaybe False . fmap (view #hidden)
-
-
 
 
 
@@ -740,6 +740,8 @@ sceneView scene@Scene{..} = do
       
   where
     isSelected = fanDynMap selection
+
+    isReviewing :: Set Key -> Preferences -> Bool
     isReviewing keys prefs = (S.member Key.KeyR keys) `xor` (prefs ^. #reviewing)
 
     arrange k (part, e) = ((k, part), e)

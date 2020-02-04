@@ -69,10 +69,8 @@ startLogger handle = do
 
   return logChan
 
-
 readRoot :: Log Store -> IO FilePath
 readRoot store = Text.unpack . view (#config . #root) <$> atomically (readLog store)
-
 
 main :: IO ()
 main = do
