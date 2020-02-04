@@ -12,7 +12,6 @@ import Data.List (uncons)
 import Control.Lens hiding (uncons, without)
 import Data.List.NonEmpty (nonEmpty)
 
-import Data.Align hiding (zip)
 import Data.These
 
 import Control.Lens (makePrisms)
@@ -355,8 +354,6 @@ deleteParts parts = \case
   ShapeBox _        -> Delete
   ShapePolygon (Polygon points)  -> error "TODO: deleteParts"
   ShapeLine    (WideLine points) -> error "TODO: deleteParts"
-
-
 
 
 

@@ -7,6 +7,7 @@ reflex-platform.project ({ pkgs, ... }: {
     generic-lens = pkgs.haskell.lib.dontCheck super.generic-lens;
     linear = pkgs.haskell.lib.dontCheck super.linear;
     flat = pkgs.haskell.lib.dontCheck super.flat;
+    monoid-subclasses = pkgs.haskell.lib.dontCheck super.monoid-subclasses;
   };
 
   packages = {
@@ -15,6 +16,7 @@ reflex-platform.project ({ pkgs, ... }: {
     server = ./server;
     reflex-html = ./reflex-html;
     stm-persist = ./stm-persist;
+    record-hasfield = ./record-hasfield;
   };
 
 

@@ -208,16 +208,16 @@ deriving instance Eq a => Eq (Margins a)
 data DetectionStats = DetectionStats 
   { score       ::  Float
   , classScore  ::  Map ClassId Float
-  , counts      ::  Maybe (Margins Int)
-  , classCounts ::  Maybe (Map ClassId (Margins Count))
+  , counts      ::  Margins Int
+  , classCounts ::  Map ClassId (Margins Count)
   , frameVariation :: Maybe Float
+  , networkId   ::  NetworkId
   } deriving (Generic, Eq, Show)  
 
 
 data Detections = Detections 
   { instances :: [Detection]
-  , networkId :: NetworkId
-  , stats     :: DetectionStats
+  , stats     :: Maybe DetectionStats
   } deriving (Show,  Generic)
 
 data SubmitType
@@ -321,6 +321,7 @@ data SortKey
   | SortCreation
   | SortCounts
   | SortCountVariation
+  | SortRecentDetections
   deriving (Eq, Show, Generic)
 
 
@@ -331,6 +332,7 @@ data ImageSelection
   | SelLoss
   | SelFrameVariation 
   | SelCountVariation
+  | SelRecentDetections
   deriving (Eq, Show, Generic)
 
 
@@ -582,14 +584,7 @@ instance Default DetectionParams where
     , detections = 500
     }
 
-instance Default DetectionStats where
-  def = DetectionStats 
-    { score      = 0
-    , classScore = mempty
-    , counts = Nothing
-    , classCounts = Nothing
-    , frameVariation = Nothing
-    }
+
 
 newClass :: ClassId -> ClassConfig
 newClass k = ClassConfig

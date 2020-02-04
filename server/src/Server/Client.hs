@@ -156,7 +156,7 @@ reviewAnnotations doc = case doc ^. #info . #category of
   _ -> doc ^. #annotations
 
 latestDetect :: Document -> Maybe NetworkId
-latestDetect = preview (#detections . traverse . #networkId)
+latestDetect = preview (#detections . traverse . #stats . traverse . #networkId)
 
 navNext :: ClientEnv -> NavId -> STM ()
 navNext env navId = do

@@ -18,6 +18,54 @@ import Data.Maybe (fromJust)
 import Annotate.Editor
 
 
+instance Migrate DocInfo where
+  type MigrateFrom DocInfo = DocInfo7
+  migrate DocInfo7{..} = DocInfo{..}
+    where detections = Nothing
+
+
+data DocInfo7 = DocInfo7
+  { hashedName :: Hash32
+  , naturalKey :: NaturalKey
+  , modified    :: Maybe DateTime
+  , numAnnotations :: Int
+  , category    :: ImageCat
+
+  , detections :: Maybe DetectionStats
+  , training   :: TrainStats
+  , reviews    :: Int
+
+  , image      :: ImageInfo
+  } deriving (Generic, Eq, Show)
+
+
+instance Migrate DetectionStats where
+  type MigrateFrom DetectionStats = DetectionStats4
+  migrate DetectionStats4{..} = DetectionStats{..}
+    where 
+      networkId = def
+      counts = undefined
+      classCounts = undefined
+
+data DetectionStats4 = DetectionStats4
+  { score       ::  Float
+  , classScore  ::  Map ClassId Float
+  , counts      ::  Maybe (Margins Int)
+  , classCounts ::  Maybe (Map ClassId (Margins Count))
+  , frameVariation :: Maybe Float
+  }
+
+instance Migrate Detections where
+  type MigrateFrom Detections = Detections1
+  migrate Detections1{..} = Detections{..}
+    where stats = Nothing
+
+data Detections1 = Detections1
+  { instances :: [Detection]
+  , networkId :: NetworkId
+  , stats     :: DetectionStats
+  } deriving (Show,  Generic)
+
 
 $(deriveSafeCopy 0 'base ''DetectionTag)
 $(deriveSafeCopy 0 'base ''BasicAnnotation)
@@ -35,10 +83,11 @@ $(deriveSafeCopy 0 'base ''WideLine)
 
 $(deriveSafeCopy 2 'base ''Detection)
 $(deriveSafeCopy 0 'base ''TrainSummary)
-$(deriveSafeCopy 1 'base ''Detections)
+$(deriveSafeCopy 1 'base ''Detections1)
+$(deriveSafeCopy 2 'extension ''Detections)
 
-
-$(deriveSafeCopy 4 'base ''DetectionStats)
+$(deriveSafeCopy 4 'base ''DetectionStats4)
+$(deriveSafeCopy 5 'extension ''DetectionStats)
 
 $(deriveSafeCopy 0 'base ''Margins)
 
@@ -57,7 +106,8 @@ $(deriveSafeCopy 2 'base ''NaturalKey)
 $(deriveSafeCopy 0 'base ''TrainStats)
 $(deriveSafeCopy 0 'base ''Shape)
 
-$(deriveSafeCopy 7 'base ''DocInfo)
+$(deriveSafeCopy 7 'base ''DocInfo7)
+$(deriveSafeCopy 8 'extension ''DocInfo)
 
 $(deriveSafeCopy 0 'base ''ImageInfo)
 
@@ -122,18 +172,10 @@ updateDocument :: Document -> (Store -> Store)
 updateDocument doc = #images . at (doc ^. #name) .~ Just doc
 
 
-updateStats :: Maybe DetectionStats -> DetectionStats -> DetectionStats 
-updateStats Nothing stats = stats
-updateStats (Just stats) stats' = stats' 
-  { counts = stats' ^. #counts <|> stats ^. #counts 
-  , frameVariation = stats' ^. #frameVariation <|> stats ^. #frameVariation
-  }
-
 updateDetections :: (DocName, Detections) -> Map DocName Document -> Map DocName Document
 updateDetections (k, detections) = over (ix k) $ \doc -> doc 
   & #detections         .~ Just detections
-  & #info . #detections .~ Just (updateStats (doc ^. (#info . #detections)) stats)
-    where stats = detections ^. #stats
+  & #info . #detections .~ detections ^. #stats
 
 
 interp :: Fractional a => a -> a -> a -> a
@@ -254,7 +296,15 @@ instance Persistable Store where
   update (CmdTraining summaries) = over #images $ 
     (flip (foldr addTraining)) (M.toList summaries)
 
+  update (CmdMerge store)  = over #images (M.unionWith keep (store ^. #images))
+    where 
+      keep old new = case new ^. #info . #category of 
+        CatNew      -> old
+        CatDiscard  -> old
+        _           -> new
 
+
+    
 
 applyWhen :: Bool -> (a -> a) -> a -> a
 applyWhen True f = f

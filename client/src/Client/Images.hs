@@ -101,6 +101,8 @@ showField d key  = case key of
 
     SortAnnotations   -> dynText (showText . view #numAnnotations <$> info)
     SortDetections    -> dynText (fromMaybe "" . fmap printFloat . detectionScore <$> info)
+
+    SortRecentDetections    -> dynText (fromMaybe "" . fmap (printFloat . snd) . recentDetections <$> info)
     SortFrameVariation    -> dynText (fromMaybe "" . fmap printFloat . variationScore <$> info)
 
     SortCountVariation    -> dynText (fromMaybe "" . fmap showText . countVariation <$> info)
@@ -135,6 +137,7 @@ selectionDesc :: ImageSelection -> Text
 selectionDesc = \case 
   SelSequential   -> "in sequence"
   SelRandom       -> "pseudo random"
+  SelRecentDetections   -> "most recent detections"
   SelDetections   -> "most detections"
   SelLoss         -> "training error"
   SelCountVariation    -> "count variation"      
@@ -145,6 +148,7 @@ allSelection :: [(Text, ImageSelection)]
 allSelection = withDesc <$>
   [ SelSequential 
   , SelRandom
+  , SelRecentDetections
   , SelDetections 
   , SelLoss
   , SelCountVariation
@@ -159,6 +163,7 @@ showSortKey = \case
   SortModified    -> "Modified"
   SortRandom      -> "Random"
   SortDetections  -> "Detection Score"
+  SortRecentDetections -> "Recent Scores"
   SortLossMean    -> "Mean Loss"
   SortLossRunning -> "Running Loss"
   SortFrameVariation   -> "Frame Variation"

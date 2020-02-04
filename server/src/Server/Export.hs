@@ -49,6 +49,7 @@ importImage TrainImage{..} = (imageFile, document) where
   document = emptyDoc imageFile info
     & #annotations .~ annotations
 
+  info :: DocInfo
   info = (defaultInfo imageFile image)
     {modified = Nothing, category = category, numAnnotations = length annotations, image = image}
 
