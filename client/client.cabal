@@ -49,7 +49,7 @@ library
   ghc-options:         -O2
 
   -- other-extensions:
-  build-depends:       base >=4.9 && <4.12
+  build-depends:       base >=4.9 && <4.15
                      , common
                      , reflex
                      , reflex-dom
@@ -68,6 +68,7 @@ library
                      , lens
                      , semigroupoids
                      , mtl
+                     , semialign
 
                      , dependent-sum
                      , dependent-map
