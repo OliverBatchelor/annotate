@@ -125,8 +125,8 @@ data DetectRequest
 -- Types for dealing with the trainer
 data ToTrainer
   = TrainerInit Config
-  | TrainerUpdate DocName SubmitType (Maybe TrainImage)
-  | TrainerImport DocName TrainImage
+  | TrainerUpdate DocName SubmitType (Maybe TrainerImage)
+  | TrainerImport DocName TrainerImage
 
   | TrainerDetect DetectRequest DocName (BasicAnnotationMap) DetectionParams
   | UserCommand UserCommand
@@ -189,7 +189,7 @@ data ExportImage = ExportImage
 
 data ExportCollection = ExportCollection
   { config :: Config
-  , images :: [TrainImage]
+  , images :: [ExportImage]
   } deriving (Show,  Generic)
 
 
@@ -211,8 +211,9 @@ bestModel TrainerState{best, run} = (run, best ^. #epoch)
 instance FromJSON DetectRequest where parseJSON = Aeson.genericParseJSON options
 instance FromJSON ToTrainer where parseJSON = Aeson.genericParseJSON options
 instance FromJSON FromTrainer where parseJSON = Aeson.genericParseJSON options
-instance FromJSON TrainCollection where parseJSON = Aeson.genericParseJSON options
-instance FromJSON TrainImage where parseJSON = Aeson.genericParseJSON options
+instance FromJSON ExportCollection where parseJSON = Aeson.genericParseJSON options
+instance FromJSON TrainerImage where parseJSON = Aeson.genericParseJSON options
+instance FromJSON ExportImage where parseJSON = Aeson.genericParseJSON options
 
 instance FromJSON AnnSummary where parseJSON = Aeson.genericParseJSON options
 instance FromJSON AnnStatus where parseJSON = Aeson.genericParseJSON options
@@ -222,8 +223,9 @@ instance FromJSON AnnCreated where parseJSON = Aeson.genericParseJSON options
 instance ToJSON DetectRequest where toJSON = Aeson.genericToJSON options
 instance ToJSON ToTrainer where toJSON = Aeson.genericToJSON options
 instance ToJSON FromTrainer where toJSON = Aeson.genericToJSON options
-instance ToJSON TrainCollection where toJSON = Aeson.genericToJSON options
-instance ToJSON TrainImage where toJSON = Aeson.genericToJSON options
+instance ToJSON ExportCollection where toJSON = Aeson.genericToJSON options
+instance ToJSON TrainerImage where toJSON = Aeson.genericToJSON options
+instance ToJSON ExportImage where toJSON = Aeson.genericToJSON options
 
 instance ToJSON AnnSummary where toJSON = Aeson.genericToJSON options
 instance ToJSON AnnStatus where toJSON = Aeson.genericToJSON options

@@ -51,9 +51,9 @@ updateTrainer Document{..} = TrainerImage
   , imageSize = info ^. #image . #size
   , category  = info ^. #category
   , annotations = annotations
-  , detections = network
+  , evaluated = network
   } where
-    network = detections >>= view (#networkId . traverse . #stats)
+    network = detections >>= view (#stats . traverse . #networkId)
 
 
 
@@ -76,8 +76,8 @@ exportImage Document{..} = ExportImage
   , imageCreation = info ^. #image . #creation
   , category  = info ^. #category
   , annotations = annotations
-  , sessions = []
-  , summaries = []
+  , sessions  = sessions
+  , summaries = maybe [] M.elems $ sessionSummaries <$> (sessions ^? _head)
   , detections = detections
   } 
 
@@ -152,11 +152,6 @@ imageHistories Document{sessions} = foldl f mempty sessions where
   isSaved = has (_last . _AnnSaved)
 
 
-exportImage :: Document -> ExportImage
-exportImage doc = (exportImage doc) 
-  {  sessions  = doc ^. #sessions
-  ,  summaries = maybe [] M.elems $ sessionSummaries <$> doc ^? (#sessions . _head)
-  }
 
 
 debugReplay (session, result) = if null diff then Nothing else Just diff   where
