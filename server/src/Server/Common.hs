@@ -166,7 +166,15 @@ data AnnSummary = AnnSummary
 
 
 -- Input/export types
-data TrainImage = TrainImage
+data TrainerImage = TrainerImage
+  { imageFile   :: DocName
+  , annotations :: BasicAnnotationMap
+  , imageSize     :: (Int, Int)
+  , category    :: ImageCat
+  , evaluated   :: Maybe NetworkId
+  } deriving (Show,  Generic)
+
+data ExportImage = ExportImage
   { imageFile   :: DocName
   , annotations :: BasicAnnotationMap
   , imageSize     :: (Int, Int)
@@ -176,10 +184,10 @@ data TrainImage = TrainImage
   , sessions     :: [Session]
   , summaries    :: [AnnSummary]
   , detections  :: Maybe Detections
-  } deriving (Show,  Generic)
+  } deriving (Show,  Generic)  
 
 
-data TrainCollection = TrainCollection
+data ExportCollection = ExportCollection
   { config :: Config
   , images :: [TrainImage]
   } deriving (Show,  Generic)

@@ -29,23 +29,36 @@ makePrisms ''AnnEntry
 makePrisms ''AnnStatus
 
 
-exportCollection :: Store -> TrainCollection
-exportCollection Store{..} = TrainCollection
+exportCollection :: Store -> ExportCollection
+exportCollection Store{..} = ExportCollection
   { config = config
   , images = M.elems (exportImage <$> images)
   }
 
 
-importCollection :: TrainCollection -> Store
-importCollection TrainCollection{..} = Store
+importCollection :: ExportCollection -> Store
+importCollection ExportCollection{..} = Store
   { config = config
   , images = M.fromList (importImage <$> images)
   , trainer = def
   , preferences = def
   }
 
-importImage :: TrainImage -> (DocName, Document)
-importImage TrainImage{..} = (imageFile, document) where
+
+updateTrainer :: Document -> TrainerImage
+updateTrainer Document{..} = TrainerImage
+  { imageFile = name
+  , imageSize = info ^. #image . #size
+  , category  = info ^. #category
+  , annotations = annotations
+  , detections = network
+  } where
+    network = detections >>= view (#networkId . traverse . #stats)
+
+
+
+importImage :: ExportImage -> (DocName, Document)
+importImage ExportImage{..} = (imageFile, document) where
   document = emptyDoc imageFile info
     & #annotations .~ annotations
 
@@ -55,8 +68,8 @@ importImage TrainImage{..} = (imageFile, document) where
 
   image = ImageInfo {size = imageSize, creation = imageCreation}
 
-updateImage :: Document -> TrainImage
-updateImage Document{..} = TrainImage
+exportImage :: Document -> ExportImage
+exportImage Document{..} = ExportImage
   { imageFile = name
   , imageSize = info ^. #image . #size
   , naturalKey = info ^. #naturalKey
@@ -68,7 +81,7 @@ updateImage Document{..} = TrainImage
   , detections = detections
   } 
 
-  
+
                  
 
 initialEntry :: Annotation -> Maybe AnnEntry 
@@ -139,8 +152,8 @@ imageHistories Document{sessions} = foldl f mempty sessions where
   isSaved = has (_last . _AnnSaved)
 
 
-exportImage :: Document -> TrainImage
-exportImage doc = (updateImage doc) 
+exportImage :: Document -> ExportImage
+exportImage doc = (exportImage doc) 
   {  sessions  = doc ^. #sessions
   ,  summaries = maybe [] M.elems $ sessionSummaries <$> doc ^? (#sessions . _head)
   }
