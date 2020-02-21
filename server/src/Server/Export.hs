@@ -52,8 +52,10 @@ updateTrainer Document{..} = TrainerImage
   , category  = info ^. #category
   , annotations = annotations
   , evaluated = network
+  , key = info ^. #naturalKey
+
   } where
-    network = detections >>= view (#stats . traverse . #networkId)
+    network = detections >>= preview (#stats . traverse . #networkId)
 
 
 

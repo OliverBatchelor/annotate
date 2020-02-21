@@ -257,6 +257,10 @@ clearAnnotations = DocEdit EditClearAll
 printFloat :: Float -> Text
 printFloat = T.pack . printf "%.2f"
 
+
+printInt :: Int -> Text
+printInt = T.pack . printf "%d" 
+
 printFloat0 :: Float -> Text
 printFloat0 = T.pack . printf "%.0f"
 

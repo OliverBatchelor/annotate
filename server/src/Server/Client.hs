@@ -81,7 +81,7 @@ broadcastSubmission :: Env -> DocName -> SubmitType -> STM ()
 broadcastSubmission env k method = do
   mDoc <- lookupDocument (upcast env) k       
   for_ mDoc $ \doc -> do
-    sendTrainer (upcast env)  (TrainerUpdate k method  (Just (exportImage doc)))
+    sendTrainer (upcast env)  (TrainerUpdate k method  (Just (updateTrainer doc)))
     broadcastInfo (upcast env) k (doc ^. #info)
 
 processMsg :: ClientEnv -> ClientMsg -> STM ()
@@ -127,7 +127,8 @@ processMsg env@ClientEnv{store, clientId, userId} msg = do
 bestNetwork :: Env -> STM NetworkId
 bestNetwork Env{store} = bestModel . view #trainer <$> readLog store
 
-
+currentNetwork :: Env -> STM NetworkId
+currentNetwork Env{store} = currentModel . view #trainer <$> readLog store
 
 detectRequest :: ClientEnv -> DetectRequest -> DocName -> BasicAnnotationMap -> STM Bool
 detectRequest env@ClientEnv{userId, store} req k review = do
@@ -137,13 +138,15 @@ detectRequest env@ClientEnv{userId, store} req k review = do
 
 navTo :: ClientEnv -> NavId -> DocName -> STM ()
 navTo env navId k = do
-  net <- bestNetwork (upcast env)
+  net <- currentNetwork (upcast env)
 
   lookupDocument (upcast env) k >>= \case 
     Nothing  -> sendClient env (ServerError (ErrNotFound navId k))
     Just doc -> do
       openDocument env k      
       hasTrainer <- trainerConnected env
+
+      -- unsafeIOToSTM $ print (net, latestDetect doc)
       -- if latestDetect doc /= Just net && hasTrainer
       if hasTrainer
         then void $ detectRequest env (DetectLoad navId (env ^. #clientId)) k (reviewAnnotations doc)

@@ -69,6 +69,7 @@ compareWith rev key = (case key of
   SortModified     -> compares (view #modified)
 
   SortDetections   -> compares detectionScore
+  SortRecentDetections   -> compares recentDetections
   SortFrameVariation    -> compares variationScore
 
   SortCountVariation    -> compares countVariation

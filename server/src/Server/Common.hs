@@ -172,6 +172,7 @@ data TrainerImage = TrainerImage
   , imageSize     :: (Int, Int)
   , category    :: ImageCat
   , evaluated   :: Maybe NetworkId
+  , key :: NaturalKey
   } deriving (Show,  Generic)
 
 data ExportImage = ExportImage
@@ -207,6 +208,10 @@ data TrainerState = TrainerState
 
 bestModel :: TrainerState -> NetworkId
 bestModel TrainerState{best, run} = (run, best ^. #epoch)
+
+
+currentModel :: TrainerState -> NetworkId
+currentModel TrainerState{current, run} = (run, current ^. #epoch)
 
 instance FromJSON DetectRequest where parseJSON = Aeson.genericParseJSON options
 instance FromJSON ToTrainer where parseJSON = Aeson.genericParseJSON options

@@ -86,6 +86,10 @@ printCount Margins{..} = T.concat [showText lower, ":", showText middle, ":", sh
 printThreshold :: (Float, Int) -> Text
 printThreshold (t, n) = showText n <> "@" <> printFloat t
 
+
+printDetections :: (NetworkId, Float) -> Text
+printDetections ((_, epoch), count) = printInt epoch <> " => " <> printFloat count
+
 printDate :: UTCTime -> Text
 printDate = fromString . formatTime defaultTimeLocale "%Y/%m/%d %H:%M"
 
@@ -102,7 +106,7 @@ showField d key  = case key of
     SortAnnotations   -> dynText (showText . view #numAnnotations <$> info)
     SortDetections    -> dynText (fromMaybe "" . fmap printFloat . detectionScore <$> info)
 
-    SortRecentDetections    -> dynText (fromMaybe "" . fmap (printFloat . snd) . recentDetections <$> info)
+    SortRecentDetections    -> dynText (fromMaybe "" . fmap printDetections . recentDetections <$> info)
     SortFrameVariation    -> dynText (fromMaybe "" . fmap printFloat . variationScore <$> info)
 
     SortCountVariation    -> dynText (fromMaybe "" . fmap showText . countVariation <$> info)
@@ -194,7 +198,7 @@ allSorts =
   , ("modified", SortModified)
   , ("annotations", SortAnnotations)
   , ("detection score", SortDetections)
-  , ("detection count", SortCounts)
+  , ("detection count", SortRecentDetections)
   , ("frame variation", SortFrameVariation)
   , ("count variation", SortCountVariation)
   , ("train error", SortLossRunning)

@@ -1,7 +1,7 @@
 module Server.Trainer where
 
 import Server.Common
-import Server.Export (exportImage, updateImage)
+import Server.Export (exportImage, updateTrainer)
 -- import Server.Client (detectNext)
 import Server.Document
 
@@ -71,7 +71,7 @@ trainerLoop env@Env{store} conn = do
     sendTrainer env (TrainerInit (store ^. #config))
 
     for_ (store ^. #images) $ \doc -> 
-      void $ sendTrainer env (TrainerImport (doc ^. #name) (updateImage doc))
+      void $ sendTrainer env (TrainerImport (doc ^. #name) (updateTrainer doc))
 
   runLoop
 
