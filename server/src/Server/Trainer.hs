@@ -13,8 +13,6 @@ import Control.Concurrent.Log
 import qualified Network.WebSockets             as WS
 
 
-
-
 connectTrainer :: Env -> WS.Connection -> IO ()
 connectTrainer env conn = do
   chan <- sendThread conn

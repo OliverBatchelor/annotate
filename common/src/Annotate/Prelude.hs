@@ -45,7 +45,7 @@ import Control.Lens as X
   )
 import Data.Aeson as X
   (ToJSON(..), FromJSON(..), FromJSONKey(..), ToJSONKey(..)
-  , decode, decode', encode, decodeStrict, decodeStrict', eitherDecode, eitherDecodeStrict)
+  , decode, decode', encode, decodeStrict, decodeStrict', eitherDecode, eitherDecode', eitherDecodeStrict)
 
 import Data.List as X (reverse, intersperse,  zip, zip3, zipWith, zipWith3, lookup, take, drop, elem, uncons, repeat, replicate)
 import Data.List.NonEmpty as X (NonEmpty(..), nonEmpty)
