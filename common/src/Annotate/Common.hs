@@ -33,7 +33,7 @@ import Data.List (splitAt, elemIndex,  dropWhile)
 import Data.GADT.Compare.TH
 
 import Annotate.TH
-
+import Data.Word (Word64)
 
 type AnnotationId = Int
 type ClientId = Int
@@ -191,7 +191,7 @@ data EditCmd = DocEdit Edit | DocUndo | DocRedo
   deriving (Show, Eq, Generic)
 
 
-newtype NaturalKey = NaturalKey [Either Int Text]
+newtype NaturalKey = NaturalKey [Either Word64 Text]
   deriving (Ord, Eq, Generic, Show)
 
 type Count = (Float, Int)

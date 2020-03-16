@@ -72,11 +72,11 @@ main = Main.mainWidgetWithHead' (headWidget, bodyWidget)
 headWidget :: forall t m. GhcjsBuilder t m => AppEnv t -> m Text
 headWidget env = do
 
--- #ifdef DEBUG
+#ifdef DEBUG
    let host = "localhost:3000"
--- #else
---    host <- getLocationHost
--- #endif
+#else
+   host <- getLocationHost
+#endif
 
    Html.style [] $ text appStyle
    Html.style [] $ text bootstrap
